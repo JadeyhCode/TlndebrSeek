@@ -365,7 +365,28 @@ def _var(a):
     return int(sum((x - mu) * (x - mu) for x in a) / len(a))
 
 
+BLIND29 = [
+    dict(name="去重后求和", shape="arr", desc="读入一行整数（标准输入），去重后输出它们的和。",
+         gold=lambda a: sum(set(a))),
+    dict(name="排序后极差", shape="arr", desc="读入一行整数（标准输入），排序后输出极差。",
+         gold=lambda a: max(a) - min(a)),
+    dict(name="乘三后最小", shape="arr", desc="读入一行整数（标准输入），每个数乘 3 之后输出最小值。",
+         gold=lambda a: min(x * 3 for x in a)),
+    dict(name="反转后求和", shape="arr", desc="读入一行整数（标准输入），反转后输出总和。",
+         gold=lambda a: sum(reversed(a))),
+    dict(name="前缀和平方和", shape="arr", desc="读入一行整数（标准输入），输出前缀和的平方和。",
+         gold=lambda a: sum(x * x for x in _pref(a))),
+    dict(name="去重后最大", shape="arr", desc="读入一行整数（标准输入），去重后输出最大值。",
+         gold=lambda a: max(set(a))),
+    dict(name="加二后偶数个数", shape="arr", desc="读入一行整数（标准输入），每个数加 2 之后输出偶数的个数。",
+         gold=lambda a: sum(1 for x in a if (x + 2) % 2 == 0)),
+    dict(name="前缀和极差", shape="arr", desc="读入一行整数（标准输入），输出前缀和的极差。",
+         gold=lambda a: max(_pref(a)) - min(_pref(a))),
+]
+
 def _set_of(argv):
+    if "--blind29" in argv:
+        return BLIND29
     if "--blind28" in argv:
         return BLIND28
     return BLIND27 if "--blind27" in argv else BLIND26

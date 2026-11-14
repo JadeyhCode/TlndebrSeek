@@ -1772,11 +1772,51 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
      * **不硬答**，而且不算“命中任务”：清掉 best，让后面的单运算链/配方再试一次
      * （否则「最小值的下标」会被 任务:最值平均 抢走，连正确算子都轮不到）。 */
     char gate_missing[256] = {0};
-    if (best && code_gate_artifacts(ai, best, nd, gate_missing, sizeof gate_missing) > 0) {
-        if (getenv("AIP_CHAINDBG"))
-            fprintf(stderr, "[gate] 任务 %s 缺 %s ⇒ 让位给链/配方\n", best->name, gate_missing);
-        best = NULL;
-        best_hits = 0;
+    /* §6.855 被闸门拒掉的最任务，要**退而求其次**再选下一名，而不是直接放弃任务这条路：
+     * 实测 `每个数加 3 之后输出平均值` 被 任务:最值平均（2 个关键词）抢走、闸门拒掉后，
+     * 更具体的 任务:搜索-加三后平均（1 个关键词）连被考虑的机会都没有。 */
+    {
+        Token *gated[8];
+        int ng = 0;
+        while (best && ng < 8 &&
+               code_gate_artifacts(ai, best, nd, gate_missing, sizeof gate_missing) > 0) {
+            if (getenv("AIP_CHAINDBG"))
+                fprintf(stderr, "[gate] 任务 %s 缺 %s ⇒ 换下一名\n", best->name, gate_missing);
+            gated[ng++] = best;
+            best = NULL;
+            best_hits = 0;
+            best_len = 0;
+            for (size_t i = 0; i < ai->pool->count; ++i) {
+                Token *t = ai->pool->tokens[i];
+                if (!t || !t->name || strncmp(t->name, "任务:", 7) != 0) continue;
+                int skip = 0;
+                for (int q = 0; q < ng; ++q)
+                    if (gated[q] == t) { skip = 1; break; }
+                if (skip) continue;
+                int excluded = 0;
+                if (dyn_ex) for (size_t j = 0; j < t->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(t)[j];
+                    if (e->main && e->dyn == dyn_ex && e->main->name && strstr(nd, e->main->name)) {
+                        excluded = 1; break;
+                    }
+                }
+                if (excluded) continue;
+                int hits = 0;
+                size_t longest = 0;
+                for (size_t j = 0; j < t->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(t)[j];
+                    if (!e->main || e->dyn != dyn_kw || !e->main->name) continue;
+                    if (strstr(nd, e->main->name)) {
+                        hits++;
+                        size_t l = strlen(e->main->name);
+                        if (l > longest) longest = l;
+                    }
+                }
+                if (hits > best_hits || (hits == best_hits && hits > 0 && longest > best_len)) {
+                    best = t; best_hits = hits; best_len = longest;
+                }
+            }
+        }
     }
     if (!best) {
         /* §6.719 单运算链（数据允许的种类）排在任务之后、配方之前 */
