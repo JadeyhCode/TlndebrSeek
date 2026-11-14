@@ -409,6 +409,27 @@ static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
     return best;
 }
 
+/* §6.861 模板自身的类别：模板 --[种类]--> 种类:X --[类别]--> 类别:Y（与 code_op_category 同理）。 */
+static inline Token *code_tmpl_category(AI *ai, Token *tmpl) {
+    if (!ai || !tmpl) return NULL;
+    uint8_t rid_kind = rel_id_of(ai, "种类", 0);
+    uint8_t rid_cls = rel_id_of(ai, "类别", 0);
+    if (rid_kind < REL_DYN_BASE || rid_cls < REL_DYN_BASE) return NULL;
+    uint8_t d_kind = (uint8_t)(rid_kind - REL_DYN_BASE + 1);
+    uint8_t d_cls = (uint8_t)(rid_cls - REL_DYN_BASE + 1);
+    Token *kind = NULL;
+    for (size_t j = 0; j < tmpl->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(tmpl)[j];
+        if (e->main && e->dyn == d_kind) { kind = e->main; break; }
+    }
+    if (!kind) return NULL;
+    for (size_t j = 0; j < kind->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(kind)[j];
+        if (e->main && e->dyn == d_cls) return e->main;
+    }
+    return NULL;
+}
+
 /* §6.711 选模板：描述里点名了另一个通道 ⇒ 换该通道下同一「种类」的模板。 */
 static inline Token *code_pick_template(AI *ai, Token *tmpl, const char *desc) {
     if (!tmpl || !desc || !desc[0]) return tmpl;
@@ -1233,10 +1254,17 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             fprintf(stderr, "[chain] 类别过滤：desc=%s op=%s\n", desc_cat->name, c0 ? c0->name : "(无)");
         if (c0 && c0 != desc_cat) return -1;
     }
+    /* §6.861 模板按**描述类别**挑：一个算子可能同时挂 argv / 数组 两种模板，
+     * 以前只取第一条边 ⇒ 数组题拿到“命令行整数”模板，整条链被标量过滤剔空。 */
     Token *tmpl = NULL;
     for (size_t j = 0; j < ops[0]->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(ops[0])[j];
-        if (e->main && e->dyn == d_tp) { tmpl = e->main; break; }
+        if (!e->main || e->dyn != d_tp) continue;
+        if (!tmpl) tmpl = e->main;
+        if (desc_cat) {
+            Token *tc = code_tmpl_category(ai, e->main);
+            if (tc && tc == desc_cat) { tmpl = e->main; break; }
+        }
     }
     if (getenv("AIP_CHAINDBG")) fprintf(stderr, "[chain] 模板=%s\n", tmpl ? tmpl->name : "(无)");
     if (!tmpl) return -1;
