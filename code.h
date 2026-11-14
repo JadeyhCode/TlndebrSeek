@@ -1469,9 +1469,16 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         static const char *want_scalar[] = {
             "第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
             "第二大的数", "第二小的数", "第三大的数", "第三小的数",
-            "中间的那个数", NULL
+            "中间的那个数", "求和", "之和", "总和", "最大值", "最小值", "的和", NULL
         };
-        for (int q = 0; want_scalar[q]; ++q)
+        /* 描述本身要**数组**（每列/序列/降序/逐行…）时，不做标量闸门（实测 `每列和降序` 被误杀）*/
+        static const char *array_ish[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
+                                          "排序后输出", "输出这些", "倒序",
+                                          "列和", "每一列", "排列后输出", NULL};
+        int desc_wants_arr = 0;
+        for (int q = 0; array_ish[q]; ++q)
+            if (strstr(desc, array_ish[q])) { desc_wants_arr = 1; break; }
+        for (int q = 0; !desc_wants_arr && want_scalar[q]; ++q)
             if (strstr(desc, want_scalar[q])) {
                 if (getenv("AIP_CHAINDBG"))
                     fprintf(stderr, "[gate] 要标量却打数组（%s）⇒ 让位\n", ops[n - 1]->name);

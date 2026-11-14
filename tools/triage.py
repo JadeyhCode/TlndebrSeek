@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import code_search as S
 import code_blind26 as B
 
-SETS = {"26": S.BLIND26, "27": S.BLIND27, "28": S.BLIND28}
+SETS = {"26": S.BLIND26, "27": S.BLIND27, "28": S.BLIND28, "29": S.BLIND29}
 
 
 def route_of(out):
