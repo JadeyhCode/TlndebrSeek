@@ -260,7 +260,7 @@ def exp_str(want):
     return str(want)
 
 
-def verify(chain, shape, rng, gold, tries=6, max_attempts=20):
+def verify(chain, shape, rng, gold, tries=12, max_attempts=40):
     """随机输入 + 任务 gold；无定义的输入跳过，但要凑够 tries 个有效样本。"""
     src = gen_program(shape, chain)
     if not src:
@@ -271,7 +271,7 @@ def verify(chain, shape, rng, gold, tries=6, max_attempts=20):
             break
         if shape == "arr":
             # 值域小一点，保证**有重复**（否则“去重”类任务会被偶然放行）
-            value = [rng.randint(-4, 4) for _ in range(rng.randint(2, 7))]
+            value = [rng.randint(-4, 4) for _ in range(rng.randint(2, 8))]
             inp = " ".join(str(x) for x in value) + "\n"
         else:
             value = "".join(rng.choice("abcXYZ") for _ in range(rng.randint(1, 6)))

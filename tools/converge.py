@@ -32,6 +32,21 @@ def unique_chain(desc):
     return cands[0] if len(cands) == 1 else None
 
 
+def verified_chain(task, tries=6):
+    """用**任务自身的 gold** 验证候选链；只有**恰好一条**通过才学（歧义就不学）。"""
+    shape, seq = S.parse_desc(task["desc"])
+    passed = []
+    for chain in S.candidates(seq):
+        ok, _why = S.verify(chain, task.get("shape", shape), random.Random(20261119), task["gold"])
+        if ok:
+            passed.append(chain)
+    if len(passed) == 1:
+        return passed[0], "唯一可验证链"
+    if not passed:
+        return None, "没有链能通过验证（不学）"
+    return None, "多条链都能通过验证（%d 条，有歧义，不学）" % len(passed)
+
+
 def plan(which):
     tasks = T.SETS[which]
     rng = random.Random(20261119)
@@ -40,11 +55,11 @@ def plan(which):
         status, out = B.judge(t, rng)
         if status != "refuse":
             continue
-        chain = unique_chain(t["desc"])
+        chain, why = verified_chain(t)
         if not chain:
-            plan.append((t, None, "链不唯一（有歧义，不收敛）"))
+            plan.append((t, None, why))
             continue
-        plan.append((t, chain, "唯一链"))
+        plan.append((t, chain, why))
     return plan
 
 
