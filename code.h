@@ -1491,6 +1491,18 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             (strstr(stmts[_q], " ? 10 : 32") || strstr(stmts[_q], "i ? \" %ld\"") ||
              strstr(stmts[_q], "%ld%c"))) { any_arr_print = 1; break; }
     if (any_arr_print) {
+        /* §6.864 先判“描述要标量”：`第二个数/第二大的数/求和/最大值…` 这些**明确要一个数**的说法，
+         * 只要链里有数组打印就整体作废（不管描述里有没有“从大到小排序”这类词——
+         * “从大到小排序后输出第二个数”既含排序词、又明确要标量，标量优先）。 */
+        static const char *ws0[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
+                                    "第二大的数", "第二小的数", "第三大的数", "第三小的数",
+                                    "中间的那个数", NULL};
+        for (int q = 0; ws0[q]; ++q)
+            if (strstr(desc, ws0[q])) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[gate] 描述要标量（%s）而链在打数组 ⇒ 让位\n", ws0[q]);
+                return -1;
+            }
         /* §6.853 窄标量闸门：描述明确要**某一个数**（“第二个数/第二大的数/中间的那个数”），
          * 而链里却在打印整个数组 ⇒ 语义不对，让位给任务/搜索器。
          * 只认这些明确说法（更宽的“第/最大”会把 capbench 打掉过）。 */
@@ -1539,6 +1551,25 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             for (size_t j = 0; j < outtok->count; ++j) {
                 const AssocEntry *e = &token_assocs_ro(outtok)[j];
                 if (e->main && e->dyn == d_cd && e->main->name) { pcode = e->main->name; break; }
+            }
+        }
+        /* §6.863 输出形态闸门（不依赖“算子语句里有 printf”）：
+         * 描述明确要**一个数**、且不要数组，而这条链最终要打印整个数组 ⇒ 让位。
+         * 修的是“从大到小排序后输出第二个数”这种：数组由**输出模板**打印，不在算子语句里。 */
+        if (pcode && strstr(pcode, " ? 10 : 32")) {
+            static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
+                                       "第二大的数", "第二小的数", "第三大的数", "第三小的数",
+                                       "中间的那个数", "求和", "之和", "总和", "最大值", "最小值", NULL};
+            static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
+                                       "排序后输出", "输出这些", "倒序", "列和", "每一列",
+                                       "排列后输出", "从小到大排序", "从大到小排序", NULL};
+            int ws_want = 0, wa_want = 0;
+            for (int q = 0; ws[q]; ++q) if (strstr(desc, ws[q])) { ws_want = 1; break; }
+            for (int q = 0; wa[q]; ++q) if (strstr(desc, wa[q])) { wa_want = 1; break; }
+            if (ws_want && !wa_want) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[gate] 输出是数组但描述要标量 ⇒ 让位\n");
+                return -1;
             }
         }
         int k = snprintf(body + bl, sizeof body - (size_t)bl, "    %s\n",
