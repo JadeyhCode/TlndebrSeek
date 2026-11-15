@@ -757,7 +757,8 @@ static inline Token *code_op_category(AI *ai, Token *op) {
 /* §6.812 中文数字当参数（"七进制"里的七）：只在参数位出现时生效。 */
 /* §6.820 **概念层关键词（模式）**：关键词可以写成 `最大{值|的数|元素}`，匹配时展开成
  * 若干具体说法再比 —— 学到的知识不再是某一句字面，而是一族说法（这是“迁移”的前置）。
- * 限制（照实说）：最多 4 个分支、展开上限 32 种、每个分支 ≤ 24 字节，不支持嵌套。 */
+ * 限制（照实说）：最多 8 个分支、展开上限 32 种、每个分支 ≤ 24 字节，不支持嵌套。
+ * （§6.886 从 4 提到 8：`前{一|两|二|三|四}个数` 这种 5 分支的写法以前会**静默丢掉** 四。） */
 #define KW_PAT_MAX  32
 static inline int code_kw_expand(const char *pat, char out[KW_PAT_MAX][96], int maxn) {
     int n = 1;
@@ -766,9 +767,9 @@ static inline int code_kw_expand(const char *pat, char out[KW_PAT_MAX][96], int 
         if (*p == 123) {
             const char *end = strchr(p + 1, 125);
             if (!end) break;
-            const char *alts[5]; size_t lens[5]; int na = 0;
+            const char *alts[9]; size_t lens[9]; int na = 0;
             const char *q = p + 1;
-            while (q < end && na < 4) {
+            while (q < end && na < 8) {
                 const char *bar = q;
                 while (bar < end && *bar != 124) bar++;
                 alts[na] = q; lens[na] = (size_t)(bar - q); na++;
@@ -1196,10 +1197,22 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                         pbufs[n][got][k] = 0;
                         got++;
                     }
+                    /* §6.886 模式参数算子：参数优先从**关键词里/紧跟其后**读（"前{三}个数"、"乘 5"）；
+                     * 以前的顺序是先"往关键词前面找数字"，于是 `每个数乘 2 之后输出前三个数` 里
+                     * `前N个` 的 P 被前面的 2 抢走（P=2 而不是 3）。所以这里先把 has_pp 算出来。 */
+                    int has_pp = 0;
+                    {
+                        uint8_t rid_pp0 = rel_id_of(ai, "模式参数", 0);
+                        if (rid_pp0 >= REL_DYN_BASE) {
+                            uint8_t d_pp0 = (uint8_t)(rid_pp0 - REL_DYN_BASE + 1);
+                            for (size_t j = 0; j < t->count && !has_pp; ++j)
+                                if (token_assocs_ro(t)[j].main && token_assocs_ro(t)[j].dyn == d_pp0) has_pp = 1;
+                        }
+                    }
                     /* §6.727 关键词前面也能取参数（"1 到 6 的阶乘"里 6 在"的阶乘"前；
                      * "1 到 100 里能被 3 整除"里 100 在"能被"前）。 */
                     const char *scan = desc + best_pos;   /* 从关键词起点往前，逐个参数取 */
-                    while (got < has_param) {
+                    while (!has_pp && got < has_param) {
                         const char *q = scan;
                         size_t back = 0;
                         if (q > desc) q--;
@@ -1242,15 +1255,6 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                     /* §6.825 参数可以**长在匹配片段里/紧跟其后**（"第[五]小"）：关键词是模式，数字在命中串里。
                      * 默认**关**（AIP_PARAM_INSIDE=1 才开）：它改变的是“参数从哪来”，会影响老知识，
                      * 所以只在反统一（tools/generalize.py）那条路上打开。 */
-                    int has_pp = 0;
-                    {
-                        uint8_t rid_pp = rel_id_of(ai, "模式参数", 0);
-                        if (rid_pp >= REL_DYN_BASE) {
-                            uint8_t d_pp = (uint8_t)(rid_pp - REL_DYN_BASE + 1);
-                            for (size_t j = 0; j < t->count && !has_pp; ++j)
-                                if (token_assocs_ro(t)[j].main && token_assocs_ro(t)[j].dyn == d_pp) has_pp = 1;
-                        }
-                    }
                     if ((getenv("AIP_PARAM_INSIDE") || (has_pp && best_len >= 3)) && got < has_param && got == 0 && best_len > 0) {
                         for (size_t off = 0; off < best_len && got < has_param; ++off) {
                             int cv3 = code_cn_num(desc + best_pos + off);

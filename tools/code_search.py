@@ -537,7 +537,49 @@ BLIND37 = [
          gold=lambda a: 3 * sum(1 for x in a if x % 2 != 0)),
 ]
 
+BLIND38 = [
+    dict(name="小写后长度加一", shape="str", desc="写一个程序：把读入的字符串转成小写后输出长度再加一。",
+         gold=lambda s: len(s) + 1),
+    dict(name="反转后长度", shape="str", desc="写一个程序：把读入的字符串反转后输出长度。",
+         gold=lambda s: len(s)),
+    dict(name="负数清零后个数", shape="arr", desc="读入一行整数（标准输入），把负数变成 0 之后输出正数的个数。",
+         gold=lambda a: sum(1 for x in a if x > 0)),
+    dict(name="平方后和", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出它们的和。",
+         gold=lambda a: sum(x * x for x in a)),
+    dict(name="前四个数的最大", shape="arr", desc="读入一行整数（标准输入），输出前四个数里最大的。",
+         gold=lambda a: max(a[:4])),
+    dict(name="偶数个数减一", shape="arr", desc="读入一行整数（标准输入），输出其中偶数的个数再减一。",
+         gold=lambda a: sum(1 for x in a if x % 2 == 0) - 1),
+    dict(name="乘二后前三个", shape="arr", desc="读入一行整数（标准输入），每个数乘 2 之后输出前三个数。",
+         gold=lambda a: [x * 2 for x in a[:3]]),
+    dict(name="大写字母个数减一", shape="str", desc="写一个程序：统计读入字符串里大写字母的个数再减一。",
+         gold=lambda s: sum(1 for c in s if c.isupper()) - 1),
+]
+
+BLIND39 = [
+    dict(name="前三个数里最小", shape="arr", desc="读入一行整数（标准输入），输出前三个数里最小的。",
+         gold=lambda a: min(a[:3])),
+    dict(name="负数个数加一", shape="arr", desc="读入一行整数（标准输入），输出其中负数的个数再加一。",
+         gold=lambda a: sum(1 for x in a if x < 0) + 1),
+    dict(name="正数个数乘二", shape="arr", desc="读入一行整数（标准输入），输出其中正数的个数再乘二。",
+         gold=lambda a: 2 * sum(1 for x in a if x > 0)),
+    dict(name="反转后前四个数", shape="arr", desc="读入一行整数（标准输入），反转之后输出前四个数。",
+         gold=lambda a: list(reversed(a))[:4]),
+    dict(name="乘三后前两个数", shape="arr", desc="读入一行整数（标准输入），每个数乘 3 之后输出前两个数。",
+         gold=lambda a: [x * 3 for x in a[:2]]),
+    dict(name="小写字母个数乘二", shape="str", desc="写一个程序：统计读入字符串里小写字母的个数再乘二。",
+         gold=lambda s: 2 * sum(1 for c in s if c.islower())),
+    dict(name="前两个数最大", shape="arr", desc="读入一行整数（标准输入），输出前两个数里最大的。",
+         gold=lambda a: max(a[:2])),
+    dict(name="转小写后长度减一", shape="str", desc="写一个程序：把读入的字符串转成小写后输出长度再减一。",
+         gold=lambda s: len(s) - 1),
+]
+
 def _set_of(argv):
+    if "--blind39" in argv:
+        return BLIND39
+    if "--blind38" in argv:
+        return BLIND38
     if "--blind37" in argv:
         return BLIND37
     if "--blind36" in argv:
