@@ -1641,7 +1641,8 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                       strstr(pcode, "for (int i = 0; i < n; i++) printf"))) {
             static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
                                        "第二大的数", "第二小的数", "第三大的数", "第三小的数",
-                                       "中间的那个数", "求和", "之和", "总和", "最大值", "最小值", NULL};
+                                       "中间的那个数", "求和", "之和", "总和", "最大值", "最小值",
+                                       "平均", "极差", "方差", NULL};
             static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
                                        "排序后输出", "输出这些", "倒序", "列和", "每一列",
                                        "排列后输出", "从小到大排序", "从大到小排序", NULL};
