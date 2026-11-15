@@ -657,3 +657,69 @@ int main(void) {\
     printf("%ld\n", x);\
     return 0;\
 }
+
+# converge.py 生成（只在拒答 + 唯一链时学）
+任务:搜索-乘三后最小	关键词	乘三后最小
+任务:搜索-乘三后最小	排除	命令行参数
+任务:搜索-乘三后最小	排除	1 到
+任务:搜索-乘三后最小	排除	第一行
+任务:搜索-乘三后最小	排除	每行
+任务:搜索-乘三后最小	排除	字符串
+任务:搜索-乘三后最小	排除	字符
+任务:搜索-乘三后最小	优先	1
+任务:搜索-乘三后最小	骨架	骨架:搜索-乘三后最小
+骨架:搜索-乘三后最小	语言	C11
+骨架:搜索-乘三后最小	依赖	stdio.h stdlib.h string.h
+骨架:搜索-乘三后最小	代码	#include <stdio.h>\
+#include <stdlib.h>\
+#include <string.h>\
+static int cmp_long(const void *a, const void *b) {\
+    long x = *(const long *)a, y = *(const long *)b;\
+    return (x > y) - (x < y);\
+}\
+static int cmp_desc(const void *a, const void *b) {\
+    long x = *(const long *)a, y = *(const long *)b;\
+    return (x < y) - (x > y);\
+}\
+int main(void) {\
+    long v[256]; int n = 0;\
+    while (n < 256 && scanf("%ld", &v[n]) == 1) n++;\
+    if (n <= 0) return 0;\
+    long x = 0; (void)x;\
+    { for (int i = 0; i < n; i++) v[i] *= 3; }\
+    { x = v[0]; for (int i = 1; i < n; i++) if (v[i] < x) x = v[i]; }\
+    printf("%ld\n", x);\
+    return 0;\
+}
+任务:搜索-前缀和平方和	关键词	前缀和的平方和
+任务:搜索-前缀和平方和	排除	命令行参数
+任务:搜索-前缀和平方和	排除	1 到
+任务:搜索-前缀和平方和	排除	第一行
+任务:搜索-前缀和平方和	排除	每行
+任务:搜索-前缀和平方和	排除	字符串
+任务:搜索-前缀和平方和	排除	字符
+任务:搜索-前缀和平方和	优先	1
+任务:搜索-前缀和平方和	骨架	骨架:搜索-前缀和平方和
+骨架:搜索-前缀和平方和	语言	C11
+骨架:搜索-前缀和平方和	依赖	stdio.h stdlib.h string.h
+骨架:搜索-前缀和平方和	代码	#include <stdio.h>\
+#include <stdlib.h>\
+#include <string.h>\
+static int cmp_long(const void *a, const void *b) {\
+    long x = *(const long *)a, y = *(const long *)b;\
+    return (x > y) - (x < y);\
+}\
+static int cmp_desc(const void *a, const void *b) {\
+    long x = *(const long *)a, y = *(const long *)b;\
+    return (x < y) - (x > y);\
+}\
+int main(void) {\
+    long v[256]; int n = 0;\
+    while (n < 256 && scanf("%ld", &v[n]) == 1) n++;\
+    if (n <= 0) return 0;\
+    long x = 0; (void)x;\
+    { for (int i = 1; i < n; i++) v[i] += v[i - 1]; }\
+    { x = 0; for (int i = 0; i < n; i++) x += v[i] * v[i]; }\
+    printf("%ld\n", x);\
+    return 0;\
+}

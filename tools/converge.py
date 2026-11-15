@@ -47,13 +47,13 @@ def verified_chain(task, tries=6):
     return None, "多条链都能通过验证（%d 条，有歧义，不学）" % len(passed)
 
 
-def plan(which):
+def plan(which, wrong=False):
     tasks = T.SETS[which]
     rng = random.Random(20261119)
     plan = []
     for t in tasks:
         status, out = B.judge(t, rng)
-        if status != "refuse":
+        if status != "refuse" and not (wrong and status == "wrong"):
             continue
         chain, why = verified_chain(t)
         if not chain:
@@ -102,7 +102,7 @@ def measure(which, model=None):
 def main(argv):
     which = argv[argv.index("--set") + 1] if "--set" in argv else "27"
     base = measure(which)
-    pl = plan(which)
+    pl = plan(which, "--wrong" in argv)
     print("blind%s 基线 %d/8；拒答题 %d 道" % (which, base, len(pl)))
     for t, chain, why in pl:
         print("   %-12s %s" % (t["name"], ("→ " + " → ".join(n for n, _ in chain)) if chain else why))
