@@ -412,6 +412,24 @@ static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
 /* §6.870 算子形状：0=标量 1=未知 2=数组 3=字符串 4=矩阵。
  * 输入形状看 模板 --[种类]--> 种类 的名字；输出形状看 输出 --[打印:*]--> 的名字。
  * 语义：矩阵与数组的语句用的是不同变量（m[][] vs v[]），混链一定编不过。 */
+/* §6.880 描述要标量 / 要数组的判定（与 §6.863 闸门用同一张表，避免两处漂移）。 */
+static inline int code_desc_wants_scalar(const char *desc) {
+    static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
+                               "第二大的数", "第二小的数", "第三大的数", "第三小的数",
+                               "中间的那个数", "求和", "之和", "总和", "最大值", "最小值",
+                               "平均", "极差", "方差", NULL};
+    for (int q = 0; ws[q]; ++q) if (strstr(desc, ws[q])) return 1;
+    return 0;
+}
+
+static inline int code_desc_wants_array(const char *desc) {
+    static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
+                               "排序后输出", "输出这些", "倒序", "列和", "每一列",
+                               "排列后输出", "从小到大排序", "从大到小排序", NULL};
+    for (int q = 0; wa[q]; ++q) if (strstr(desc, wa[q])) return 1;
+    return 0;
+}
+
 static inline int code_op_in_shape(AI *ai, Token *op) {
     if (!ai || !op) return 1;
     uint8_t rid_tp = rel_id_of(ai, "模板", 0);
@@ -1389,6 +1407,99 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             }
             n = keep;
             if (n < min_ops) return -1;
+        }
+    }
+    /* §6.880 生成侧补全：链的**末算子只输出数组**、而描述要标量时，尝试**追加一个归约算子**
+     * （模板是整数数组、输出是标量、关键词在描述里出现在末算子之后）。只追加**唯一**候选；
+     * 找不到就不动（保持原样，交给 §6.863 的拒绝闸门）。这样“每个数乘 5 之后输出总和”会补成 2 算子链，
+     * 而不是退化成“打印整个数组”。 */
+    if (n > 0 && n < CODE_MAX_OPS && code_desc_wants_scalar(desc) && !code_desc_wants_array(desc) &&
+        code_op_out_shape(ai, ops[n - 1]) >= 2) {
+        Token *cand = NULL;
+        size_t cpos = 0, clen = 0;
+        int ncand = 0;
+        uint8_t rid_kw2 = rel_id_of(ai, "关键词", 0);
+        uint8_t rid_st2 = rel_id_of(ai, "语句", 0);
+        uint8_t d_kw2 = 0, d_st2 = 0;
+        if (rid_kw2 >= REL_DYN_BASE && rid_st2 >= REL_DYN_BASE) {
+            d_kw2 = (uint8_t)(rid_kw2 - REL_DYN_BASE + 1);
+            d_st2 = (uint8_t)(rid_st2 - REL_DYN_BASE + 1);
+            for (size_t ti = 0; ti < ai->pool->count && ncand <= 1; ++ti) {
+                Token *t2 = ai->pool->tokens[ti];
+                if (!t2 || !t2->name) continue;
+                int has_stmt = 0, dup = 0;
+                for (int q = 0; q < n; ++q) if (ops[q] == t2) dup = 1;
+                if (dup) continue;
+                for (size_t j = 0; j < t2->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(t2)[j];
+                    if (e->main && e->dyn == d_st2) { has_stmt = 1; break; }
+                }
+                if (!has_stmt) continue;
+                if (code_op_in_shape(ai, t2) != 2) continue;
+                /* 输出形状 0=标量、1=未知（很多归约算子没写 输出 边）都算“归约”；
+                 * 但**声明了非整数输出**（打印:平均值/打印:小数…）的不补——它们的格式是任务级约定
+                 * （实测 `加三后平均` 补成“8.00” 与期望“8”不一致）。 */
+                {
+                    int os = code_op_out_shape(ai, t2);
+                    if (os != 0 && os != 1) continue;
+                    uint8_t rid_out2 = rel_id_of(ai, "输出", 0);
+                    int nonint = 0;
+                    if (rid_out2 >= REL_DYN_BASE) {
+                        uint8_t d_out2 = (uint8_t)(rid_out2 - REL_DYN_BASE + 1);
+                        for (size_t q3 = 0; q3 < t2->count; ++q3) {
+                            const AssocEntry *e3 = &token_assocs_ro(t2)[q3];
+                            if (!e3->main || !e3->main->name || e3->dyn != d_out2) continue;
+                            if (strcmp(e3->main->name, "打印:整数") != 0) nonint = 1;
+                            break;
+                        }
+                    }
+                    if (nonint) continue;
+                }
+                for (size_t j = 0; j < t2->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(t2)[j];
+                    if (!e->main || !e->main->name || e->dyn != d_kw2) continue;
+                    const char *kw = e->main->name;
+                    const char *pp = strstr(desc, kw);
+                    size_t p2 = 0, used_len = 0;
+                    if (pp) { p2 = (size_t)(pp - desc); used_len = strlen(kw); }
+                    if (!pp && strchr(kw, '{')) {
+                        /* 模式关键词 {求和|总和|之和}：逐个分支当字面量试（§6.880） */
+                        const char *pp2 = strchr(kw, '{');
+                        pp2++;
+                        char alt[64]; size_t al = 0;
+                        for (const char *q2 = pp2; *q2 && (*q2 != '}' || al == 0); ++q2) {
+                            if (*q2 == '|' || *q2 == '}') {
+                                alt[al] = 0;
+                                if (al) {
+                                    const char *h = strstr(desc, alt);
+                                    if (h) { p2 = (size_t)(h - desc); used_len = al; pp = h; break; }
+                                }
+                                al = 0;
+                                if (*q2 == '}') break;
+                            } else if (al + 1 < sizeof alt) alt[al++] = *q2;
+                        }
+                    }
+                    if (!pp) continue;
+                    if (p2 <= pos[n - 1]) continue;
+                    ncand++;
+                    cand = t2; cpos = p2; clen = used_len;
+                    break;
+                }
+            }
+        }
+        if (ncand == 1 && cand) {
+            const char *st2 = NULL;
+            for (size_t j = 0; j < cand->count; ++j) {
+                const AssocEntry *e = &token_assocs_ro(cand)[j];
+                if (e->main && e->dyn == d_st2 && e->main->name) { st2 = e->main->name; break; }
+            }
+            if (st2) {
+                ops[n] = cand; stmts[n] = st2; pos[n] = cpos; mlen[n] = clen;
+                memset(pbufs[n], 0, sizeof pbufs[0]); npv[n] = 0;
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[chain] 补全归约算子 %s @%zu（末算子只出数组）\n", cand->name, cpos);
+                n++;
+            }
         }
     }
     /* §6.713 链条的起点变量也来自数据：模板 --[种类]--> 种类 --[起始]--> 变量名。
