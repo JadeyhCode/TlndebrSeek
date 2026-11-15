@@ -403,7 +403,71 @@ BLIND30 = [
          gold=lambda a: sum(x for x in a if x % 2 == 0)),
 ]
 
+BLIND31 = [
+    dict(name="平方后极差", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出极差。",
+         gold=lambda a: max(x * x for x in a) - min(x * x for x in a)),
+    dict(name="去重后个数", shape="arr", desc="读入一行整数（标准输入），去重后输出还剩多少个不同的数。",
+         gold=lambda a: len(set(a))),
+    dict(name="反转后第二个", shape="arr", desc="读入一行整数（标准输入），反转之后输出第二个数。",
+         gold=lambda a: list(reversed(a))[1] if len(a) > 1 else None),
+    dict(name="前缀和求和", shape="arr", desc="读入一行整数（标准输入），输出前缀和的总和。",
+         gold=lambda a: sum(_pref(a))),
+    dict(name="奇数个数", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的个数。",
+         gold=lambda a: sum(1 for x in a if x % 2 != 0)),
+    dict(name="减三后最小", shape="arr", desc="读入一行整数（标准输入），每个数减 3 之后输出最小值。",
+         gold=lambda a: min(x - 3 for x in a)),
+    dict(name="排序后去重输出", shape="arr", desc="读入一行整数（标准输入），从小到大排序后去掉重复的数输出。",
+         gold=lambda a: sorted(set(a))),
+    dict(name="排序后第三个", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出第三个数。",
+         gold=lambda a: sorted(a)[2] if len(a) > 2 else None),
+]
+
+
+BLIND32 = [
+    dict(name="平方后求和", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出它们的和。",
+         gold=lambda a: sum(x * x for x in a)),
+    dict(name="奇数之和", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的和。",
+         gold=lambda a: sum(x for x in a if x % 2 != 0)),
+    dict(name="加五后最小", shape="arr", desc="读入一行整数（标准输入），每个数加 5 之后输出最小值。",
+         gold=lambda a: min(x + 5 for x in a)),
+    dict(name="减一后最大", shape="arr", desc="读入一行整数（标准输入），每个数减 1 之后输出最大值。",
+         gold=lambda a: max(x - 1 for x in a)),
+    dict(name="排序后第二个", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出第二个数。",
+         gold=lambda a: sorted(a)[1] if len(a) > 1 else None),
+    dict(name="去重后个数乘二", shape="arr", desc="读入一行整数（标准输入），去重后输出不同数的个数再乘二。",
+         gold=lambda a: 2 * len(set(a))),
+    dict(name="平方后最小值", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出最小值。",
+         gold=lambda a: min(x * x for x in a)),
+    dict(name="乘三后求和", shape="arr", desc="读入一行整数（标准输入），每个数乘 3 之后输出总和。",
+         gold=lambda a: sum(x * 3 for x in a)),
+]
+
+BLIND33 = [
+    dict(name="平方后最大值", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出最大值。",
+         gold=lambda a: max(x * x for x in a)),
+    dict(name="减二后求和", shape="arr", desc="读入一行整数（标准输入），每个数减 2 之后输出总和。",
+         gold=lambda a: sum(x - 2 for x in a)),
+    dict(name="反转后最小值", shape="arr", desc="读入一行整数（标准输入），反转之后输出最小值。",
+         gold=lambda a: min(a)),
+    dict(name="排序后最大值", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出最大值。",
+         gold=lambda a: max(a)),
+    dict(name="奇数个数乘二", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的个数再乘二。",
+         gold=lambda a: 2 * sum(1 for x in a if x % 2 != 0)),
+    dict(name="加十后最大值", shape="arr", desc="读入一行整数（标准输入），每个数加 10 之后输出最大值。",
+         gold=lambda a: max(x + 10 for x in a)),
+    dict(name="数组长度减一", shape="arr", desc="读入一行整数（标准输入），输出一共有多少个数再减一。",
+         gold=lambda a: len(a) - 1),
+    dict(name="乘二后最小值", shape="arr", desc="读入一行整数（标准输入），每个数乘 2 之后输出最小值。",
+         gold=lambda a: min(x * 2 for x in a)),
+]
+
 def _set_of(argv):
+    if "--blind33" in argv:
+        return BLIND33
+    if "--blind32" in argv:
+        return BLIND32
+    if "--blind31" in argv:
+        return BLIND31
     if "--blind30" in argv:
         return BLIND30
     if "--blind29" in argv:

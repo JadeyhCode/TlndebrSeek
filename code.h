@@ -801,6 +801,28 @@ static inline int code_kw_expand(const char *pat, char out[KW_PAT_MAX][96], int 
 }
 
 /* 在 desc 里找关键词（支持模式）；返回命中位置（NULL = 没命中），命中长度写 *mlen */
+/* §6.881 括号里的字是**解释**，不是任务要求（"输出交替和（第一个减第二个加第三个……）"
+ * 里的 `第一个/第三个` 曾把索引算子骗进链，结果覆盖掉正确的那条）。只按**位置**判：
+ * 从描述开头数到命中点的括号深度 >0 就算在括号里。关键词匹配（code_kw_find 的所有调用方）
+ * 跳过括号内的命中；通道/形状判断不走这里，仍读原文（"（标准输入）"是有效信息）。 */
+static inline int code_kw_in_paren(const char *desc, const char *hit) {
+    if (!desc || !hit || hit < desc) return 0;
+    int depth = 0;
+    for (const char *p = desc; p < hit; ++p) {
+        if ((unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBC && (unsigned char)p[2] == 0x88) {
+            depth++; p += 2;                       /* （ U+FF08 */
+        } else if ((unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBC && (unsigned char)p[2] == 0x89) {
+            if (depth > 0) depth--;
+            p += 2;                                 /* ） U+FF09 */
+        } else if (p[0] == '(') {
+            depth++;
+        } else if (p[0] == ')') {
+            if (depth > 0) depth--;
+        }
+    }
+    return depth > 0;
+}
+
 static inline const char *code_kw_find(const char *desc, const char *kw, size_t *mlen) {
     if (!desc || !kw || !kw[0]) return NULL;
     if (!strchr(kw, 123)) {
@@ -999,6 +1021,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
     }
     Token *ops[CODE_MAX_OPS];
+    int par[CODE_MAX_OPS];
     const char *stmts[CODE_MAX_OPS];
     size_t pos[CODE_MAX_OPS];
     size_t mlen[CODE_MAX_OPS];
@@ -1010,6 +1033,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         Token *t = ai->pool->tokens[i];
         if (!t || !t->name || strncmp(t->name, "运算:", 7) != 0) continue;
         size_t best_pos = (size_t)-1, best_len = 0;
+        int best_par = 0;
         for (size_t j = 0; j < t->count; ++j) {
             const AssocEntry *e = &token_assocs_ro(t)[j];
             if (!e->main || e->dyn != d_kw || !e->main->name) continue;
@@ -1017,9 +1041,10 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             const char *hit = code_kw_find(desc, e->main->name, &_ml3);
             if (!hit) continue;
             size_t p = (size_t)(hit - desc);
+            int par_hit = code_kw_in_paren(desc, hit);
             /* 同一位置取更长的词（"平方和"优于"平方"），不同位置取最早 */
             if (p < best_pos || (p == best_pos && _ml3 > best_len)) {
-                best_pos = p; best_len = _ml3;
+                best_pos = p; best_len = _ml3; best_par = par_hit;
             }
         }
         if (best_pos == (size_t)-1) continue;
@@ -1031,6 +1056,14 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         if (!st) continue;
 
+        /* §6.881 参数化单链：**括号里的命中不能当唯一依据**（数字多来自解释文字）。
+         * 例：「输出交替和（第一个减第二个加第三个……）」里 `第一个` 会把索引算子
+         * 当成"单条参数运算"直接返回，盖掉正确的交替和。 */
+        if (need_param && best_par) {
+            if (getenv("AIP_CHAINDBG"))
+                fprintf(stderr, "[chain] 参数化单链跳过括号命中 %s\n", t->name);
+            continue;
+        }
         if (need_param) {
             /* §6.723 只在"参数化运算"里找：描述里带具体数字，比任务关键词更具体 */
             uint8_t rid_p0 = rel_id_of(ai, "参数", 0);
@@ -1218,7 +1251,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                                 if (token_assocs_ro(t)[j].main && token_assocs_ro(t)[j].dyn == d_pp) has_pp = 1;
                         }
                     }
-                    if ((getenv("AIP_PARAM_INSIDE") || has_pp) && got < has_param && got == 0 && best_len > 0) {
+                    if ((getenv("AIP_PARAM_INSIDE") || (has_pp && best_len >= 3)) && got < has_param && got == 0 && best_len > 0) {
                         for (size_t off = 0; off < best_len && got < has_param; ++off) {
                             int cv3 = code_cn_num(desc + best_pos + off);
                             if (cv3 > 0) {
@@ -1233,7 +1266,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                             }
                         }
                     }
-                    if ((getenv("AIP_PARAM_INSIDE") || (t->name && strchr(t->name, 123))) && got < has_param && got == 0) {
+                    /* §6.881 判据从“名字里带 `{`”（字符串黑魔法）改成**数据**：有 `模式参数` 边
+                     * 就算模式算子 —— 这样“第[三]个数”这种**关键词只有 `第`、数字在它后面**的也能读到；
+                     * 普通算子（没有 模式参数）行为不变，不会把无关数字当参数。 */
+                    if ((getenv("AIP_PARAM_INSIDE") || (has_pp && best_len >= 3) || (t->name && strchr(t->name, 123))) &&
+                        got < has_param && got == 0) {
                         int cv2 = code_cn_num(desc + best_pos + best_len);
                         if (cv2 > 0) {
                             snprintf(pbufs[n][0], sizeof pbufs[0][0], "%d", cv2);
@@ -1267,7 +1304,34 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                 }
             }
         }
-        ops[n] = t; stmts[n] = st; pos[n] = best_pos; mlen[n] = best_len; n++;
+        ops[n] = t; stmts[n] = st; pos[n] = best_pos; mlen[n] = best_len;
+        par[n] = best_par; n++;
+    }
+    /* §6.881 括号是解释：只在**没有任何实词命中**时才允许用括号里的命中（"（凯撒加密）"）。
+     * 已有实词算子之后再从括号里捡一个（"（第一个减第二个……）"）会把正确结果覆盖掉。 */
+    {
+        size_t first_real = (size_t)-1;
+        for (int i = 0; i < n; ++i) if (!par[i] && pos[i] < first_real) first_real = pos[i];
+        if (first_real != (size_t)-1) {
+            int keep = 0;
+            for (int i = 0; i < n; ++i) {
+                if (par[i] && pos[i] > first_real) {
+                    if (getenv("AIP_CHAINDBG"))
+                        fprintf(stderr, "[chain] 括号里的命中不参与（%s @%zu）\n", ops[i]->name, pos[i]);
+                    continue;
+                }
+                ops[keep] = ops[i]; stmts[keep] = stmts[i];
+                pos[keep] = pos[i]; mlen[keep] = mlen[i];
+                memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
+                npv[keep] = npv[i]; par[keep] = par[i]; keep++;
+            }
+            n = keep;
+        }
+    }
+    if (getenv("AIP_CHAINDBG")) {
+        fprintf(stderr, "[chain] 候选 n=%d (min=%d):", n, min_ops);
+        for (int i = 0; i < n; ++i) fprintf(stderr, " %s@%zu", ops[i]->name + 7, pos[i]);
+        fprintf(stderr, "\n");
     }
     if (n < min_ops) return -1;
     /* §6.714 关键词互相包含时只留更长的那个（"每个数的平方和" 不能再算一次"平方"） */
@@ -1280,6 +1344,33 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                 if (pos[j] <= pos[i] && pos[j] + mlen[j] >= pos[i] + mlen[i]) covered = 1;
             }
             if (covered) continue;
+            ops[keep] = ops[i]; stmts[keep] = stmts[i];
+            pos[keep] = pos[i]; mlen[keep] = mlen[i];
+            memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
+            npv[keep] = npv[i]; keep++;
+        }
+        n = keep;
+    }
+    /* §6.881 同一处命中两个算子时按**输入形状**消歧（类型连通的最短一环）：
+     * `反转`（整数反转，标量语句）与 `数组翻转`（数组）都会命中同一个词"反转"；
+     * 描述点名数组 ⇒ 留数组输入那个、丢掉标量那个 —— 否则链头一步就是标量算子，
+     * §6.726 的"首算子大类"检查会把整条链作废（实测：`反转之后输出第二个数` 全灭）。 */
+    if (desc_cat && strcmp(desc_cat->name, "类别:标量") != 0) {
+        int keep = 0;
+        for (int i = 0; i < n; ++i) {
+            int drop = 0;
+            Token *ci = code_op_category(ai, ops[i]);
+            if (ci && ci != desc_cat) {
+                for (int j = 0; j < n && !drop; ++j) {
+                    if (j == i || pos[j] != pos[i]) continue;
+                    if (code_op_category(ai, ops[j]) == desc_cat) drop = 1;
+                }
+            }
+            if (drop) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[chain] 同位置形状消歧 ⇒ 丢掉 %s\n", ops[i]->name);
+                continue;
+            }
             ops[keep] = ops[i]; stmts[keep] = stmts[i];
             pos[keep] = pos[i]; mlen[keep] = mlen[i];
             memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
@@ -1324,15 +1415,18 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             int tnpv = npv[j]; npv[j] = npv[j - 1]; npv[j - 1] = tnpv;
         }
     }
-    /* §6.870 生成侧形状兼容：相邻算子要求 前一个的**输出形状** == 后一个的**输入形状**；
+    /* §6.870/§6.881 生成侧形状兼容：相邻算子要求 前一个的**输出形状** == 后一个的**输入形状**；
      * 不兼容就把后一个**剔除**（不是整条链作废，也不是砍掉尾巴）。
-     * 典型：`矩阵对角线和(输出整数) → 数组元素和(输入数组)` 这种混链一定编不过。 */
+     * 典型：`矩阵对角线和(输出整数) → 数组元素和(输入数组)` 这种混链一定编不过。
+     * §6.881 补一条：前一个出**数组**、后一个要**标量输入** ⇒ 后者读的是 x，而链上此时只有
+     * v/n（x 未定义）⇒ 一定会编不过。以前只拦"数组≠数组"，于是 `反转(标量) → 数组和`、
+     * `每个数平方 → 平方(标量) → 极差` 这种链会混进来（命中词位置相邻时尤其明显）。 */
     {
         int keep = 1;
         for (int i = 1; i < n; ++i) {
             int o = code_op_out_shape(ai, ops[keep - 1]);
             int s = code_op_in_shape(ai, ops[i]);
-            if (o >= 2 && s >= 2 && o != s) {
+            if ((o >= 2 && s >= 2 && o != s) || (o >= 2 && s == 0)) {
                 if (getenv("AIP_CHAINDBG"))
                     fprintf(stderr, "[gate] 形状不兼容（出%d → 入%d）⇒ 剔除 %s\n", o, s, ops[i]->name);
                 continue;
@@ -2105,7 +2199,10 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
          * （描述里带具体数字，比任务关键词更具体，比如"1 到 100 的和"）。 */
         int crc_chain = code_chain(ai, nd, 2, 0, note, cap);
         if (crc_chain == -1) crc_chain = code_chain(ai, nd, 1, 1, note, cap);
-        if (crc_chain != -1) return crc_chain;
+        /* §6.881b 链**拼出来但编不过**时不许堵死回退路：以前直接 return 这个失败码，
+         * 于是"两个整数的和"这类被 `的和` 误命的标量题拿到一份编不过的 .c，连配方都轮不到。
+         * 判据用现成的 note（code_test_file 会写"没编过"）—— 测试红但不编错的仍算答案。 */
+        if (crc_chain != -1 && !(note && strstr(note, "没编过"))) return crc_chain;
     }
 
     /* ① 找最匹配的任务 */
