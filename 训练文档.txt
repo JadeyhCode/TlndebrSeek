@@ -105,3 +105,38 @@
 
   # 全套验收
   sh tests/all.sh && AIP_CAPBENCH=1 sh tests/capbench.sh
+
+---------------------------------------------------------------
+6. 新能力：需求分解 `::code plan`（§6.872）
+---------------------------------------------------------------
+  数据：code/knowledge/plan.triples
+    · 需求:X --[分解]--> 需求:Y     （必需，会展开）
+    · 需求:X --[可选]--> 需求:Z     （可做可不做，默认剪掉）
+    · 需求:X --[排除]--> 需求:W     （明确不做，会在输出里列出）
+    · 需求:Y --[实现]--> 一句可执行要点
+
+  用法：
+    printf "::code plan 写一个跑酷游戏\n::quit\n" | ./build_aip --model code/code_model.bin
+  输出 = 需求树 + 「排除（对目标没用，先不做）」+ 「先写这些（可执行要点）」
+  引擎只沿**必需**边递归（深度≤6、节点去重）；未登记的需求会明确回“没有匹配的需求根”。
+
+  测试：sh tests/plan.sh
+
+---------------------------------------------------------------
+7. 一键门禁 `tools/gate.py`（§6.874）
+---------------------------------------------------------------
+  以前每轮手动跑 hidden → capbench → 盲测集要 6–10 分钟，且**不能并行**（判官共用 _t/work，
+  并行会读出假数据，实测踩过两次）。现在：
+
+    python3 tools/gate.py            # hidden + capbench + blind26..30
+    python3 tools/gate.py --quick    # 只跑盲测集（约 3 分钟）
+    python3 tools/gate.py --suite    # 再加整包 tests/all.sh（发布前必跑）
+
+  干净克隆里也能直接跑：缺 build_aip 会自己编、缺模型会自己重建（§6.876）。
+
+发布清单（必须逐条打勾）：
+  1) python3 tools/gate.py --suite       全绿（hidden 328 / capbench PASS / 盲测集 / 整包）
+  2) sh tests/selfcheck.sh               PASS
+  3) 改 AIP_VERSION + CHANGELOG 后**重跑** 1)
+  4) git tag + push + GitHub Release（用新仓库名 TlndebrSeek）
+
