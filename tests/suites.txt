@@ -274,3 +274,5 @@ codegeneral|sh tests/codegeneral.sh
 selfmanager|sh tests/selfmanager.sh
 structmatch|sh tests/structmatch.sh
 plan|sh tests/plan.sh
+# §6.883 合成器结构性行为钉回归：括号语义 / 形状连通 / 中文数字参数 / 去重变体 / 归约计数 / 回退路
+codeshape|sh tests/codeshape.sh > cotest.log 2>&1; rc=$?; [ "$rc" -eq 0 ] || cat cotest.log; tail -6 cotest.log; [ "$rc" -eq 0 ]
