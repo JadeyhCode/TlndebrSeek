@@ -4,6 +4,36 @@
 `MODEL_VERSION`，当前 v13）。本文件只记**对外能看见**的变化，细节与证据在
 `docs/audit-vs-deepseek看这里.md` 的对应小节。
 
+## v0.08i（2026-11-15）—— 改名 TlndebrSeek、需求分解、结构化“乘/加”修复、一键门禁
+
+### 改名
+- 项目改名 **TlndebrSeek**：全仓 `XeGraph` / `XeGraphAI` / `Jaink` / `JainkAI` 字眼替换（README/CHANGELOG/docs/patterns/tests/脚本名/横幅）
+- GitHub 仓库改名 `JadeyhCode/TlndebrSeek`
+
+### 新能力：需求分解 `::code plan`
+- `code/knowledge/plan.triples`：`分解`（必需）/`可选`/`排除`/`实现` 四类边
+- 引擎 `code_plan()`：匹配需求根 → 只沿必需边递归（深度≤6、去重）→ 需求树 + 排除清单 + 可执行要点
+- 测试 `tests/plan.sh`（跑酷/猜数字两棵树、顺序、未登记需求明确拒绝）
+
+### 能力修复（结构化，非逐词）
+- §6.870 形状兼容：相邻算子要求 输出形状 == 输入形状，不兼容只剔除该算子
+- §6.871 `converge --wrong`：答错也纳入收敛（gold 唯一链才学）
+- §6.873 模式参数算子支持阿拉伯数字（“每个数乘 5”）
+- §6.875 “乘/加”族：概念算子裸关键词 + 数组最大/最小加最大值/最小值（配精确排除）+ 闸门补平均/极差/方差
+
+### 工具
+- `tools/gate.py`：一条命令串行跑 hidden / capbench / blind26..30 / 整包，出表判定
+
+### 读数（门禁表）
+| 项 | 结果 |
+|---|---|
+| hidden | 328/328 |
+| capbench | PASS |
+| blind26 / 27 / 28 | 8/8 / 8/8 / 8/8 |
+| blind29（未调） | 6/8 |
+| blind30（未调） | 5/8 |
+| 整包 | 120 套全过 |
+
 ## v0.08h（2026-11-14）—— 输出形态两道闸门（blind28 回到 8/8）
 
 ### 修复
