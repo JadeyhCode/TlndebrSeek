@@ -27,6 +27,20 @@ def run(cmd, env=None, timeout=1800):
     return r.returncode, (r.stdout.decode('utf-8', 'replace') + r.stderr.decode('utf-8', 'replace'))
 
 
+def prepare():
+    """干净克隆里 build_aip / code_model.bin 都不在（gitignore）—— 先备好，否则判官跑不了。"""
+    msgs = []
+    if not os.path.exists(os.path.join(ROOT, 'build_aip')):
+        rc, out = run('gcc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -o build_aip main.c -lm',
+                      timeout=600)
+        msgs.append('build_aip: ' + ('built' if rc == 0 else 'FAILED\n' + out[-800:]))
+    if not os.path.exists(os.path.join(ROOT, 'code', 'code_model.bin')):
+        rc, out = run('sh code/build_code_model.sh', timeout=1800)
+        msgs.append('code_model.bin: ' + ('built' if rc == 0 else 'FAILED\n' + out[-800:]))
+    for m in msgs:
+        print('  [准备] ' + m)
+
+
 def hidden():
     rc, out = run('rm -rf _t/work && mkdir -p _t/work && python3 tools/code_hidden.py')
     ok = sum(int(m) for m in re.findall(r'=> (\d) / 8', out))
@@ -58,6 +72,7 @@ def suite():
 
 
 def main(argv):
+    prepare()
     quick = '--quick' in argv
     rows = []
     red = []
