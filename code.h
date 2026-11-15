@@ -1836,6 +1836,94 @@ static inline int code_struct_canon(AI *ai, const char *desc, char *out, size_t 
     return nh;
 }
 
+/* §6.872 **需求分解**（plan）：用户一句话 → 需求树（必需/可选/排除）→ 可执行要点清单。
+ * 数据在 code/knowledge/plan.triples：需求:X --[分解]--> 需求:Y（必需）、--[可选]-->、
+ * --[排除]-->、--[实现]--> 一句可执行的 C 要点。**只在“必需”边上展开**；可选默认剪掉。 */
+typedef struct {
+    AI *ai;
+    char *out;
+    size_t cap, used;
+    int leaves;
+    Token *seen[128];
+    int nseen;
+    char excl[1024];
+    size_t exl;
+    char impl[4096];
+    size_t impln;
+    uint8_t d_sub, d_opt, d_exc, d_imp;
+} CodePlan;
+
+static inline const char *code_plan_bare(const char *name) {
+    return strncmp(name, "需求:", strlen("需求:")) == 0 ? name + strlen("需求:") : name;
+}
+
+static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
+    if (!t || depth > 6 || P->nseen >= 128) return;
+    for (int i = 0; i < P->nseen; ++i) if (P->seen[i] == t) return;
+    P->seen[P->nseen++] = t;
+    int ind = depth * 2;
+    P->used += (size_t)snprintf(P->out + P->used, P->cap - P->used, "%*s%s%s\n", ind, "",
+                                depth == 0 ? "[需求] " : "├ ", code_plan_bare(t->name));
+    for (size_t j = 0; j < t->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(t)[j];
+        if (!e->main || !e->main->name) continue;
+        if (P->d_imp && e->dyn == P->d_imp) {
+            P->used += (size_t)snprintf(P->out + P->used, P->cap - P->used, "%*s  · %s\n",
+                                        ind, "", e->main->name);
+            P->leaves++;
+            P->impln += (size_t)snprintf(P->impl + P->impln, sizeof P->impl - P->impln,
+                                         "%2d. %s\n", P->leaves, e->main->name);
+            continue;
+        }
+        if (P->d_exc && e->dyn == P->d_exc) {
+            P->exl += (size_t)snprintf(P->excl + P->exl, sizeof P->excl - P->exl, "%s ",
+                                       code_plan_bare(e->main->name));
+            continue;
+        }
+        if (P->d_opt && e->dyn == P->d_opt) continue;   /* 可选：默认剪掉（排除无效信息） */
+    }
+    /* 必需子需求：递归展开（先收齐再走，保证渲染成一棵真正的树） */
+    for (size_t j = 0; j < t->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(t)[j];
+        if (!e->main || !e->main->name) continue;
+        if (P->d_sub && e->dyn == P->d_sub) code_plan_walk(P, e->main, depth + 1);
+    }
+}
+
+static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
+    if (!ai || !desc || !*desc) return -1;
+    Token *root = NULL;
+    size_t best = 0;
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || strncmp(t->name, "需求:", strlen("需求:")) != 0) continue;
+        const char *nm = code_plan_bare(t->name);
+        if (strstr(desc, nm) && strlen(nm) > best) { root = t; best = strlen(nm); }
+    }
+    if (!root) {
+        snprintf(out, cap, "没有匹配的需求根（plan.triples 里没有这条需求）\n");
+        return -1;
+    }
+    CodePlan P;
+    memset(&P, 0, sizeof P);
+    P.ai = ai; P.out = out; P.cap = cap;
+    uint8_t r1 = rel_id_of(ai, "分解", 0), r2 = rel_id_of(ai, "可选", 0);
+    uint8_t r3 = rel_id_of(ai, "排除", 0), r4 = rel_id_of(ai, "实现", 0);
+    P.d_sub = r1 >= REL_DYN_BASE ? (uint8_t)(r1 - REL_DYN_BASE + 1) : 0;
+    P.d_opt = r2 >= REL_DYN_BASE ? (uint8_t)(r2 - REL_DYN_BASE + 1) : 0;
+    P.d_exc = r3 >= REL_DYN_BASE ? (uint8_t)(r3 - REL_DYN_BASE + 1) : 0;
+    P.d_imp = r4 >= REL_DYN_BASE ? (uint8_t)(r4 - REL_DYN_BASE + 1) : 0;
+    P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used, "== 需求分解：%s ==\n", desc);
+    code_plan_walk(&P, root, 0);
+    if (P.exl)
+        P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used,
+                                   "\n== 排除（对目标没用，先不做）==\n%s\n", P.excl);
+    if (P.impln)
+        P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used,
+                                   "\n== 先写这些（可执行要点，按顺序）==\n%s", P.impl);
+    return P.leaves;
+}
+
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
     if (note && cap) note[0] = 0;
     if (!ai || !ai->pool || !desc || !desc[0]) return -2;

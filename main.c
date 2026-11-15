@@ -5652,6 +5652,23 @@ int main(int argc, char **argv) {
                            a->brain->code_strict ? "产物 rc=0 但打了 FAIL 行 ⇒ 也算红" : "FAIL 行只报数、不参与判定");
                     continue;
                 }
+                if (arg && strncmp(arg, "plan", 4) == 0) {
+                    /* §6.872 需求分解：一句话 → 需求树（必需/可选/排除）→ 可执行要点 */
+                    const char *d = arg + 4;
+                    while (*d == ' ') d++;
+                    if (!*d) { printf("[用法] ::code plan <一句话需求，比如 写一个跑酷游戏>\n"); continue; }
+                    char *pb = malloc(8192);
+                    if (!pb) { printf("[没内存]\n"); continue; }
+                    pb[0] = 0;
+                    int nl = code_plan(a->brain, d, pb, 8192);
+                    printf("%s", pb);
+                    free(pb);
+                    if (nl < 0)
+                        printf("[提示] 需求根没匹配上：先在 code/knowledge/plan.triples 里登记这条需求\n");
+                    else if (nl == 0)
+                        printf("[提示] 拆出来了但没有可执行要点（补 --[实现]--> 边）\n");
+                    continue;
+                }
                 if (arg && strncmp(arg, "synth", 5) == 0) {
                     /* §6.700 合成器 v1：中文描述 → 图里查任务/骨架/代码 → 落地 → 闭环 */
                     const char *d = arg + 5;

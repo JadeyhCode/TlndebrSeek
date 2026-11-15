@@ -9240,7 +9240,8 @@ static inline int aip_questionish(const char *s) {
 static inline int aip_strip_def_phrases(const char *in, char *out, size_t cap) {
     if (!in || !out || cap < 8) return 0;
     char buf[256];
-    snprintf(buf, sizeof buf, "%s", in);
+    /* §6.872 显式限长：`%s` 在 in 可能 512 字节时会被 -Wformat-truncation 判成硬错误（整包用 -Werror 编）。 */
+    snprintf(buf, sizeof buf, "%.255s", in);
     int univ = (strstr(buf, "所有") || strstr(buf, "每") || strstr(buf, "任何") ||
                 strstr(buf, "一切") || strstr(buf, "各种") || strstr(buf, "全部"));
     static const char *del[] = {
