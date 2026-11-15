@@ -1378,6 +1378,34 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         n = keep;
     }
+    /* §6.881b 描述**没点名**形状时的同位置消歧：同一个词命中多个算子（反转：整数/字符串/数组），
+     * 默认留**标量**那个（通用、最保守的那一支）；点了名的走下面的类别 tie-break。
+     * 反例（隐藏组 `反转加一`）：字符串翻转和整数反转同位置都命中，字符串那支混进链、
+     * 把 `加一` 按“字符串→标量”形状剔除，整条链就没了。 */
+    if (!desc_cat) {
+        int keep = 0;
+        for (int i = 0; i < n; ++i) {
+            int drop = 0;
+            Token *ci = code_op_category(ai, ops[i]);
+            if (ci && strcmp(ci->name, "类别:标量") != 0) {
+                for (int j = 0; j < n && !drop; ++j) {
+                    if (j == i || pos[j] != pos[i]) continue;
+                    Token *cj = code_op_category(ai, ops[j]);
+                    if (cj && strcmp(cj->name, "类别:标量") == 0) drop = 1;
+                }
+            }
+            if (drop) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[chain] 未点名形状：同位置留标量 ⇒ 丢掉 %s\n", ops[i]->name);
+                continue;
+            }
+            ops[keep] = ops[i]; stmts[keep] = stmts[i];
+            pos[keep] = pos[i]; mlen[keep] = mlen[i]; par[keep] = par[i];
+            memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
+            npv[keep] = npv[i]; keep++;
+        }
+        n = keep;
+    }
     /* §6.815 链也要过闸门：只用关键词判覆盖率，缺的内容词（负数/下标/之差）就不该硬答 */
     if (n >= min_ops && n > 0) {
         char miss[512] = {0};

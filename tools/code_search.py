@@ -499,7 +499,28 @@ BLIND35 = [
          gold=lambda a: 2 * sum(x for x in a if x % 2 == 0)),
 ]
 
+BLIND36 = [
+    dict(name="转大写后反转", shape="str", desc="写一个程序：把读入的字符串转成大写后反转输出。",
+         gold=lambda s: s.upper()[::-1]),
+    dict(name="负数清零后最大", shape="arr", desc="读入一行整数（标准输入），把负数变成 0 之后输出最大值。",
+         gold=lambda a: max(x if x > 0 else 0 for x in a)),
+    dict(name="平方后小于5的个数", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出小于 5 的数的个数。",
+         gold=lambda a: sum(1 for x in a if x * x < 5)),
+    dict(name="偶数之和加一", shape="arr", desc="读入一行整数（标准输入），输出其中偶数的和再加一。",
+         gold=lambda a: sum(x for x in a if x % 2 == 0) + 1),
+    dict(name="奇数之和减一", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的和再减一。",
+         gold=lambda a: sum(x for x in a if x % 2 != 0) - 1),
+    dict(name="元音个数乘二", shape="str", desc="写一个程序：统计读入字符串里的元音字母个数再乘二。",
+         gold=lambda s: 2 * sum(1 for c in s if c in "aeiouAEIOU")),
+    dict(name="大写字母个数加一", shape="str", desc="写一个程序：统计读入字符串里大写字母的个数再加一。",
+         gold=lambda s: sum(1 for c in s if c.isupper()) + 1),
+    dict(name="反转后前两个数", shape="arr", desc="读入一行整数（标准输入），反转之后输出前两个数。",
+         gold=lambda a: list(reversed(a))[:2]),
+]
+
 def _set_of(argv):
+    if "--blind36" in argv:
+        return BLIND36
     if "--blind35" in argv:
         return BLIND35
     if "--blind34" in argv:

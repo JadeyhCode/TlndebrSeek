@@ -95,6 +95,23 @@ if [ -n "$C" ] && [ "$(run_in "$C" '1 2 3
 ')" = "4" ]; then ok "奇数之和 = 4（走数组奇数和，不是 1..N 求和）"
 else bad "奇数之和不对" "$(note_of s6b.log)"; fi
 
+echo "== ⑥b 字符串链 / 切片 / 条件变换（§6.884）=="
+C=$(synth '写一个程序：把读入的字符串反转后转成大写输出。' s6c.log)
+if [ -n "$C" ] && [ "$(run_in "$C" 'abc
+')" = "CBA" ]; then ok "字符串反转 → 转大写 = CBA（同位置按类别消歧）"
+else bad "字符串反转链不对" "$(note_of s6c.log)"; fi
+C=$(synth '读入一行整数（标准输入），反转之后输出前三个数。' s6d.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '1 2 3 4
+')" = "4 3 2" ]; then ok "反转后前三个 = 4 3 2（前N个切片）"
+else bad "反转后前三个不对" "$(note_of s6d.log)"; fi
+C=$(synth '读入一行整数（标准输入），把负数都变成 0 之后输出总和。' s6e.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '-2 3 -1 5
+')" = "8" ]; then ok "负数清零后求和 = 8（条件变换）"
+else bad "负数清零后求和不对" "$(note_of s6e.log)"; fi
+C=$(synth '写一个程序：读入一个整数（命令行参数），输出它反转后再加一。' s6f.log)
+if [ -n "$C" ] && note_of s6f.log | grep -qa '反转 → 加一'; then ok "整数反转后加一仍走标量支（未点名形状时默认标量）"
+else bad "标量反转被非标量支抢走" "$(note_of s6f.log)"; fi
+
 echo "== ⑦ 回退路：链编不过时任务/配方仍可达 =="
 C=$(synth '读入两个整数（命令行参数），输出它们的和。' s7.log)
 if [ -n "$C" ] && note_of s7.log | grep -qa '合成\|配方\|任务'; then ok "两个整数的和仍能合成（回退没被堵死）"
