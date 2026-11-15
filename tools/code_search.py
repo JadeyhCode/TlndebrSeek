@@ -384,7 +384,28 @@ BLIND29 = [
          gold=lambda a: max(_pref(a)) - min(_pref(a))),
 ]
 
+BLIND30 = [
+    dict(name="加一后最大", shape="arr", desc="读入一行整数（标准输入），每个数加 1 之后输出最大值。",
+         gold=lambda a: max(x + 1 for x in a)),
+    dict(name="去重后最小", shape="arr", desc="读入一行整数（标准输入），去掉重复之后输出最小值。",
+         gold=lambda a: min(set(a))),
+    dict(name="乘五后求和", shape="arr", desc="读入一行整数（标准输入），每个数乘 5 之后输出总和。",
+         gold=lambda a: sum(x * 5 for x in a)),
+    dict(name="乘五后最大", shape="arr", desc="读入一行整数（标准输入），每个数乘 5 之后输出最大值。",
+         gold=lambda a: max(x * 5 for x in a)),
+    dict(name="反转后第一个", shape="arr", desc="读入一行整数（标准输入），反转之后输出第一个数。",
+         gold=lambda a: list(reversed(a))[0]),
+    dict(name="前缀和最大", shape="arr", desc="读入一行整数（标准输入），输出前缀和里的最大值。",
+         gold=lambda a: max(_pref(a))),
+    dict(name="前缀和最小", shape="arr", desc="读入一行整数（标准输入），输出前缀和里的最小值。",
+         gold=lambda a: min(_pref(a))),
+    dict(name="偶数之和", shape="arr", desc="读入一行整数（标准输入），输出其中偶数的和。",
+         gold=lambda a: sum(x for x in a if x % 2 == 0)),
+]
+
 def _set_of(argv):
+    if "--blind30" in argv:
+        return BLIND30
     if "--blind29" in argv:
         return BLIND29
     if "--blind28" in argv:

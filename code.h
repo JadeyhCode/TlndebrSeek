@@ -1221,6 +1221,20 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                             snprintf(pbufs[n][0], sizeof pbufs[0][0], "%d", cv2);
                             got++;
                         }
+                        /* §6.873 **只对模式参数算子**支持阿拉伯数字：`每个数乘 5` 这种。
+                         * 不动普通算子（它们没有“参数”概念），避免把无关数字当参数。 */
+                        if (got < has_param && got == 0) {
+                            size_t k2 = best_pos + best_len;
+                            while (desc[k2] == ' ' || desc[k2] == '\t') k2++;
+                            if (desc[k2] >= '0' && desc[k2] <= '9') {
+                                int v2 = 0;
+                                while (desc[k2] >= '0' && desc[k2] <= '9') { v2 = v2 * 10 + (desc[k2] - '0'); k2++; }
+                                if (v2 > 0) {
+                                    snprintf(pbufs[n][0], sizeof pbufs[0][0], "%d", v2);
+                                    got++;
+                                }
+                            }
+                        }
                     }
                     /* §6.812 中文数字：关键词**正前面**的“七/八/十”也算参数值（"七进制"）。 */
                     if (got < has_param && got == 0 && best_pos >= 3) {
@@ -1623,7 +1637,8 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         /* §6.863 输出形态闸门（不依赖“算子语句里有 printf”）：
          * 描述明确要**一个数**、且不要数组，而这条链最终要打印整个数组 ⇒ 让位。
          * 修的是“从大到小排序后输出第二个数”这种：数组由**输出模板**打印，不在算子语句里。 */
-        if (pcode && strstr(pcode, " ? 10 : 32")) {
+        if (pcode && (strstr(pcode, " ? 10 : 32") ||
+                      strstr(pcode, "for (int i = 0; i < n; i++) printf"))) {
             static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
                                        "第二大的数", "第二小的数", "第三大的数", "第三小的数",
                                        "中间的那个数", "求和", "之和", "总和", "最大值", "最小值", NULL};
