@@ -53,5 +53,13 @@ done
 run 写一个区块链浏览器
 grep -qa '没有匹配的需求根' _t/work/plan.txt || { echo "  [FAIL] 未登记需求没有明确拒绝"; fails=$((fails+1)); }
 
-if [ "$fails" -eq 0 ]; then echo "PASS plan（跑酷/猜数字两棵需求树 + 排除项 + 顺序 + 未登记拒绝）"; exit 0; fi
+# 4) `--data` 依据可追溯：边必须打印；默认不带
+printf "::code plan --data 写一个跑酷游戏\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_data.txt 2>&1
+for w in '依据' '--[分解]' '--[排除]'; do
+    grep -qaF -- "$w" _t/work/plan_data.txt || { echo "  [FAIL] --data 缺依据 $w"; fails=$((fails+1)); }
+done
+printf "::code plan 写一个跑酷游戏\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_plain.txt 2>&1
+if grep -qa '依据' _t/work/plan_plain.txt; then echo '  [FAIL] 默认不该打印依据'; fails=$((fails+1)); fi
+
+if [ "$fails" -eq 0 ]; then echo "PASS plan（两棵需求树 + 排除项 + 顺序 + 未登记拒绝 + --data 依据可追溯）"; exit 0; fi
 echo "FAIL plan（$fails 处）"; exit 1

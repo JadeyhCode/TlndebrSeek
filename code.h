@@ -1866,6 +1866,9 @@ typedef struct {
     size_t exl;
     char impl[4096];
     size_t impln;
+    char edges[8192];   /* §6.878 依据：实际用到的 plan.triples 边（按出现顺序） */
+    size_t edgen;
+    int show_edges;
     uint8_t d_sub, d_opt, d_exc, d_imp;
 } CodePlan;
 
@@ -1884,6 +1887,10 @@ static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
         const AssocEntry *e = &token_assocs_ro(t)[j];
         if (!e->main || !e->main->name) continue;
         if (P->d_imp && e->dyn == P->d_imp) {
+            if (P->show_edges)
+                P->edgen += (size_t)snprintf(P->edges + P->edgen, sizeof P->edges - P->edgen,
+                                             "  %s --[实现]--> %s\n",
+                                             code_plan_bare(t->name), e->main->name);
             P->used += (size_t)snprintf(P->out + P->used, P->cap - P->used, "%*s  · %s\n",
                                         ind, "", e->main->name);
             P->leaves++;
@@ -1892,6 +1899,10 @@ static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
             continue;
         }
         if (P->d_exc && e->dyn == P->d_exc) {
+            if (P->show_edges)
+                P->edgen += (size_t)snprintf(P->edges + P->edgen, sizeof P->edges - P->edgen,
+                                             "  %s --[排除]--> %s\n",
+                                             code_plan_bare(t->name), code_plan_bare(e->main->name));
             P->exl += (size_t)snprintf(P->excl + P->exl, sizeof P->excl - P->exl, "%s ",
                                        code_plan_bare(e->main->name));
             continue;
@@ -1902,11 +1913,17 @@ static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
     for (size_t j = 0; j < t->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(t)[j];
         if (!e->main || !e->main->name) continue;
-        if (P->d_sub && e->dyn == P->d_sub) code_plan_walk(P, e->main, depth + 1);
+        if (P->d_sub && e->dyn == P->d_sub) {
+            if (P->show_edges)
+                P->edgen += (size_t)snprintf(P->edges + P->edgen, sizeof P->edges - P->edgen,
+                                             "  %s --[分解]--> %s\n",
+                                             code_plan_bare(t->name), code_plan_bare(e->main->name));
+            code_plan_walk(P, e->main, depth + 1);
+        }
     }
 }
 
-static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
+static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, int show_edges) {
     if (!ai || !desc || !*desc) return -1;
     Token *root = NULL;
     size_t best = 0;
@@ -1922,7 +1939,7 @@ static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
     }
     CodePlan P;
     memset(&P, 0, sizeof P);
-    P.ai = ai; P.out = out; P.cap = cap;
+    P.ai = ai; P.out = out; P.cap = cap; P.show_edges = show_edges;
     uint8_t r1 = rel_id_of(ai, "分解", 0), r2 = rel_id_of(ai, "可选", 0);
     uint8_t r3 = rel_id_of(ai, "排除", 0), r4 = rel_id_of(ai, "实现", 0);
     P.d_sub = r1 >= REL_DYN_BASE ? (uint8_t)(r1 - REL_DYN_BASE + 1) : 0;
@@ -1937,7 +1954,15 @@ static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
     if (P.impln)
         P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used,
                                    "\n== 先写这些（可执行要点，按顺序）==\n%s", P.impl);
+    if (show_edges && P.edgen)
+        P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used,
+                                   "\n== 依据（plan.triples 里实际用到的边）==\n%s", P.edges);
     return P.leaves;
+}
+
+/* 旧接口：不打印依据（保持既有调用方行为不变） */
+static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
+    return code_plan_ex(ai, desc, out, cap, 0);
 }
 
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {

@@ -5657,10 +5657,18 @@ int main(int argc, char **argv) {
                     const char *d = arg + 4;
                     while (*d == ' ') d++;
                     if (!*d) { printf("[用法] ::code plan <一句话需求，比如 写一个跑酷游戏>\n"); continue; }
-                    char *pb = malloc(8192);
+                    /* §6.878 `::code plan --data <描述>`：额外打印它实际用到的 plan.triples 边 */
+                    int show_edges = 0;
+                    if (strncmp(d, "--data", 6) == 0) {
+                        show_edges = 1;
+                        d += 6;
+                        while (*d == ' ') d++;
+                        if (!*d) { printf("[用法] ::code plan --data <一句话需求>\n"); continue; }
+                    }
+                    char *pb = malloc(16384);
                     if (!pb) { printf("[没内存]\n"); continue; }
                     pb[0] = 0;
-                    int nl = code_plan(a->brain, d, pb, 8192);
+                    int nl = code_plan_ex(a->brain, d, pb, 16384, show_edges);
                     printf("%s", pb);
                     free(pb);
                     if (nl < 0)
