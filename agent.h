@@ -8906,7 +8906,7 @@ static inline int agent_rewrite_where(const char *in, char *out, size_t cap);
 
 /* ============================ 回答格式层（第 5 步） ============================
  *
- * 用户 2026-11-11：JainkAI 要能按当场给的格式回答（列表/表格/模板/JSON），
+ * 用户 2026-11-11：TlndebrSeek 要能按当场给的格式回答（列表/表格/模板/JSON），
  * 格式可现场教；格式定义本身是数据，不硬编码。
  *
  * C 里只有通用的四件事，**没有 if (strcmp(name,"列表"))**：

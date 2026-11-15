@@ -1,5 +1,5 @@
 #!/bin/sh
-# tests/xe.sh — XeGraphAI 自测：空符号层 / 切碎 / 会话记忆 / 图补丁 / 插件 / 现场学习 / 元认知
+# tests/xe.sh — TlndebrSeek 自测：空符号层 / 切碎 / 会话记忆 / 图补丁 / 插件 / 现场学习 / 元认知
 set -e
 cd "$(dirname "$0")/.."
 for t in selftest patchtest sesstest plugintest learntest metatest; do

@@ -1,4 +1,4 @@
-# XeGraphAI 实施计划
+# TlndebrSeek 实施计划
 
 需求来源：`deepseek看这里.txt`（桌面）。本文件只记**可验证**的进度，每轮追加。
 
@@ -16,7 +16,7 @@
 
 ## 第 1 轮（迁移与仓库）
 
-- 新建 GitHub 仓库 **XeGraphAI**（public），从 JainkAI 的 `git archive HEAD` 迁移跟踪文件（864 个，
+- 新建 GitHub 仓库 **TlndebrSeek**（public），从 TlndebrSeek 的 `git archive HEAD` 迁移跟踪文件（864 个，
   55 MB），不含构建产物与本地临时目录。
 - 换协议：**Wordless Source-Available License 1.0**（见 `LICENSE`）。
 - README 写清设计要点；本文件作为进度台账。
@@ -90,7 +90,7 @@
   学习写补丁时记空符号**真实名字**，重放可复原。
 - 自测新增：“空符号名字不带语义（空#n）”；`sh tests/xe.sh` 六件全过。
 
-## 七条需求全部落地；下一步是收尾（提醒删 JainkAI）
+## 七条需求全部落地；下一步是收尾（提醒删 TlndebrSeek）
 
 
 先做 1+2（纯数据层，能立刻用现有回归验证），再做 3（补丁 IO），最后 4/5（会话与插件），

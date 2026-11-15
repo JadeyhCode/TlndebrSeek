@@ -493,7 +493,7 @@ printf '%s\n' "$r1" | grep -qE "(^|[^0-9])2([^0-9]|$)" \
 
 echo "㉟ §6.258 可用性三补：自述身份统一 / 没有时钟 / 占位地名不学"
 out=$(run "你 叫 什么 名字" "你 是 谁" "你叫什么")
-n=$(printf '%s\n' "$out" | reps | grep -c "我 叫 JainkAI" || true)
+n=$(printf '%s\n' "$out" | reps | grep -c "我 叫 TlndebrSeek" || true)
 [ "$n" -eq 3 ] && chk "三种问法给同一句自述（不再各说各的）" 1 \
     || chk "自述身份统一" 0 "$(printf '%s\n' "$out" | reps | head -3 | tr '\n' '|')"
 out=$(run "今天几号" "现在 几 点")
@@ -536,7 +536,7 @@ printf '%s\n' "$out" | reps | sed -n 5p | grep -q "我 没有 感情" \
 
 echo "㊳ §6.261 自我/能力路由：八种问法各答各的（不被相邻判据抢走）"
 out=$(run "你 会 什么 语言" "你 能 做 什么" "你 是 谁" "今天 几 号" "明天 会 下雨 吗" "你 上 网 吗" "一 加 一 等于 几" "你 多 大 了")
-want="只 有 中文|就 三 件 事|JainkAI|没有 时 钟|天气 我 不 知道|我 不 联 网|算 术 我 不 会|我 没 有 年龄"
+want="只 有 中文|就 三 件 事|TlndebrSeek|没有 时 钟|天气 我 不 知道|我 不 联 网|算 术 我 不 会|我 没 有 年龄"
 i=0
 old_ifs="$IFS"; IFS='|'
 for w in $want; do

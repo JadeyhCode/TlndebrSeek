@@ -1683,7 +1683,7 @@ static int lang_rel_word_cb(const char *zh) {
 
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
-    printf("[JainkAI v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
+    printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
     const char *corpus = NULL;
     const char *model_path = DEFAULT_MODEL;
     const char *save_after_train = NULL;
