@@ -5658,12 +5658,27 @@ int main(int argc, char **argv) {
                     while (*d == ' ') d++;
                     if (!*d) { printf("[用法] ::code plan <一句话需求，比如 写一个跑酷游戏>\n"); continue; }
                     /* §6.878 `::code plan --data <描述>`：额外打印它实际用到的 plan.triples 边 */
-                    int show_edges = 0;
-                    if (strncmp(d, "--data", 6) == 0) {
-                        show_edges = 1;
-                        d += 6;
+                    int show_edges = 0, do_write = 0;
+                    while (d[0] == '-' && d[1] == '-') {
+                        if (strncmp(d, "--data", 6) == 0) {
+                            show_edges = 1; d += 6;
+                        } else if (strncmp(d, "--write", 7) == 0) {   /* §6.887 需求 → 可编译骨架 */
+                            do_write = 1; d += 7;
+                        } else break;
                         while (*d == ' ') d++;
-                        if (!*d) { printf("[用法] ::code plan --data <一句话需求>\n"); continue; }
+                        if (!*d) { printf("[用法] ::code plan [--data|--write] <一句话需求>\n"); break; }
+                    }
+                    if (!*d) continue;
+                    if (do_write) {
+                        char *wb = malloc(2048);
+                        if (!wb) { printf("[没内存]\n"); continue; }
+                        wb[0] = 0;
+                        int wr = code_plan_write(a->brain, d, wb, 2048);
+                        printf("[plan --write] %s\n", wb);
+                        free(wb);
+                        if (wr < 0)
+                            printf("[提示] 需求根没匹配上，或拆出来没有可执行要点\n");
+                        continue;
                     }
                     char *pb = malloc(16384);
                     if (!pb) { printf("[没内存]\n"); continue; }

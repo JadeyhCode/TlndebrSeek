@@ -575,7 +575,28 @@ BLIND39 = [
          gold=lambda s: len(s) - 1),
 ]
 
+BLIND40 = [
+    dict(name="单词个数乘二", shape="str", desc="写一个程序：统计读入一行字符串里的单词个数再乘二。",
+         gold=lambda s: 2 * len(s.split())),
+    dict(name="最长单词加一", shape="str", desc="写一个程序：输出读入一行字符串里最长单词的长度再加一。",
+         gold=lambda s: max(len(w) for w in s.split()) + 1),
+    dict(name="单词个数减一", shape="str", desc="写一个程序：统计读入一行字符串里的单词个数再减一。",
+         gold=lambda s: len(s.split()) - 1),
+    dict(name="首字母大写后长度", shape="str", desc="写一个程序：把读入字符串里每个单词的首字母大写后输出长度。",
+         gold=lambda s: len(s)),
+    dict(name="去重后最大值", shape="arr", desc="读入一行整数（标准输入），去掉重复的数之后输出最大值。",
+         gold=lambda a: max(set(a))),
+    dict(name="最大值减最小值加一", shape="arr", desc="读入一行整数（标准输入），输出最大值减最小值再加一。",
+         gold=lambda a: max(a) - min(a) + 1),
+    dict(name="平方和", shape="arr", desc="读入一行整数（标准输入），输出每个数的平方和。",
+         gold=lambda a: sum(x * x for x in a)),
+    dict(name="排序后最大值加一", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出最大值再加一。",
+         gold=lambda a: max(a) + 1),
+]
+
 def _set_of(argv):
+    if "--blind40" in argv:
+        return BLIND40
     if "--blind39" in argv:
         return BLIND39
     if "--blind38" in argv:

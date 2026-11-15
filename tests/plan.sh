@@ -61,5 +61,27 @@ done
 printf "::code plan 写一个跑酷游戏\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_plain.txt 2>&1
 if grep -qa '依据' _t/work/plan_plain.txt; then echo '  [FAIL] 默认不该打印依据'; fails=$((fails+1)); fi
 
-if [ "$fails" -eq 0 ]; then echo "PASS plan（两棵需求树 + 排除项 + 顺序 + 未登记拒绝 + --data 依据可追溯）"; exit 0; fi
+# 6) §6.887 `--write`：需求 → 可编译骨架（要点缺一不可，且骨架要真能编）
+rm -f _t/work/plan_write.c _t/work/plan_write.c.out
+printf "::act on\n::code plan --write 写一个数组统计小工具\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write.txt 2>&1
+grep -qa 'plan --write' _t/work/plan_write.txt || { echo "  [FAIL] --write 没输出摘要"; fails=$((fails+1)); }
+grep -qa '2 个要点' _t/work/plan_write.txt || { echo "  [FAIL] --write 要点数不对"; fails=$((fails+1)); }
+grep -qa '编过' _t/work/plan_write.txt || { echo "  [FAIL] --write 骨架没编过"; fails=$((fails+1)); }
+if [ -s _t/work/plan_write.c ]; then
+    for w in '输出它们的和' '输出最大值' 'todo_1' 'todo_2' '[已覆盖] 参考实现'; do
+        grep -qaF -- "$w" _t/work/plan_write.c || { echo "  [FAIL] 骨架缺 $w"; fails=$((fails+1)); }
+    done
+    gcc -std=c11 -Wall -Wextra -o _t/work/plan_write.verify _t/work/plan_write.c 2> _t/work/plan_write.gcc \
+        || { echo "  [FAIL] 骨架独立 gcc 编不过：$(head -2 _t/work/plan_write.gcc | tr '\n' ' ')"; fails=$((fails+1)); }
+    [ -x _t/work/plan_write.verify ] && _t/work/plan_write.verify || { echo "  [FAIL] 骨架产物跑不起来"; fails=$((fails+1)); }
+else
+    echo "  [FAIL] --write 没写出骨架文件"; fails=$((fails+1))
+fi
+# 未登记的根：明确拒绝，不写文件
+rm -f _t/work/plan_write.c
+printf "::act on\n::code plan --write 写一个区块链浏览器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_bad.txt 2>&1
+grep -qa '没有匹配的需求根' _t/work/plan_write_bad.txt || { echo "  [FAIL] --write 未登记需求没拒绝"; fails=$((fails+1)); }
+[ -f _t/work/plan_write.c ] && { echo "  [FAIL] --write 拒绝时不该写文件"; fails=$((fails+1)); }
+
+if [ "$fails" -eq 0 ]; then echo "PASS plan（两棵需求树 + 排除项 + 顺序 + 未登记拒绝 + --data 依据可追溯 + --write 可编译骨架）"; exit 0; fi
 echo "FAIL plan（$fails 处）"; exit 1

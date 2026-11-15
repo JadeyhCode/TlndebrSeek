@@ -2160,8 +2160,8 @@ static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
     }
 }
 
-static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, int show_edges) {
-    if (!ai || !desc || !*desc) return -1;
+static inline Token *code_plan_root(AI *ai, const char *desc) {
+    if (!ai || !ai->pool || !desc || !*desc) return NULL;
     Token *root = NULL;
     size_t best = 0;
     for (size_t i = 0; i < ai->pool->count; ++i) {
@@ -2170,6 +2170,12 @@ static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, 
         const char *nm = code_plan_bare(t->name);
         if (strstr(desc, nm) && strlen(nm) > best) { root = t; best = strlen(nm); }
     }
+    return root;
+}
+
+static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, int show_edges) {
+    if (!ai || !desc || !*desc) return -1;
+    Token *root = code_plan_root(ai, desc);
     if (!root) {
         snprintf(out, cap, "没有匹配的需求根（plan.triples 里没有这条需求）\n");
         return -1;
@@ -2200,6 +2206,105 @@ static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, 
 /* 旧接口：不打印依据（保持既有调用方行为不变） */
 static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
     return code_plan_ex(ai, desc, out, cap, 0);
+}
+
+/* §6.887 `::code plan --write`：需求分解 → **可编译骨架**（需求分解落地的第一步）。
+ * 只做三步，不假装会写游戏：
+ *   ① 把需求树里的每个 `--[实现]-->` 要点变成骨架里的一个 TODO 函数；
+ *   ② 每个要点**逐条走 code_synth**：能合成就在旁边标出参考实现文件（`_t/work/synth_*.c`），
+ *      不能合成也照实说"未覆盖"——骨架本身仍然可编译；
+ *   ③ 骨架写到 `_t/work/plan_write.c`，用现成的 code_test_file 真编一遍（"可编译"不是嘴上说）。
+ * 判据：文件存在 + gcc 能编过 + 每个要点在文件里都有对应 TODO 函数。 */
+static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap);   /* §6.887 前置声明 */
+
+static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t cap) {
+    if (note && cap) note[0] = 0;
+    if (!ai || !desc || !*desc) return -2;
+    Token *root = code_plan_root(ai, desc);
+    if (!root) {
+        if (note && cap) snprintf(note, cap, "没有匹配的需求根（plan.triples 里没有这条需求）");
+        return -1;
+    }
+    char *tree = malloc(16384);
+    char *src = malloc(32768);
+    if (!tree || !src) { free(tree); free(src); if (note && cap) snprintf(note, cap, "没内存"); return -2; }
+    tree[0] = 0;
+    code_plan_ex(ai, desc, tree, 16384, 0);
+    /* 收集实现要点（按 walk 顺序），最多 32 条 */
+    static const int MAXP = 32;
+    char *impl[32]; int nimpl = 0;
+    /* 直接复用一棵临时树：walk 会把 impl 行写进 P.impl */
+    {
+        CodePlan P;
+        memset(&P, 0, sizeof P);
+        P.ai = ai; P.out = tree; P.cap = 16384;
+        uint8_t r1 = rel_id_of(ai, "分解", 0), r2 = rel_id_of(ai, "可选", 0);
+        uint8_t r3 = rel_id_of(ai, "排除", 0), r4 = rel_id_of(ai, "实现", 0);
+        P.d_sub = r1 >= REL_DYN_BASE ? (uint8_t)(r1 - REL_DYN_BASE + 1) : 0;
+        P.d_opt = r2 >= REL_DYN_BASE ? (uint8_t)(r2 - REL_DYN_BASE + 1) : 0;
+        P.d_exc = r3 >= REL_DYN_BASE ? (uint8_t)(r3 - REL_DYN_BASE + 1) : 0;
+        P.d_imp = r4 >= REL_DYN_BASE ? (uint8_t)(r4 - REL_DYN_BASE + 1) : 0;
+        P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used, "== 需求分解：%s ==\n", desc);
+        code_plan_walk(&P, root, 0);
+        /* P.impl 形如 " 1. 文本\n 2. 文本\n"：拆行、去掉前导编号 */
+        char *save = NULL;
+        for (char *ln = strtok_r(P.impl, "\n", &save); ln && nimpl < MAXP; ln = strtok_r(NULL, "\n", &save)) {
+            char *s = ln;
+            while (*s == ' ') s++;
+            while (*s >= '0' && *s <= '9') s++;
+            while (*s == '.' || *s == ' ') s++;
+            if (*s) impl[nimpl++] = strdup(s);
+        }
+    }
+    if (nimpl == 0) {
+        if (note && cap) snprintf(note, cap, "需求拆出来了，但没有可执行要点（补 --[实现]--> 边）");
+        free(tree); free(src); return -1;
+    }
+    size_t u = 0;
+    u += (size_t)snprintf(src + u, 32768 - u,
+        "/* 由 TlndebrSeek 自动生成的可编译骨架（::code plan --write，§6.887）\n"
+        " * 需求：%s\n"
+        " * 说明：每个 TODO 对应 plan.triples 里的一条 --[实现]--> 要点；\n"
+        " *       旁边标 [已覆盖] 的要点能用 ::code synth 直接生成参考实现。\n"
+        " *\n", desc);
+    {   /* 需求树（逐行注释） */
+        char *save = NULL;
+        for (char *ln = strtok_r(tree, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save))
+            u += (size_t)snprintf(src + u, 32768 - u, " * %s\n", ln);
+        u += (size_t)snprintf(src + u, 32768 - u, " */\n\n");
+    }
+    int covered = 0;
+    for (int i = 0; i < nimpl; ++i) {
+        char nb[512] = {0};
+        int sr = code_synth(ai, impl[i], nb, sizeof nb);
+        u += (size_t)snprintf(src + u, 32768 - u, "/* 要点 %d/%d：%s */\n", i + 1, nimpl, impl[i]);
+        if (sr == 0) {
+            covered++;
+            const char *hit = strstr(nb, "synth_");
+            u += (size_t)snprintf(src + u, 32768 - u, "/* [已覆盖] 参考实现：_t/work/%.*s\n */\n",
+                                  hit ? (int)strcspn(hit, "：\n") : 0, hit ? hit : "");
+        } else {
+            u += (size_t)snprintf(src + u, 32768 - u, "/* [未覆盖] 这一条还没学会，先留 TODO */\n");
+        }
+        u += (size_t)snprintf(src + u, 32768 - u, "static void todo_%d(void) { /* TODO: %s */ }\n\n",
+                              i + 1, impl[i]);
+    }
+    u += (size_t)snprintf(src + u, 32768 - u, "int main(void) {\n");
+    for (int i = 0; i < nimpl; ++i)
+        u += (size_t)snprintf(src + u, 32768 - u, "    todo_%d();\n", i + 1);
+    u += (size_t)snprintf(src + u, 32768 - u, "    return 0;\n}\n");
+    if (action_write_file(ai, "plan_write.c", src) != 0) {
+        if (note && cap) snprintf(note, cap, "写文件失败：%s（--write 需要先 ::act on）", g_act.last_reason);
+        for (int i = 0; i < nimpl; ++i) free(impl[i]);
+        free(tree); free(src); return -2;
+    }
+    char tnote[512] = {0};
+    code_test_file(ai, "plan_write.c", tnote, sizeof tnote);
+    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖；%s",
+                              nimpl, covered, tnote);
+    for (int i = 0; i < nimpl; ++i) free(impl[i]);
+    free(tree); free(src);
+    return 0;
 }
 
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
