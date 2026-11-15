@@ -409,6 +409,52 @@ static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
     return best;
 }
 
+/* §6.870 算子形状：0=标量 1=未知 2=数组 3=字符串 4=矩阵。
+ * 输入形状看 模板 --[种类]--> 种类 的名字；输出形状看 输出 --[打印:*]--> 的名字。
+ * 语义：矩阵与数组的语句用的是不同变量（m[][] vs v[]），混链一定编不过。 */
+static inline int code_op_in_shape(AI *ai, Token *op) {
+    if (!ai || !op) return 1;
+    uint8_t rid_tp = rel_id_of(ai, "模板", 0);
+    uint8_t rid_kd = rel_id_of(ai, "种类", 0);
+    if (rid_tp < REL_DYN_BASE || rid_kd < REL_DYN_BASE) return 1;
+    uint8_t d_tp = (uint8_t)(rid_tp - REL_DYN_BASE + 1);
+    uint8_t d_kd = (uint8_t)(rid_kd - REL_DYN_BASE + 1);
+    Token *tmpl = NULL;
+    for (size_t j = 0; j < op->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(op)[j];
+        if (e->main && e->dyn == d_tp) { tmpl = e->main; break; }
+    }
+    if (!tmpl) return 1;
+    Token *kind = NULL;
+    for (size_t j = 0; j < tmpl->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(tmpl)[j];
+        if (e->main && e->dyn == d_kd) { kind = e->main; break; }
+    }
+    if (!kind || !kind->name) return 1;
+    if (strstr(kind->name, "矩阵")) return 4;
+    if (strstr(kind->name, "数组")) return 2;
+    if (strstr(kind->name, "字符串")) return 3;
+    return 0;
+}
+
+static inline int code_op_out_shape(AI *ai, Token *op) {
+    if (!ai || !op) return 1;
+    uint8_t rid_out = rel_id_of(ai, "输出", 0);
+    if (rid_out < REL_DYN_BASE) return 1;
+    uint8_t d_out = (uint8_t)(rid_out - REL_DYN_BASE + 1);
+    Token *o = NULL;
+    for (size_t j = 0; j < op->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(op)[j];
+        if (e->main && e->dyn == d_out) { o = e->main; break; }
+    }
+    if (!o || !o->name) return 1;
+    if (strstr(o->name, "矩阵")) return 4;
+    if (strstr(o->name, "数组")) return 2;
+    if (strstr(o->name, "字符串")) return 3;
+    if (strstr(o->name, "整数") || strstr(o->name, "长整数")) return 0;
+    return 1;
+}
+
 /* §6.861 模板自身的类别：模板 --[种类]--> 种类:X --[类别]--> 类别:Y（与 code_op_category 同理）。 */
 static inline Token *code_tmpl_category(AI *ai, Token *tmpl) {
     if (!ai || !tmpl) return NULL;
@@ -1245,6 +1291,27 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             memcpy(pbufs[j - 1], tbuf, sizeof tbuf);
             int tnpv = npv[j]; npv[j] = npv[j - 1]; npv[j - 1] = tnpv;
         }
+    }
+    /* §6.870 生成侧形状兼容：相邻算子要求 前一个的**输出形状** == 后一个的**输入形状**；
+     * 不兼容就把后一个**剔除**（不是整条链作废，也不是砍掉尾巴）。
+     * 典型：`矩阵对角线和(输出整数) → 数组元素和(输入数组)` 这种混链一定编不过。 */
+    {
+        int keep = 1;
+        for (int i = 1; i < n; ++i) {
+            int o = code_op_out_shape(ai, ops[keep - 1]);
+            int s = code_op_in_shape(ai, ops[i]);
+            if (o >= 2 && s >= 2 && o != s) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[gate] 形状不兼容（出%d → 入%d）⇒ 剔除 %s\n", o, s, ops[i]->name);
+                continue;
+            }
+            ops[keep] = ops[i]; stmts[keep] = stmts[i];
+            pos[keep] = pos[i]; mlen[keep] = mlen[i];
+            memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
+            npv[keep] = npv[i]; keep++;
+        }
+        n = keep;
+        if (n < min_ops) return -1;
     }
     /* §6.726 类别一致性：描述点名"数组/字符串/矩阵"时，**决定输入形状的第一个运算**
      * 必须属于同一大类；否则拒绝（后面的标量变换不受限）。 */
