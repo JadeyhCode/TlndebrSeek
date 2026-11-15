@@ -461,7 +461,28 @@ BLIND33 = [
          gold=lambda a: min(x * 2 for x in a)),
 ]
 
+BLIND34 = [
+    dict(name="排序后最小值加一", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出最小值再加一。",
+         gold=lambda a: min(a) + 1),
+    dict(name="反转后最大值减一", shape="arr", desc="读入一行整数（标准输入），反转之后输出最大值再减一。",
+         gold=lambda a: max(a) - 1),
+    dict(name="去重后求和乘二", shape="arr", desc="读入一行整数（标准输入），去重后输出它们的和再乘二。",
+         gold=lambda a: 2 * sum(set(a))),
+    dict(name="奇数个数加一", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的个数再加一。",
+         gold=lambda a: sum(1 for x in a if x % 2 != 0) + 1),
+    dict(name="前缀和最大值减一", shape="arr", desc="读入一行整数（标准输入），输出前缀和里的最大值再减一。",
+         gold=lambda a: max(_pref(a)) - 1),
+    dict(name="减五后最小值", shape="arr", desc="读入一行整数（标准输入），每个数减 5 之后输出最小值。",
+         gold=lambda a: min(x - 5 for x in a)),
+    dict(name="平方后去重个数", shape="arr", desc="读入一行整数（标准输入），每个数平方之后去重，输出不同数的个数。",
+         gold=lambda a: len(set(x * x for x in a))),
+    dict(name="乘二后极差", shape="arr", desc="读入一行整数（标准输入），每个数乘 2 之后输出极差。",
+         gold=lambda a: 2 * (max(a) - min(a))),
+]
+
 def _set_of(argv):
+    if "--blind34" in argv:
+        return BLIND34
     if "--blind33" in argv:
         return BLIND33
     if "--blind32" in argv:

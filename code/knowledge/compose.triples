@@ -1158,8 +1158,6 @@ int main(int argc, char **argv) {\
 运算:只留数字	输出	打印:字符串
 运算:只留数字	模板	模板:标准输入字符串
 # 去重（数据）：O(n^2) 原地去重，保留首次出现顺序
-运算:数组去重	排除	从小到大
-运算:数组去重	排除	从大到小
 运算:数组去重	关键词	数组去重
 运算:数组去重	关键词	去掉重复
 运算:数组去重	语句	{ int m = 0; for (int i = 0; i < n; i++) { int dup = 0; for (int j = 0; j < m; j++) if (v[j] == v[i]) dup = 1; if (!dup) v[m++] = v[i]; } n = m; }
@@ -1495,11 +1493,13 @@ int main(int argc, char **argv) {\
 运算:单词反转	语句	{ for (int i = 0; s[i]; i++) if (s[i] == 10) { s[i] = 0; break; } char words[64][32]; int nw = 0, i = 0; while (s[i] && nw < 64) { while (s[i] == 32) i++; if (!s[i]) break; int w = 0; while (s[i] && s[i] != 32 && w < 31) words[nw][w++] = s[i++]; words[nw][w] = 0; nw++; } char o[512]; int k = 0; for (int q = nw - 1; q >= 0 && k < 500; q--) { if (k) o[k++] = 32; for (int j = 0; words[q][j] && k < 500; j++) o[k++] = words[q][j]; } o[k] = 0; snprintf(s, 128, "%s", o); }
 运算:单词反转	输出	打印:字符串
 
+运算:数组去重升序	要求	从小到大
 运算:数组去重升序	关键词	去重
 运算:数组去重升序	排除	从大到小
 运算:数组去重升序	模板	模板:标准输入整数数组
 运算:数组去重升序	语句	{ int w = 0; for (int i = 0; i < n; i++) { int dup = 0; for (int j = 0; j < w; j++) if (v[j] == v[i]) { dup = 1; break; } if (!dup) v[w++] = v[i]; } n = w; for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (v[j] < v[i]) { long t2 = v[i]; v[i] = v[j]; v[j] = t2; } }
 运算:数组去重升序	输出	打印:数组空格
+运算:数组去重降序	要求	从大到小
 运算:数组去重降序	关键词	去重
 运算:数组去重降序	排除	从小到大
 运算:数组去重降序	模板	模板:标准输入整数数组
