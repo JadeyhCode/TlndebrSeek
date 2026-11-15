@@ -518,7 +518,28 @@ BLIND36 = [
          gold=lambda a: list(reversed(a))[:2]),
 ]
 
+BLIND37 = [
+    dict(name="前三个数里最大", shape="arr", desc="读入一行整数（标准输入），输出前三个数里最大的。",
+         gold=lambda a: max(a[:3])),
+    dict(name="前两个数的和", shape="arr", desc="读入一行整数（标准输入），输出前两个数的和。",
+         gold=lambda a: sum(a[:2])),
+    dict(name="负数清零后最小", shape="arr", desc="读入一行整数（标准输入），把负数变成 0 之后输出最小值。",
+         gold=lambda a: min(x if x > 0 else 0 for x in a)),
+    dict(name="反转后转小写", shape="str", desc="写一个程序：把读入的字符串反转后转成小写输出。",
+         gold=lambda s: s[::-1].lower()),
+    dict(name="大写后长度乘二", shape="str", desc="写一个程序：把读入的字符串转成大写后输出长度再乘二。",
+         gold=lambda s: 2 * len(s)),
+    dict(name="偶数之和减一", shape="arr", desc="读入一行整数（标准输入），输出其中偶数的和再减一。",
+         gold=lambda a: sum(x for x in a if x % 2 == 0) - 1),
+    dict(name="平方后最大加一", shape="arr", desc="读入一行整数（标准输入），每个数平方之后输出最大值再加一。",
+         gold=lambda a: max(x * x for x in a) + 1),
+    dict(name="奇数个数乘三", shape="arr", desc="读入一行整数（标准输入），输出其中奇数的个数再乘三。",
+         gold=lambda a: 3 * sum(1 for x in a if x % 2 != 0)),
+]
+
 def _set_of(argv):
+    if "--blind37" in argv:
+        return BLIND37
     if "--blind36" in argv:
         return BLIND36
     if "--blind35" in argv:

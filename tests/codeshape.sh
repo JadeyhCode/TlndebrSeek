@@ -112,6 +112,15 @@ C=$(synth '写一个程序：读入一个整数（命令行参数），输出它
 if [ -n "$C" ] && note_of s6f.log | grep -qa '反转 → 加一'; then ok "整数反转后加一仍走标量支（未点名形状时默认标量）"
 else bad "标量反转被非标量支抢走" "$(note_of s6f.log)"; fi
 
+C=$(synth '读入一行整数（标准输入），反转之后输出前两个数。' s6g.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '1 2 3 4
+')" = "4 3" ]; then ok "反转后前两个 = 4 3（『两』也算 2）"
+else bad "反转后前两个不对" "$(note_of s6g.log)"; fi
+C=$(synth '读入一行整数（标准输入），输出前三个数的和。' s6h.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '1 2 3 4
+')" = "6" ]; then ok "前三个数的和 = 6（切片 → 归约同族）"
+else bad "前三个数的和不对" "$(note_of s6h.log)"; fi
+
 echo "== ⑦ 回退路：链编不过时任务/配方仍可达 =="
 C=$(synth '读入两个整数（命令行参数），输出它们的和。' s7.log)
 if [ -n "$C" ] && note_of s7.log | grep -qa '合成\|配方\|任务'; then ok "两个整数的和仍能合成（回退没被堵死）"

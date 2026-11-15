@@ -847,7 +847,7 @@ static inline const char *code_kw_find(const char *desc, const char *kw, size_t 
  * 第二个参数回传“吃掉了几个字节”，供“关键词前面取参数”按字节对齐用。 */
 static inline int code_cn_num_len(const char *p, size_t *used) {
     static const struct { const char *w; int v; } T[] = {
-        {"十", 10}, {"一", 1}, {"二", 2}, {"三", 3}, {"四", 4},
+        {"十", 10}, {"一", 1}, {"二", 2}, {"两", 2}, {"三", 3}, {"四", 4},
         {"五", 5}, {"六", 6}, {"七", 7}, {"八", 8}, {"九", 9}, {NULL, 0}
     };
     if (!p || !*p) { if (used) *used = 0; return -1; }
