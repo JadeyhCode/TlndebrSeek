@@ -143,6 +143,19 @@ if [ -n "$C" ] && [ "$(run_in "$C" '-1 2 3
 ')" = "2" ]; then ok "负数清零后正数个数 = 2（条件计数同族）"
 else bad "正数个数不对" "$(note_of s6m.log)"; fi
 
+C=$(synth '写一个程序：统计读入一行字符串里的单词个数再乘二。' s6n.log)
+if [ -n "$C" ] && [ "$(run_in "$C" 'a bb c
+')" = "6" ]; then ok "单词个数乘二 = 6（计数算子能进链）"
+else bad "单词个数乘二不对" "$(note_of s6n.log)"; fi
+C=$(synth '写一个程序：输出读入一行字符串里最长单词的长度再加一。' s6o.log)
+if [ -n "$C" ] && [ "$(run_in "$C" 'abcXYZ
+')" = "7" ]; then ok "最长单词加一 = 7（换行算分隔符）"
+else bad "最长单词加一不对" "$(note_of s6o.log)"; fi
+C=$(synth '读入一行整数（标准输入），输出最大值减最小值再加一。' s6p.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '4 1 9
+')" = "9" ]; then ok "最大值减最小值加一 = 9（极差进链）"
+else bad "最大值减最小值加一不对" "$(note_of s6p.log)"; fi
+
 echo "== ⑦ 回退路：链编不过时任务/配方仍可达 =="
 C=$(synth '读入两个整数（命令行参数），输出它们的和。' s7.log)
 if [ -n "$C" ] && note_of s7.log | grep -qa '合成\|配方\|任务'; then ok "两个整数的和仍能合成（回退没被堵死）"

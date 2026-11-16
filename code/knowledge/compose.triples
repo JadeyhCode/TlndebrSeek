@@ -548,6 +548,9 @@ int main(void) {\
 运算:空格个数	语句	{ x = 0; for (char *p = s; *p; p++) if (*p == ' ') x++; }
 运算:空格个数	模板	模板:标准输入字符串
 运算:单词个数	关键词	词的个数
+运算:单词个数	关键词	单词个数
+运算:单词个数	关键词	单词的个数
+运算:单词个数	输出	打印:整数
 运算:单词个数	语句	{ x = 0; int inw = 0; for (char *p = s; *p; p++) { if (*p == ' ' || *p == '\n' || *p == '\t') inw = 0; else if (!inw) { inw = 1; x++; } } }
 运算:单词个数	模板	模板:标准输入字符串
 # 字符串变换（数据）：直接改 s；输出类型由最后一个运算的 输出 边决定
@@ -1470,7 +1473,7 @@ int main(int argc, char **argv) {\
 运算:任意进制	语句	{ long b = <P>; if (b < 2 || b > 36) b = 10; char o[128]; int w = 0; long v2 = N < 0 ? -N : N; if (v2 == 0) o[w++] = 48; while (v2 > 0) { int d = (int)(v2 % b); o[w++] = (char)(d < 10 ? 48 + d : 87 + d); v2 /= b; } char r2[128]; int k = 0; if (N < 0) r2[k++] = 45; while (w > 0) r2[k++] = o[--w]; r2[k] = 0; printf("%s\n", r2); }
 运算:最长单词长度	关键词	最长单词
 运算:最长单词长度	模板	模板:标准输入字符串
-运算:最长单词长度	语句	{ int best = 0, cur = 0; for (int i = 0; ; i++) { if (s[i] == 32 || s[i] == 9 || s[i] == 0) { if (cur > best) best = cur; cur = 0; if (!s[i]) break; } else cur++; } x = best; }
+运算:最长单词长度	语句	{ int best = 0, cur = 0; for (int i = 0; ; i++) { char ch = s[i]; if (ch == 32 || ch == 9 || ch == 10 || ch == 13 || ch == 0) { if (cur > best) best = cur; cur = 0; if (!ch) break; } else cur++; } x = best; }
 运算:逆序对个数	关键词	逆序对
 运算:逆序对个数	模板	模板:标准输入整数数组
 运算:逆序对个数	语句	{ long c = 0; for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) if (v[i] > v[j]) c++; x = c; }
@@ -1569,6 +1572,7 @@ int main(int argc, char **argv) {\
 运算:交替和	模板	模板:标准输入整数数组
 运算:交替和	语句	{ long t2 = 0; for (int i = 0; i < n; i++) t2 += (i % 2 == 0) ? v[i] : -v[i]; x = t2; }
 运算:极差	关键词	最大值与最小值之差
+运算:极差	关键词	最大值减最小值
 运算:极差	关键词	极差
 运算:极差	模板	模板:标准输入整数数组
 运算:极差	语句	{ long mn = v[0], mx = v[0]; for (int i = 1; i < n; i++) { if (v[i] < mn) mn = v[i]; if (v[i] > mx) mx = v[i]; } x = mx - mn; }
