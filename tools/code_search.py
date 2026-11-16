@@ -670,7 +670,28 @@ BLIND44 = [
          gold=lambda a: max(a) - min(a) + 2),
 ]
 
+BLIND45 = [
+    dict(name="排序后乘二输出", shape="arr", desc="读入一行整数（标准输入），从小到大排序后每个数乘 2 输出。",
+         gold=lambda a: [2 * x for x in sorted(a)]),
+    dict(name="平方后排序输出", shape="arr", desc="读入一行整数（标准输入），每个数平方之后从小到大排序输出。",
+         gold=lambda a: sorted(x * x for x in a)),
+    dict(name="反转后平方输出", shape="arr", desc="读入一行整数（标准输入），反转之后每个数平方输出。",
+         gold=lambda a: [x * x for x in reversed(a)]),
+    dict(name="降序后加一输出", shape="arr", desc="读入一行整数（标准输入），从大到小排序后每个数加一输出。",
+         gold=lambda a: [x + 1 for x in sorted(a, reverse=True)]),
+    dict(name="矩阵行和减二", shape="matrix", desc="读入一个矩阵（标准输入），输出每一行的和再减二。",
+         gold=lambda m: [sum(r) - 2 for r in m]),
+    dict(name="矩阵列和乘二输出", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列的和再乘二。",
+         gold=lambda m: [2 * sum(r[j] for r in m) for j in range(len(m[0]))]),
+    dict(name="减三后求和", shape="arr", desc="读入一行整数（标准输入），每个数减 3 之后输出总和。",
+         gold=lambda a: sum(x - 3 for x in a)),
+    dict(name="加二后最大值", shape="arr", desc="读入一行整数（标准输入），每个数加 2 之后输出最大值。",
+         gold=lambda a: max(x + 2 for x in a)),
+]
+
 def _set_of(argv):
+    if "--blind45" in argv:
+        return BLIND45
     if "--blind44" in argv:
         return BLIND44
     if "--blind43" in argv:
