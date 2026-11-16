@@ -689,7 +689,28 @@ BLIND45 = [
          gold=lambda a: max(x + 2 for x in a)),
 ]
 
+BLIND46 = [
+    dict(name="排序后平方输出", shape="arr", desc="读入一行整数（标准输入），从小到大排序后每个数平方输出。",
+         gold=lambda a: [x * x for x in sorted(a)]),
+    dict(name="降序后减一输出", shape="arr", desc="读入一行整数（标准输入），从大到小排序后每个数减一输出。",
+         gold=lambda a: [x - 1 for x in sorted(a, reverse=True)]),
+    dict(name="平方后降序输出", shape="arr", desc="读入一行整数（标准输入），每个数平方之后从大到小排序输出。",
+         gold=lambda a: sorted((x * x for x in a), reverse=True)),
+    dict(name="加三后排序输出", shape="arr", desc="读入一行整数（标准输入），每个数加 3 之后从小到大排序输出。",
+         gold=lambda a: sorted(x + 3 for x in a)),
+    dict(name="矩阵行和加一", shape="matrix", desc="读入一个矩阵（标准输入），输出每一行的和再加一。",
+         gold=lambda m: [sum(r) + 1 for r in m]),
+    dict(name="矩阵列最大减一", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列中最大的数再减一。",
+         gold=lambda m: [max(r[j] for r in m) - 1 for j in range(len(m[0]))]),
+    dict(name="排序后最大值加一", shape="arr", desc="读入一行整数（标准输入），从小到大排序后输出最大值再加一。",
+         gold=lambda a: max(a) + 1),
+    dict(name="反转后排序输出", shape="arr", desc="读入一行整数（标准输入），反转之后从小到大排序输出。",
+         gold=lambda a: sorted(a)),
+]
+
 def _set_of(argv):
+    if "--blind46" in argv:
+        return BLIND46
     if "--blind45" in argv:
         return BLIND45
     if "--blind44" in argv:

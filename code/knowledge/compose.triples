@@ -842,6 +842,10 @@ int main(int argc, char **argv) {\
 片段:cmp_long	代码	static int cmp_long(const void *pa, const void *pb) { long a = *(const long *)pa, b = *(const long *)pb; return (a > b) - (a < b); }
 运算:数组排序	关键词	数组排序
 运算:数组排序	关键词	排序后
+运算:数组排序	关键词	从小到大排序
+运算:数组排序	排除	从大到小
+运算:数组排序	排除	降序
+运算:数组排序	排除	从高到低
 运算:数组排序	排除	归并
 运算:数组排序	语句	{ qsort(v, (size_t)n, sizeof v[0], cmp_long); }
 运算:数组排序	用	片段:cmp_long
@@ -1132,6 +1136,8 @@ int main(int argc, char **argv) {\
 片段:cmp_desc	代码	static int cmp_desc(const void *pa, const void *pb) { long a = *(const long *)pa, b = *(const long *)pb; return (a < b) - (a > b); }
 打印:空格数组	代码	{ for (int i = 0; i < n; i++) printf(i ? " %ld" : "%ld", v[i]); printf("\n"); }
 运算:数组降序	排除	去重
+运算:数组降序	排除	从小到大
+运算:数组降序	排除	升序
 运算:数组降序	关键词	从大到小
 运算:数组降序	语句	{ qsort(v, (size_t)n, sizeof v[0], cmp_desc); }
 运算:数组降序	用	片段:cmp_desc

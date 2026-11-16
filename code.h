@@ -425,6 +425,25 @@ static inline int code_desc_wants_scalar(const char *desc) {
 /* §6.892 标量变换语句：只读写 x（没有 printf/fputs、不碰 v[]/s[]/m[]/n）⇒ 可以"逐元素提升"。
  * 用途：数组产出的算子（矩阵行和、数组翻转…）后面接一个标量算子（加一/乘二），
  * 语义是"对每个元素做一遍"，以前被形状连通规则整条剔除（§6.891 的 blind43 缺口）。 */
+/* §6.894 自打印算子：`输出 打印:无` 且语句里有 printf（如 数组降序输出概念）。
+ * 它只能当链尾；放在中间会先打一行数组、再把后面的结果打出来（blind45 的脏链就是这么来的）。 */
+static inline int code_op_self_prints(AI *ai, Token *op) {
+    if (!ai || !op) return 0;
+    uint8_t rid_out = rel_id_of(ai, "输出", 0);
+    uint8_t rid_st = rel_id_of(ai, "语句", 0);
+    if (rid_out < REL_DYN_BASE || rid_st < REL_DYN_BASE) return 0;
+    uint8_t d_out = (uint8_t)(rid_out - REL_DYN_BASE + 1);
+    uint8_t d_st = (uint8_t)(rid_st - REL_DYN_BASE + 1);
+    int no_print = 0, has_printf = 0;
+    for (size_t j = 0; j < op->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(op)[j];
+        if (!e->main || !e->main->name) continue;
+        if (e->dyn == d_out && strstr(e->main->name, "无")) no_print = 1;
+        if (e->dyn == d_st && strstr(e->main->name, "printf(")) has_printf = 1;
+    }
+    return no_print && has_printf;
+}
+
 static inline int code_stmt_liftable(const char *stmt) {
     if (!stmt || !*stmt) return 0;
     if (strstr(stmt, "printf(") || strstr(stmt, "fputs") || strstr(stmt, "putchar")) return 0;
@@ -1714,6 +1733,23 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
          * "平方根"不该被 §6.717 的"整数种类不标单链"挡死（那是为了不让"平方"这类短词抢走配方）。 */
         if (!ok_single && mlen[0] >= 9) ok_single = 1;
         if (!ok_single) return -1;
+    }
+    /* §6.894 自打印算子只能当链尾：中间位一律剔除（否则链会先打一行数组） */
+    if (n > 1) {
+        int keep = 0;
+        for (int i = 0; i < n; ++i) {
+            if (i != n - 1 && code_op_self_prints(ai, ops[i])) {
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[gate] 自打印算子不允许进中间位 ⇒ 剔除 %s\n", ops[i]->name);
+                continue;
+            }
+            ops[keep] = ops[i]; stmts[keep] = stmts[i];
+            pos[keep] = pos[i]; mlen[keep] = mlen[i];
+            memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
+            npv[keep] = npv[i]; par[keep] = par[i]; lift[keep] = lift[i]; keep++;
+        }
+        n = keep;
+        if (n < min_ops) return -1;
     }
     /* §6.718 额外的局部变量也来自数据：运算 --[声明]--> 变量名（如两个结果的 y） */
     const char *decls[4];
