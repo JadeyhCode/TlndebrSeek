@@ -651,7 +651,28 @@ BLIND43 = [
          gold=lambda m: [max(r[j] for r in m) + 1 for j in range(len(m[0]))]),
 ]
 
+BLIND44 = [
+    dict(name="反转后每个数加一", shape="arr", desc="读入一行整数（标准输入），反转之后每个数加一输出。",
+         gold=lambda a: [x + 1 for x in reversed(a)]),
+    dict(name="去重后每个数乘二", shape="arr", desc="读入一行整数（标准输入），去掉重复的数之后每个数乘 2 输出。",
+         gold=lambda a: [2 * x for x in sorted(set(a), key=a.index)]),
+    dict(name="矩阵行和减一", shape="matrix", desc="读入一个矩阵（标准输入），输出每一行的和再减一。",
+         gold=lambda m: [sum(r) - 1 for r in m]),
+    dict(name="矩阵列和加二", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列的和再加二。",
+         gold=lambda m: [sum(r[j] for r in m) + 2 for j in range(len(m[0]))]),
+    dict(name="矩阵列最大乘二", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列中最大的数再乘二。",
+         gold=lambda m: [2 * max(r[j] for r in m) for j in range(len(m[0]))]),
+    dict(name="平方和减二", shape="arr", desc="读入一行整数（标准输入），输出每个数的平方和再减二。",
+         gold=lambda a: sum(x * x for x in a) - 2),
+    dict(name="单词个数减二", shape="str", desc="写一个程序：统计读入一行字符串里的单词个数再减二。",
+         gold=lambda s: len(s.split()) - 2),
+    dict(name="极差加二", shape="arr", desc="读入一行整数（标准输入），输出最大值与最小值之差再加二。",
+         gold=lambda a: max(a) - min(a) + 2),
+]
+
 def _set_of(argv):
+    if "--blind44" in argv:
+        return BLIND44
     if "--blind43" in argv:
         return BLIND43
     if "--blind42" in argv:

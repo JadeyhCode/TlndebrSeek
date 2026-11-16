@@ -422,6 +422,18 @@ static inline int code_desc_wants_scalar(const char *desc) {
     return 0;
 }
 
+/* §6.892 标量变换语句：只读写 x（没有 printf/fputs、不碰 v[]/s[]/m[]/n）⇒ 可以"逐元素提升"。
+ * 用途：数组产出的算子（矩阵行和、数组翻转…）后面接一个标量算子（加一/乘二），
+ * 语义是"对每个元素做一遍"，以前被形状连通规则整条剔除（§6.891 的 blind43 缺口）。 */
+static inline int code_stmt_liftable(const char *stmt) {
+    if (!stmt || !*stmt) return 0;
+    if (strstr(stmt, "printf(") || strstr(stmt, "fputs") || strstr(stmt, "putchar")) return 0;
+    if (strstr(stmt, "v[") || strstr(stmt, "s[") || strstr(stmt, "m[")) return 0;
+    if (!strstr(stmt, "x")) return 0;
+    if (!strstr(stmt, "x =") && !strstr(stmt, "x=")) return 0;
+    return 1;
+}
+
 static inline int code_desc_wants_array(const char *desc) {
     static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
                                "排序后输出", "输出这些", "倒序", "列和", "每一列",
@@ -1023,6 +1035,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     }
     Token *ops[CODE_MAX_OPS];
     int par[CODE_MAX_OPS];
+    int lift[CODE_MAX_OPS];
     const char *stmts[CODE_MAX_OPS];
     size_t pos[CODE_MAX_OPS];
     size_t mlen[CODE_MAX_OPS];
@@ -1327,7 +1340,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                 ops[keep] = ops[i]; stmts[keep] = stmts[i];
                 pos[keep] = pos[i]; mlen[keep] = mlen[i];
                 memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-                npv[keep] = npv[i]; par[keep] = par[i]; keep++;
+                npv[keep] = npv[i]; par[keep] = par[i]; lift[keep] = lift[i]; keep++;
             }
             n = keep;
         }
@@ -1351,7 +1364,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             ops[keep] = ops[i]; stmts[keep] = stmts[i];
             pos[keep] = pos[i]; mlen[keep] = mlen[i];
             memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-            npv[keep] = npv[i]; keep++;
+            npv[keep] = npv[i]; lift[keep] = lift[i]; keep++;
         }
         n = keep;
     }
@@ -1378,7 +1391,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             ops[keep] = ops[i]; stmts[keep] = stmts[i];
             pos[keep] = pos[i]; mlen[keep] = mlen[i];
             memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-            npv[keep] = npv[i]; keep++;
+            npv[keep] = npv[i]; lift[keep] = lift[i]; keep++;
         }
         n = keep;
     }
@@ -1406,7 +1419,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             ops[keep] = ops[i]; stmts[keep] = stmts[i];
             pos[keep] = pos[i]; mlen[keep] = mlen[i]; par[keep] = par[i];
             memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-            npv[keep] = npv[i]; keep++;
+            npv[keep] = npv[i]; lift[keep] = lift[i]; keep++;
         }
         n = keep;
     }
@@ -1458,7 +1471,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         for (int i = 1; i < n; ++i) {
             int o = code_op_out_shape(ai, ops[keep - 1]);
             int s = code_op_in_shape(ai, ops[i]);
-            if ((o >= 2 && s >= 2 && o != s) || (o >= 2 && s == 0)) {
+            if (o >= 2 && s == 0 && code_stmt_liftable(stmts[i])) {
+                lift[keep] = 1;            /* §6.892 数组产出 → 标量算子：逐元素提升 */
+                if (getenv("AIP_CHAINDBG"))
+                    fprintf(stderr, "[gate] 数组产出 → 标量算子：提升 %s 到每个元素\n", ops[i]->name);
+            } else if ((o >= 2 && s >= 2 && o != s) || (o >= 2 && s == 0)) {
                 if (getenv("AIP_CHAINDBG"))
                     fprintf(stderr, "[gate] 形状不兼容（出%d → 入%d）⇒ 剔除 %s\n", o, s, ops[i]->name);
                 continue;
@@ -1466,7 +1483,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             ops[keep] = ops[i]; stmts[keep] = stmts[i];
             pos[keep] = pos[i]; mlen[keep] = mlen[i];
             memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-            npv[keep] = npv[i]; keep++;
+            npv[keep] = npv[i]; lift[keep] = lift[i]; keep++;
         }
         n = keep;
         if (n < min_ops) return -1;
@@ -1529,7 +1546,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                 ops[keep] = ops[i]; stmts[keep] = stmts[i];
                 pos[keep] = pos[i]; mlen[keep] = mlen[i];
                 memcpy(pbufs[keep], pbufs[i], sizeof pbufs[0]);
-                npv[keep] = npv[i]; keep++;
+                npv[keep] = npv[i]; lift[keep] = lift[i]; keep++;
             }
             n = keep;
             if (n < min_ops) return -1;
@@ -1794,6 +1811,16 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             else snprintf(stmt2, sizeof stmt2, "%s", stmt);
             snprintf(stmt, sizeof stmt, "%s", stmt2);
         }
+        if (lift[i]) {
+            /* §6.892 把标量语句提升成"对每个元素跑一遍"：x 当临时量，跑完写回 v[i] */
+            char wrapped[3072];
+            snprintf(wrapped, sizeof wrapped,
+                     "for (int i2 = 0; i2 < n; i2++) { long x = v[i2]; %s v[i2] = x; }", stmt);
+            int k = snprintf(body + bl, sizeof body - (size_t)bl, "    %s\n", wrapped);
+            if (k < 0 || (size_t)k >= sizeof body - (size_t)bl) break;
+            bl += k;
+            continue;
+        }
         int k = snprintf(body + bl, sizeof body - (size_t)bl, "    %s\n", stmt);
         if (k < 0 || (size_t)k >= sizeof body - (size_t)bl) break;
         bl += k;
@@ -1803,6 +1830,14 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     /* 只在“最后一个算子打印**数组**、且描述确实要数组”时跳过追加输出：
      * 更宽的规则会改变 blind11/13 的行为（实测 capbench 掉）。 */
     int stmt_prints = 0;
+    /* §6.892 末算子被"提升"过 ⇒ 产出是数组，按数组打印（末算子的 输出 边是标量，不能再用） */
+    if (n > 0 && lift[n - 1]) {
+        int k = snprintf(body + bl, sizeof body - (size_t)bl,
+                         "    for (int i3 = 0; i3 < n; i3++) printf(i3 ? \" %%ld\" : \"%%ld\", v[i3]); printf(\"\\n\");\n");
+        if (k > 0 && (size_t)k < sizeof body - (size_t)bl) bl += k;
+        stmt_prints = 1;
+    }
+
     int any_arr_print = 0;
     for (int _q = 0; _q < n; ++_q)
         if (stmts[_q] && strstr(stmts[_q], "printf(") &&
