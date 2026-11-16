@@ -708,7 +708,28 @@ BLIND46 = [
          gold=lambda a: sorted(a)),
 ]
 
+BLIND47 = [
+    dict(name="每个数减一输出", shape="arr", desc="读入一行整数（标准输入），每个数减一之后输出。",
+         gold=lambda a: [x - 1 for x in a]),
+    dict(name="排序后每个数减一", shape="arr", desc="读入一行整数（标准输入），从小到大排序后每个数减一输出。",
+         gold=lambda a: [x - 1 for x in sorted(a)]),
+    dict(name="矩阵行和减一", shape="matrix", desc="读入一个矩阵（标准输入），输出每一行的和再减一。",
+         gold=lambda m: [sum(r) - 1 for r in m]),
+    dict(name="矩阵列最大加二", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列中最大的数再加二。",
+         gold=lambda m: [max(r[j] for r in m) + 2 for j in range(len(m[0]))]),
+    dict(name="单词个数加三", shape="str", desc="写一个程序：统计读入一行字符串里的单词个数再加三。",
+         gold=lambda s: len(s.split()) + 3),
+    dict(name="极差加三", shape="arr", desc="读入一行整数（标准输入），输出最大值减最小值的差再加三。",
+         gold=lambda a: max(a) - min(a) + 3),
+    dict(name="平方和减三", shape="arr", desc="读入一行整数（标准输入），输出每个数的平方和再减三。",
+         gold=lambda a: sum(x * x for x in a) - 3),
+    dict(name="反转后每个数减一", shape="arr", desc="读入一行整数（标准输入），反转之后每个数减一输出。",
+         gold=lambda a: [x - 1 for x in reversed(a)]),
+]
+
 def _set_of(argv):
+    if "--blind47" in argv:
+        return BLIND47
     if "--blind46" in argv:
         return BLIND46
     if "--blind45" in argv:
