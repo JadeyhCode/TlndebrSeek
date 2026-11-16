@@ -43,6 +43,11 @@ synth() {
     printf '::act on\n::code synth %s\n::quit\n' "$1" | ./build_aip --model model.bin > "$2" 2>&1
     ls -t _t/work/synth_*.c 2>/dev/null | head -1
 }
+run_two() {   # <源文件> <a> <b>：编 + 用 argv 传两个整数跑
+    b="${1%.c}"
+    gcc -std=c11 -O1 -w -o "$b" "$1" -lm 2>/dev/null || { echo "__COMPILE_FAIL__"; return; }
+    "$b" "$2" "$3" 2>&1 | grep -av '^\(ok\|FAIL\)' | tr -d '\n'
+}
 run_file() {   # <源文件> <文件内容>：编 + 用 argv[1] 传临时文件跑，打印任务输出
     b="${1%.c}"
     gcc -std=c11 -O1 -w -o "$b" "$1" -lm 2>/dev/null || { echo "__COMPILE_FAIL__"; return; }
@@ -217,6 +222,14 @@ else bad "降序后每个数减一不对" "$(note_of s6y.log)"; fi
 C=$(synth '读入一个文件（命令行参数），输出文件的行数。' s6z.log)
 if [ -n "$C" ] && [ "$(run_file "$C" 'a b\nc\n')" = "2" ]; then ok "文件行数 = 2（文件输入通道）"
 else bad "文件行数不对" "$(note_of s6z.log)"; fi
+
+C=$(synth '读入一行整数（标准输入），输出最大的数和最小的数。' s6aa.log)
+if [ -n "$C" ] && [ "$(run_in "$C" '3 1 2
+')" = "3 1" ]; then ok "最大最小 = 3 1（两个结果的契约）"
+else bad "最大最小不对" "$(note_of s6aa.log)"; fi
+C=$(synth '读入两个整数（命令行参数），输出它们的和与积。' s6ab.log)
+if [ -n "$C" ] && [ "$(run_two "$C" 2 3)" = "5 6" ]; then ok "和与积 = 5 6（命令行两整数 + 两个结果）"
+else bad "和与积不对" "$(note_of s6ab.log)"; fi
 
 echo "== ⑦ 回退路：链编不过时任务/配方仍可达 =="
 C=$(synth '读入两个整数（命令行参数），输出它们的和。' s7.log)

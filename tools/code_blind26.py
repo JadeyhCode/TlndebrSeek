@@ -84,6 +84,20 @@ def judge(task, rng, tries=4):
                 return "wrong", out
             ok_n += 1
             continue
+        elif task["shape"] == "two":      # §6.898 两个命令行整数：argv[1], argv[2]
+            a, b = rng.randint(-20, 20), rng.randint(-20, 20)
+            v = (a, b)
+            data = b""
+            want = task["gold"](v)
+            if want is None:
+                continue
+            got = run_prog(path, data, argv=[str(a), str(b)])
+            if got is None:
+                return "refuse", out
+            if H.clean_out(got).strip() != S.exp_str(want).strip():
+                return "wrong", out
+            ok_n += 1
+            continue
         elif task["shape"] == "matrix":   # §6.890 新 shape：第一行 rr cc，后面是矩阵
             rr = rng.randint(2, 4)
             cc = rng.randint(2, 4)

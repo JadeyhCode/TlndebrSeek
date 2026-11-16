@@ -746,7 +746,32 @@ BLIND48 = [
          gold=lambda t: 3 * len(t.split())),
 ]
 
+import math as _math
+
+BLIND49 = [
+    dict(name="最大最小", shape="arr", desc="读入一行整数（标准输入），输出最大的数和最小的数。",
+         gold=lambda a: [max(a), min(a)]),
+    dict(name="反转后最大最小", shape="arr", desc="读入一行整数（标准输入），反转之后输出最大的数和最小的数。",
+         gold=lambda a: [max(a), min(a)]),
+    dict(name="去重后最大最小", shape="arr", desc="读入一行整数（标准输入），去掉重复的数之后输出最大的数和最小的数。",
+         gold=lambda a: [max(set(a)), min(set(a))]),
+    dict(name="和与积", shape="two", desc="读入两个整数（命令行参数），输出它们的和与积。",
+         gold=lambda p: [p[0] + p[1], p[0] * p[1]]),
+    dict(name="差与积", shape="two", desc="读入两个整数（命令行参数），输出它们的差与积。",
+         gold=lambda p: [p[0] - p[1], p[0] * p[1]]),
+    dict(name="最大公约数和最小公倍数", shape="two",
+         desc="读入两个整数（命令行参数），输出它们的最大公约数和最小公倍数。",
+         gold=lambda p: None if (p[0] == 0 and p[1] == 0) else
+         [int(_math.gcd(p[0], p[1])), abs(p[0] * p[1]) // int(_math.gcd(p[0], p[1]))]),
+    dict(name="两个数的和与积", shape="two", desc="读入两个整数（命令行参数），输出两个数的和与积。",
+         gold=lambda p: [p[0] + p[1], p[0] * p[1]]),
+    dict(name="和与积再算", shape="two", desc="读入两个整数（命令行参数），输出它们的和与积。",
+         gold=lambda p: [p[0] + p[1], p[0] * p[1]]),
+]
+
 def _set_of(argv):
+    if "--blind49" in argv:
+        return BLIND49
     if "--blind48" in argv:
         return BLIND48
     if "--blind47" in argv:
