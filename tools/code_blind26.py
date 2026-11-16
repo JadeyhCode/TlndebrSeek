@@ -61,6 +61,12 @@ def judge(task, rng, tries=4):
         if task["shape"] == "arr":
             v = [rng.randint(-9, 9) for _ in range(rng.randint(1, 7))]
             data = (" ".join(map(str, v)) + "\n").encode()
+        elif task["shape"] == "matrix":   # §6.890 新 shape：第一行 rr cc，后面是矩阵
+            rr = rng.randint(2, 4)
+            cc = rng.randint(2, 4)
+            v = [[rng.randint(-9, 9) for _ in range(cc)] for _ in range(rr)]
+            data = (("%d %d\n" % (rr, cc)) +
+                    "\n".join(" ".join(map(str, row)) for row in v) + "\n").encode()
         else:
             v = "".join(rng.choice("abcXYZ") for _ in range(rng.randint(1, 6)))
             data = (v + "\n").encode()

@@ -613,7 +613,28 @@ BLIND41 = [
          gold=lambda s: len(s.split())),
 ]
 
+BLIND42 = [
+    dict(name="矩阵元素和", shape="matrix", desc="读入一个矩阵（标准输入），输出所有元素的和。",
+         gold=lambda m: sum(sum(r) for r in m)),
+    dict(name="矩阵最大", shape="matrix", desc="读入一个矩阵（标准输入），输出矩阵中最大的数。",
+         gold=lambda m: max(max(r) for r in m)),
+    dict(name="矩阵行和", shape="matrix", desc="读入一个矩阵（标准输入），输出每一行的和。",
+         gold=lambda m: [sum(r) for r in m]),
+    dict(name="矩阵列和", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列的和。",
+         gold=lambda m: [sum(r[j] for r in m) for j in range(len(m[0]))]),
+    dict(name="矩阵列最大", shape="matrix", desc="读入一个矩阵（标准输入），输出每一列中最大的数。",
+         gold=lambda m: [max(r[j] for r in m) for j in range(len(m[0]))]),
+    dict(name="矩阵加一后行和", shape="matrix", desc="读入一个矩阵（标准输入），矩阵的每个数加一之后输出每一行的和。",
+         gold=lambda m: [sum(r) + len(r) for r in m]),
+    dict(name="矩阵最大减一", shape="matrix", desc="读入一个矩阵（标准输入），输出矩阵中最大的数再减一。",
+         gold=lambda m: max(max(r) for r in m) - 1),
+    dict(name="矩阵元素和乘二", shape="matrix", desc="读入一个矩阵（标准输入），输出所有元素的和再乘二。",
+         gold=lambda m: 2 * sum(sum(r) for r in m)),
+]
+
 def _set_of(argv):
+    if "--blind42" in argv:
+        return BLIND42
     if "--blind41" in argv:
         return BLIND41
     if "--blind40" in argv:
