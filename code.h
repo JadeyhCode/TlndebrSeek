@@ -2288,6 +2288,54 @@ static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
  * 判据：文件存在 + gcc 能编过 + 每个要点在文件里都有对应 TODO 函数。 */
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap);   /* §6.887 前置声明 */
 
+/* §6.895 把合成器产出的 .c 拆成三块：`#include`（去重）、`static` 片段（去重）、main 函数体。
+ * 只处理 `int main(void)` 形态；带 argc/argv 的留给“参考实现”注释，不硬嵌（参数语义没法自动接）。
+ * 返回 1 = 拆出了 body；0 = 没 main(void) 或读不到。 */
+static inline int code_plan_embed(const char *path, char *incs, size_t icap, size_t *in,
+                                  char *frag, size_t fcap, size_t *fn,
+                                  char *body, size_t bcap, size_t *bn) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char *raw = (char *)malloc(65536);
+    if (!raw) { fclose(f); return 0; }
+    size_t rn = fread(raw, 1, 65535, f);
+    raw[rn] = 0;
+    fclose(f);
+    int in_main = 0, got_main = 0;
+    char *save = NULL;
+    for (char *ln = strtok_r(raw, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+        if (!in_main) {
+            if (strncmp(ln, "int main(void)", 14) == 0) {
+                in_main = 1; got_main = 1;
+                if (*bn + 40 < bcap)
+                    *bn += (size_t)snprintf(body + *bn, bcap - *bn, "static int impl_x(void) {\n");
+                continue;
+            }
+            if (strncmp(ln, "#include", 8) == 0) {
+                char key[128];
+                snprintf(key, sizeof key, "%s\n", ln);
+                if (!strstr(incs, key) && *in + strlen(ln) + 2 < icap)
+                    *in += (size_t)snprintf(incs + *in, icap - *in, "%s\n", ln);
+                continue;
+            }
+            if (strncmp(ln, "static ", 7) == 0 && strchr(ln, '(')) {
+                const char *nm = ln + 7;
+                while (*nm == ' ') nm++;
+                char key[128];
+                snprintf(key, sizeof key, "%.40s", nm);
+                if (!strstr(frag, key) && *fn + strlen(ln) + 2 < fcap)
+                    *fn += (size_t)snprintf(frag + *fn, fcap - *fn, "%s\n", ln);
+                continue;
+            }
+            continue;
+        }
+        if (*bn + strlen(ln) + 2 < bcap)
+            *bn += (size_t)snprintf(body + *bn, bcap - *bn, "%s\n", ln);
+    }
+    free(raw);
+    return got_main;
+}
+
 static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t cap) {
     if (note && cap) note[0] = 0;
     if (!ai || !desc || !*desc) return -2;
@@ -2297,7 +2345,7 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
         return -1;
     }
     char *tree = malloc(16384);
-    char *src = malloc(32768);
+    char *src = malloc(262144);
     if (!tree || !src) { free(tree); free(src); if (note && cap) snprintf(note, cap, "没内存"); return -2; }
     tree[0] = 0;
     code_plan_ex(ai, desc, tree, 16384, 0);
@@ -2331,39 +2379,88 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
         if (note && cap) snprintf(note, cap, "需求拆出来了，但没有可执行要点（补 --[实现]--> 边）");
         free(tree); free(src); return -1;
     }
+    /* §6.895 先把**已覆盖**的要点真的生成成 C 函数（不再只留注释）：
+     * 每个要点跑一次 code_synth，把产出的 .c 拆成 include/片段/函数体，内嵌进骨架。 */
+    enum { PLAN_MAX_PTS = 32 };
+    char *incs = calloc(1, 8192);
+    char *frag = calloc(1, 16384);
+    char **bodies = calloc(PLAN_MAX_PTS, sizeof(char *));
+    int *emb = calloc(PLAN_MAX_PTS, sizeof(int));
+    if (!incs || !frag || !bodies || !emb) {
+        free(incs); free(frag); free(bodies); free(emb);
+        for (int i = 0; i < nimpl; ++i) free(impl[i]);
+        free(tree); free(src);
+        if (note && cap) snprintf(note, cap, "没内存");
+        return -2;
+    }
+    size_t in = 0, fn = 0;
+    int covered = 0, embedded = 0;
+    for (int i = 0; i < nimpl; ++i) {
+        char nb[512] = {0};
+        int sr = code_synth(ai, impl[i], nb, sizeof nb);
+        if (sr != 0) continue;
+        covered++;
+        const char *hit = strstr(nb, "synth_");
+        if (!hit) continue;
+        size_t nl = strcspn(hit, "：\n");
+        if (nl == 0 || nl >= 200) continue;
+        char rel[256], path[512];
+        snprintf(rel, sizeof rel, "%.*s", (int)nl, hit);
+        snprintf(path, sizeof path, "%s/%s", action_workdir(), rel);
+        bodies[i] = calloc(1, 16384);
+        if (!bodies[i]) continue;
+        size_t bn = 0;
+        if (code_plan_embed(path, incs, 8192, &in, frag, 16384, &fn, bodies[i], 16384, &bn) && bn > 0) {
+            embedded++;
+            emb[i] = 1;
+        } else {
+            free(bodies[i]); bodies[i] = NULL;
+        }
+    }
     size_t u = 0;
-    u += (size_t)snprintf(src + u, 32768 - u,
-        "/* 由 TlndebrSeek 自动生成的可编译骨架（::code plan --write，§6.887）\n"
+    u += (size_t)snprintf(src + u, 262144 - u,
+        "/* 由 TlndebrSeek 自动生成的可编译骨架（::code plan --write，§6.887/§6.895）\n"
         " * 需求：%s\n"
-        " * 说明：每个 TODO 对应 plan.triples 里的一条 --[实现]--> 要点；\n"
-        " *       旁边标 [已覆盖] 的要点能用 ::code synth 直接生成参考实现。\n"
+        " * 说明：每个 impl_<i> 是由对应 `--[实现]-->` 要点**逐条合成**出来的真实函数；\n"
+        " *       合成不了的留 todo_<i> 空桩（[未覆盖]），骨架整体仍然可编译、可运行。\n"
         " *\n", desc);
     {   /* 需求树（逐行注释） */
         char *save = NULL;
         for (char *ln = strtok_r(tree, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save))
-            u += (size_t)snprintf(src + u, 32768 - u, " * %s\n", ln);
-        u += (size_t)snprintf(src + u, 32768 - u, " */\n\n");
+            u += (size_t)snprintf(src + u, 262144 - u, " * %s\n", ln);
+        u += (size_t)snprintf(src + u, 262144 - u, " */\n\n");
     }
-    int covered = 0;
+    if (in) u += (size_t)snprintf(src + u, 262144 - u, "%s\n", incs);
+    if (fn) u += (size_t)snprintf(src + u, 262144 - u, "%s\n", frag);
     for (int i = 0; i < nimpl; ++i) {
-        char nb[512] = {0};
-        int sr = code_synth(ai, impl[i], nb, sizeof nb);
-        u += (size_t)snprintf(src + u, 32768 - u, "/* 要点 %d/%d：%s */\n", i + 1, nimpl, impl[i]);
-        if (sr == 0) {
-            covered++;
-            const char *hit = strstr(nb, "synth_");
-            u += (size_t)snprintf(src + u, 32768 - u, "/* [已覆盖] 参考实现：_t/work/%.*s\n */\n",
-                                  hit ? (int)strcspn(hit, "：\n") : 0, hit ? hit : "");
+        u += (size_t)snprintf(src + u, 262144 - u, "/* 要点 %d/%d：%s */\n", i + 1, nimpl, impl[i]);
+        if (emb[i]) {
+            char fnbuf[64];
+            snprintf(fnbuf, sizeof fnbuf, "impl_%d", i + 1);
+            u += (size_t)snprintf(src + u, 262144 - u, "/* [已覆盖] 由 ::code synth 生成（原文件已内嵌） */\n");
+            const char *b = bodies[i];
+            /* 把占位名 impl_x 换成 impl_<i> */
+            const char *ph = strstr(b, "impl_x");
+            if (ph) {
+                size_t pre = (size_t)(ph - b);
+                u += (size_t)snprintf(src + u, 262144 - u, "%.*s%s%s", (int)pre, b, fnbuf, ph + 6);
+            } else {
+                u += (size_t)snprintf(src + u, 262144 - u, "%s", b);
+            }
+            u += (size_t)snprintf(src + u, 262144 - u, "\n");
         } else {
-            u += (size_t)snprintf(src + u, 32768 - u, "/* [未覆盖] 这一条还没学会，先留 TODO */\n");
+            u += (size_t)snprintf(src + u, 262144 - u,
+                                  "/* [未覆盖] 这一条还没学会，先留 TODO */\n"
+                                  "static void todo_%d(void) { /* TODO: %s */ }\n\n",
+                                  i + 1, impl[i]);
         }
-        u += (size_t)snprintf(src + u, 32768 - u, "static void todo_%d(void) { /* TODO: %s */ }\n\n",
-                              i + 1, impl[i]);
     }
-    u += (size_t)snprintf(src + u, 32768 - u, "int main(void) {\n");
+    u += (size_t)snprintf(src + u, 262144 - u, "int main(void) {\n");
     for (int i = 0; i < nimpl; ++i)
-        u += (size_t)snprintf(src + u, 32768 - u, "    todo_%d();\n", i + 1);
-    u += (size_t)snprintf(src + u, 32768 - u, "    return 0;\n}\n");
+        u += (size_t)snprintf(src + u, 262144 - u, "    %s_%d();\n", emb[i] ? "impl" : "todo", i + 1);
+    u += (size_t)snprintf(src + u, 262144 - u, "    fputs(\"plan ok\\n\", stdout);\n    return 0;\n}\n");
+    for (int i = 0; i < nimpl; ++i) free(bodies[i]);
+    free(bodies); free(emb); free(incs); free(frag);
     if (action_write_file(ai, "plan_write.c", src) != 0) {
         if (note && cap) snprintf(note, cap, "写文件失败：%s（--write 需要先 ::act on）", g_act.last_reason);
         for (int i = 0; i < nimpl; ++i) free(impl[i]);
@@ -2371,8 +2468,8 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     }
     char tnote[512] = {0};
     code_test_file(ai, "plan_write.c", tnote, sizeof tnote);
-    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖；%s",
-                              nimpl, covered, tnote);
+    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）；%s",
+                              nimpl, covered, embedded, tnote);
     for (int i = 0; i < nimpl; ++i) free(impl[i]);
     free(tree); free(src);
     return 0;
@@ -2395,6 +2492,9 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
      * 这条是数据（任务 --排除--> 词），C 里不点任何任务名。 */
     uint8_t rid_ex = rel_id_of(ai, "排除", 0);
     uint8_t dyn_ex = (rid_ex >= REL_DYN_BASE) ? (uint8_t)(rid_ex - REL_DYN_BASE + 1) : 0;
+    /* §6.895 任务也可以有**要求词**（必须出现），和运算的 §6.729 同一套语义 */
+    uint8_t rid_need = rel_id_of(ai, "要求", 0);
+    uint8_t dyn_need = (rid_need >= REL_DYN_BASE) ? (uint8_t)(rid_need - REL_DYN_BASE + 1) : 0;
     /* §6.725 匹配用"去掉虚词"的副本（参数解析也用副本里的位置） */
     char ndbuf[1024];
     code_norm_desc(ai, desc, ndbuf, sizeof ndbuf);
@@ -2429,6 +2529,15 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
             }
         }
         if (excluded) continue;
+        /* §6.895 要求词：任何一条不出现就作废（"最大值"单独不能命中"最值平均"） */
+        if (dyn_need) {
+            int lack = 0;
+            for (size_t j = 0; j < t->count && !lack; ++j) {
+                const AssocEntry *e = &token_assocs_ro(t)[j];
+                if (e->main && e->dyn == dyn_need && e->main->name && !strstr(nd, e->main->name)) lack = 1;
+            }
+            if (lack) continue;
+        }
         int hits = 0;
         size_t longest = 0;
         for (size_t j = 0; j < t->count; ++j) {
@@ -2479,6 +2588,15 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
                     }
                 }
                 if (excluded) continue;
+                /* §6.895 要求词：退而求其次时也一样要满足 */
+                if (dyn_need) {
+                    int lack = 0;
+                    for (size_t j = 0; j < t->count && !lack; ++j) {
+                        const AssocEntry *e = &token_assocs_ro(t)[j];
+                        if (e->main && e->dyn == dyn_need && e->main->name && !strstr(nd, e->main->name)) lack = 1;
+                    }
+                    if (lack) continue;
+                }
                 int hits = 0;
                 size_t longest = 0;
                 for (size_t j = 0; j < t->count; ++j) {

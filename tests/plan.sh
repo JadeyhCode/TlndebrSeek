@@ -68,12 +68,19 @@ grep -qa 'plan --write' _t/work/plan_write.txt || { echo "  [FAIL] --write 没�
 grep -qa '2 个要点' _t/work/plan_write.txt || { echo "  [FAIL] --write 要点数不对"; fails=$((fails+1)); }
 grep -qa '编过' _t/work/plan_write.txt || { echo "  [FAIL] --write 骨架没编过"; fails=$((fails+1)); }
 if [ -s _t/work/plan_write.c ]; then
-    for w in '输出它们的和' '输出最大值' 'todo_1' 'todo_2' '[已覆盖] 参考实现'; do
+    for w in '输出它们的和' '输出最大值' 'impl_1' 'impl_2' '[已覆盖]'; do
         grep -qaF -- "$w" _t/work/plan_write.c || { echo "  [FAIL] 骨架缺 $w"; fails=$((fails+1)); }
     done
     gcc -std=c11 -Wall -Wextra -o _t/work/plan_write.verify _t/work/plan_write.c 2> _t/work/plan_write.gcc \
         || { echo "  [FAIL] 骨架独立 gcc 编不过：$(head -2 _t/work/plan_write.gcc | tr '\n' ' ')"; fails=$((fails+1)); }
-    [ -x _t/work/plan_write.verify ] && _t/work/plan_write.verify || { echo "  [FAIL] 骨架产物跑不起来"; fails=$((fails+1)); }
+    # §6.895 每条已覆盖的要点必须**真的生成成函数**（impl_<i>），而不是只留注释
+    grep -qa 'static int impl_1' _t/work/plan_write.c || { echo "  [FAIL] 要点 1 没有内嵌成函数"; fails=$((fails+1)); }
+    grep -qa 'static int impl_2' _t/work/plan_write.c || { echo "  [FAIL] 要点 2 没有内嵌成函数"; fails=$((fails+1)); }
+    grep -qa '2 条已内嵌成函数' _t/work/plan_write.txt || { echo "  [FAIL] 摘要里没报内嵌函数数"; fails=$((fails+1)); }
+    if [ -x _t/work/plan_write.verify ]; then
+        _t/work/plan_write.verify > _t/work/plan_write.run 2>&1 || { echo "  [FAIL] 骨架产物跑不起来"; fails=$((fails+1)); }
+        grep -qa 'plan ok' _t/work/plan_write.run || { echo "  [FAIL] 骨架产物没打 plan ok"; fails=$((fails+1)); }
+    fi
 else
     echo "  [FAIL] --write 没写出骨架文件"; fails=$((fails+1))
 fi
