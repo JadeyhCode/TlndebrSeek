@@ -39,14 +39,16 @@ def synth(desc):
     return cands[-1], out
 
 
-def run_prog(src_path, data):
+def run_prog(src_path, data, argv=None):
     exe = src_path[:-2]
     r = subprocess.run(["gcc", "-std=c11", "-O1", "-w", "-o", exe, src_path, "-lm"],
                        capture_output=True)
     if r.returncode != 0:
         return None
     try:
-        run = subprocess.run([exe], input=data, capture_output=True, timeout=5)
+        # §6.897 file shape：把输入写成临时文件、按命令行参数传给产物（stdin 仍给 /dev/null）
+        run = subprocess.run([exe] + (argv or []), input=data if argv is None else b"",
+                             capture_output=True, timeout=5)
     except subprocess.TimeoutExpired:
         return None
     return run.stdout.decode("utf-8", "replace")
@@ -61,6 +63,27 @@ def judge(task, rng, tries=4):
         if task["shape"] == "arr":
             v = [rng.randint(-9, 9) for _ in range(rng.randint(1, 7))]
             data = (" ".join(map(str, v)) + "\n").encode()
+        elif task["shape"] == "file":     # §6.897 文件输入：内容写临时文件，产物用 argv[1] 读
+            words = ["a", "bb", "ccc", "XY", "z", "pq"]
+            lines = []
+            for _ in range(rng.randint(1, 4)):
+                lines.append(" ".join(rng.choice(words) for _ in range(rng.randint(1, 4))))
+            text = "\n".join(lines) + "\n"
+            fpath = os.path.join(ROOT, "_t", "work", "blind_file_in.txt")
+            with open(fpath, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            v = text
+            data = b""
+            want = task["gold"](v)
+            if want is None:
+                continue
+            got = run_prog(path, data, argv=[fpath])
+            if got is None:
+                return "refuse", out
+            if H.clean_out(got).strip() != S.exp_str(want).strip():
+                return "wrong", out
+            ok_n += 1
+            continue
         elif task["shape"] == "matrix":   # §6.890 新 shape：第一行 rr cc，后面是矩阵
             rr = rng.randint(2, 4)
             cc = rng.randint(2, 4)

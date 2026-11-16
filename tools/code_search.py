@@ -727,7 +727,28 @@ BLIND47 = [
          gold=lambda a: [x - 1 for x in reversed(a)]),
 ]
 
+BLIND48 = [
+    dict(name="文件行数", shape="file", desc="读入一个文件（命令行参数），输出文件的行数。",
+         gold=lambda t: t.count("\n")),
+    dict(name="文件单词数", shape="file", desc="读入一个文件（命令行参数），输出文件的单词数。",
+         gold=lambda t: len(t.split())),
+    dict(name="文件字符数", shape="file", desc="读入一个文件（命令行参数），输出文件的字符数。",
+         gold=lambda t: len(t)),
+    dict(name="文件行数和单词数", shape="file", desc="读入一个文件（命令行参数），输出文件的行数和单词数。",
+         gold=lambda t: "%d %d" % (t.count("\n"), len(t.split()))),
+    dict(name="文件行数乘二", shape="file", desc="读入一个文件（命令行参数），输出文件的行数再乘二。",
+         gold=lambda t: 2 * t.count("\n")),
+    dict(name="文件单词数减一", shape="file", desc="读入一个文件（命令行参数），输出文件的单词数再减一。",
+         gold=lambda t: len(t.split()) - 1),
+    dict(name="文件字符数加一", shape="file", desc="读入一个文件（命令行参数），输出文件的字符数再加一。",
+         gold=lambda t: len(t) + 1),
+    dict(name="文件单词数乘三", shape="file", desc="读入一个文件（命令行参数），输出文件的单词数再乘三。",
+         gold=lambda t: 3 * len(t.split())),
+]
+
 def _set_of(argv):
+    if "--blind48" in argv:
+        return BLIND48
     if "--blind47" in argv:
         return BLIND47
     if "--blind46" in argv:

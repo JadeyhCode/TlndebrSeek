@@ -43,6 +43,12 @@ synth() {
     printf '::act on\n::code synth %s\n::quit\n' "$1" | ./build_aip --model model.bin > "$2" 2>&1
     ls -t _t/work/synth_*.c 2>/dev/null | head -1
 }
+run_file() {   # <源文件> <文件内容>：编 + 用 argv[1] 传临时文件跑，打印任务输出
+    b="${1%.c}"
+    gcc -std=c11 -O1 -w -o "$b" "$1" -lm 2>/dev/null || { echo "__COMPILE_FAIL__"; return; }
+    printf '%b' "$2" > "$b.in"
+    "$b" "$b.in" 2>&1 | grep -av '^\(ok\|FAIL\)' | tr -d '\n'
+}
 run_in() {   # <源文件> <stdin>：编 + 跑，打印任务输出（去掉骨架自测行）
     b="${1%.c}"
     gcc -std=c11 -O1 -w -o "$b" "$1" -lm 2>/dev/null || { echo "__COMPILE_FAIL__"; return; }
@@ -207,6 +213,10 @@ C=$(synth '读入一行整数（标准输入），从大到小排序后每个数
 if [ -n "$C" ] && [ "$(run_in "$C" '3 1 2
 ')" = "2 1 0" ]; then ok "降序后每个数减一 = 2 1 0（打印格式统一为空格分隔）"
 else bad "降序后每个数减一不对" "$(note_of s6y.log)"; fi
+
+C=$(synth '读入一个文件（命令行参数），输出文件的行数。' s6z.log)
+if [ -n "$C" ] && [ "$(run_file "$C" 'a b\nc\n')" = "2" ]; then ok "文件行数 = 2（文件输入通道）"
+else bad "文件行数不对" "$(note_of s6z.log)"; fi
 
 echo "== ⑦ 回退路：链编不过时任务/配方仍可达 =="
 C=$(synth '读入两个整数（命令行参数），输出它们的和。' s7.log)
