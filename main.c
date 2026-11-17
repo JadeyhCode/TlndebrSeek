@@ -879,6 +879,7 @@ static const CmdDef CMDS[] = {
       "::tool set <url> <key> <model>  配 OpenAI 兼容端点（例如 `http://127.0.0.1:18321/v1`）\n"
       "::tool on|off                   开/关（默认关：一次都不往外走）\n"
       "::tool think low|medium|high     思考强度（max_tokens 1024/4096/16384）\n"
+      "::tool escalate <问题>           升级链路：先 ::net 搜索，搜不到再问大模型（两段都照实报）\n"
       "::tool ask <问题>               发过去、**原样**显示答复（带系统提示词：行动建议/先检查再结论/必要时出小题）\n"
       "::tool log                      看账（时间/模型/问题/字节/成败）\n"
       "⚠ 答复一律标 `[外部工具 <模型>]`，**不进图**：不算我的知识、不回灌关系层；\n"
@@ -6409,6 +6410,51 @@ int main(int argc, char **argv) {
                            tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低", tool_think_tokens(tc.think), TOOL_CFG);
                     continue;
                 }
+                if (!strncmp(arg, "escalate", 8) && (arg[8] == 0 || arg[8] == ' ')) {
+                    /* §6.915 升级链路：先搜索，搜不到再问外部大模型（默认关的层照旧不动）。
+                     * 搜索走 web.h（需要 ::net on + 白名单）；失败就照实写进提问，不装。 */
+                    const char *q = arg + 8;
+                    while (*q == ' ') q++;
+                    if (!*q) { printf("[用法] ::tool escalate <问题>（先搜索，搜不到再问外部大模型）\n"); continue; }
+                    if (!tc.on || !tc.url[0]) {
+                        printf("[升级] 外部工具没开/没配（::tool on + ::tool set …），不能升级；"
+                               "先本地解决。\n");
+                        continue;
+                    }
+                    char ctx[3072];
+                    ctx[0] = 0;
+                    size_t cl = 0;
+                    if (g_net.on) {
+                        WebHit hits[WEB_MAX_HITS];
+                        char why[256] = {0};
+                        int hn = web_search(q, hits, 3, why, sizeof why);
+                        printf("[升级] ① 搜索「%s」：%d 条%s\n", q, hn, hn ? "" : "（没成）");
+                        for (int i = 0; i < hn && cl < sizeof ctx - 400; ++i) {
+                            cl += (size_t)snprintf(ctx + cl, sizeof ctx - cl,
+                                "%d. %s\n   %s\n   %s\n", i + 1, hits[i].title,
+                                hits[i].url, hits[i].snip);
+                        }
+                        if (!hn) snprintf(ctx, sizeof ctx, "（搜索没成：%s）", why[0] ? why : "没结果");
+                    } else {
+                        snprintf(ctx, sizeof ctx, "（联网关着：::net on 之后才会真去搜；这次没搜）");
+                        printf("[升级] ① 搜索：跳过（%s）\n", ctx);
+                    }
+                    char qq[4096];
+                    snprintf(qq, sizeof qq,
+                             "【升级】用户问题：%s\n\n"
+                             "背景：本内核内部知识未命中；以下是网络检索的结果（可能是空的/失败的）：\n%s\n"
+                             "请按系统提示词回答：问怎么做就给可执行步骤；问做没做好就先检查材料再下结论；"
+                             "必要时出几道小题。", q, ctx);
+                    printf("[升级] ② 问外部大模型（%s，思考强度 %s）…\n",
+                           tc.model[0] ? tc.model : "?", tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低");
+                    char ans[8192], err[256];
+                    if (tool_ask(&tc, qq, ans, sizeof ans, err, sizeof err)) {
+                        printf("[外部工具 %s] 答（**不是我的知识**，不进图）：\n%s\n", tc.model[0] ? tc.model : "?", ans);
+                    } else {
+                        printf("[升级] 外部工具没答上来：%s（搜索结果是照实的，可自己看）\n", err[0] ? err : "（没原因）");
+                    }
+                    continue;
+                }
                 if (!strncmp(arg, "log", 3) && (arg[3] == 0 || arg[3] == ' ')) {
                     FILE *lf = fopen(TOOL_LOG, "r");
                     if (!lf) { printf("[外部工具] 还没有账（%s 不存在）\n", TOOL_LOG); continue; }
@@ -6433,7 +6479,7 @@ int main(int argc, char **argv) {
                     }
                     continue;
                 }
-                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool think low|medium|high ｜ ::tool ask <问题> ｜ ::tool log\n");
+                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool think low|medium|high ｜ ::tool ask <问题> ｜ ::tool escalate <问题> ｜ ::tool log\n");
                 continue;
             }
             case CMD_NET: {

@@ -107,6 +107,20 @@ o=$(run '::tool ask 怎么做')
 grep -q '只给三步行动计划' "$W/body.json" && ok "system_file 覆盖生效" || bad "system_file 没生效" "$(head -c 200 "$W/body.json")"
 grep -q '"max_tokens":1024' "$W/body.json" && ok "覆盖后思考强度仍生效" || bad "覆盖后 max_tokens 不对" "$(grep -o '"max_tokens":[0-9]*' "$W/body.json" | head -1)"
 
+echo "== ⑪ §6.915 升级链路：先搜索（联网关着就照实说），再问大模型 =="
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::tool escalate 我的 C 程序链接报错怎么做")
+printf '%s' "$o" | grep -q '\[升级\] ① 搜索' && ok "升级第一步报告了搜索阶段" || bad "升级没报搜索阶段" "$(printf '%s' "$o" | head -3)"
+printf '%s' "$o" | grep -q '联网关着' && ok "没开网时照实说没搜" || bad "没开网却装搜过" "$(printf '%s' "$o" | head -3)"
+printf '%s' "$o" | grep -q '\[升级\] ② 问外部大模型' && ok "第二步确实去问了" || bad "没走第二步" "$(printf '%s' "$o" | tail -3)"
+grep -q '用户问题' "$W/body.json" && ok "提问体里带了原问题" || bad "提问体没带原问题" "$(head -c 120 "$W/body.json")"
+grep -q '搜索没成\|联网关着' "$W/body.json" && ok "提问体里如实写了搜索状态" || bad "提问体没写搜索状态" "$(head -c 200 "$W/body.json")"
+grep -qa 'escalate\|升级' "$W/tool.log" && ok "账里记了升级" || bad "账里没记升级" "$(tail -2 "$W/tool.log")"
+
+echo "== ⑫ 升级关着时不动网络：工具没开就明确拒绝 =="
+o=$(run '::tool off')
+o=$(run '::tool escalate 你好')
+printf '%s' "$o" | grep -q '不能升级' && ok "工具关着：拒绝升级" || bad "工具关着还升级" "$(printf '%s' "$o" | head -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL tool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS tool（$pass 过 / 0 红）"
