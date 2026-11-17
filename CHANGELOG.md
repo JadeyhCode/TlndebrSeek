@@ -4,6 +4,28 @@
 `MODEL_VERSION`，当前 v13）。本文件只记**对外能看见**的变化，细节与证据在
 `docs/audit-vs-deepseek看这里.md` 的对应小节。
 
+## v0.08k（2026-11-15）—— 外部大模型升级通道（DeepSeek）
+
+### 配置与系统提示词
+- `tool.txt` 支持 `provider` / `base_url` / `api_key` / `model` / `thinking` / `system_file` / `auto`
+- `provider=deepseek` 自动补 `https://api.deepseek.com/v1` 与 `deepseek-chat`：只填 api_key 也能用
+- 思考强度 → `max_tokens`：低 1024 / 中 4096 / 高 16384
+- 内置系统提示词：问怎么做→给可执行行动建议；问做没做好→先检查材料再下结论；必要时出小题；不确定就说不知道
+- 请求体为 system+user 两条消息；答复标 `[外部工具 <模型>]`、**不进图**
+
+### 升级链路（先搜索，搜不到再问）
+- `::tool escalate <问题>` 与顶层 `::ask <问题>`：先 `::net` 搜索（没开网照实说跳过），
+  再把搜索结果连同问题问大模型；搜索失败原因写进提问，不装
+- `auto=1` 时自动升级：对话里“不太懂/没有依据/推不出来”的答复、`::code synth` 失败，
+  都走同一条链路（`tool_escalate_once`）
+- 默认全关：要 `::tool on`（且按需 `::tool auto on`）才往外走
+
+### 安全与验收
+- `tool.txt` / `tool.log` 已加入 `.gitignore`，密钥不入库；真实端点端到端验证过（HTTP 200）
+- `tests/tool.sh` 10 → **40 项**离线验收（假端点）：系统提示词、三档 max_tokens、DeepSeek 默认值、
+  `system_file` 覆盖、escalate 两段报告、auto 开关、`::ask`、合成失败升级、未配置拒绝
+- `tests/plan.sh` 与整包 121 套全绿；hidden 328/328、capbench PASS、blind26–49 全 8/8
+
 ## v0.08j（2026-11-15）—— 结构收口、盲测换形态、`plan --write` 闭环
 
 ### 生成侧结构修复（都可单条回退）
