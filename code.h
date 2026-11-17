@@ -2478,36 +2478,41 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
         for (int i = 0; i < nimpl; ++i) free(impl[i]);
         free(tree); free(src); return -2;
     }
-    /* §6.902 另出一份**逐条测试**文件：`#define PLAN_NO_MAIN` 后 include 骨架，
-     * 每个内嵌要点一个 test_impl_N，main 汇总；这才是“骨架有测试”的可执行证据。 */
+    /* §6.902/§6.904 另出一份**逐条测试**文件：`#define PLAN_NO_MAIN` 后 include 骨架。
+     * §6.904：**每个要点都进测试**——内嵌的检查返回码，未覆盖的调用 todo_* 并标 TODO，
+     * 这样 `test ok (N/M points, embedded E, todo T)` 的 M 是“全部要点”，不再只统计能做的。 */
     char *tsrc = (char *)malloc(65536);
     size_t tu = 0;
     if (tsrc) {
         tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-            "/* 由 TlndebrSeek 自动生成：::code plan --write 的逐条测试（§6.902）\n"
+            "/* 由 TlndebrSeek 自动生成：::code plan --write 的逐条测试（§6.902/§6.904）\n"
             " * 需求：%s\n * 用法：gcc plan_write_test.c -o plan_write_test && ./plan_write_test\n */\n"
             "#define PLAN_NO_MAIN\n#include \"plan_write.c\"\n\n", desc);
         for (int i = 0; i < nimpl; ++i) {
-            if (emb[i] != 1) continue;
-            tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-                "static int test_impl_%d(void) {\n"
-                "    if (impl_%d() != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
-                "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
-        }
-        for (int i = 0; i < nimpl; ++i) {
-            if (emb[i] != 2) continue;
-            tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-                "static int test_impl_%d(void) {\n"
-                "    if (impl_%d(0, NULL) != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
-                "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+            if (emb[i] == 1)
+                tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                    "static int test_impl_%d(void) {\n"
+                    "    if (impl_%d() != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
+                    "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+            else if (emb[i] == 2)
+                tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                    "static int test_impl_%d(void) {\n"
+                    "    if (impl_%d(0, NULL) != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
+                    "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+            else
+                tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                    "static int test_impl_%d(void) {\n"
+                    "    todo_%d();  /* §6.904 未覆盖要点：调用桩，标 TODO（不计失败） */\n"
+                    "    printf(\"test impl_%d TODO\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1);
         }
         tu += (size_t)snprintf(tsrc + tu, 65536 - tu, "\nint main(void) {\n    int fails = 0;\n");
         for (int i = 0; i < nimpl; ++i)
-            if (emb[i]) tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-                                               "    fails += test_impl_%d();\n", i + 1);
+            tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                                   "    fails += test_impl_%d();\n", i + 1);
         tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-            "    printf(\"test %%s (%%d/%%d)\\n\", fails ? \"FAIL\" : \"ok\", %d - fails, %d);\n"
-            "    return fails ? 1 : 0;\n}\n", embedded, embedded);
+            "    printf(\"test %%s (%%d/%%d points, embedded %d, todo %d)\\n\",\n"
+            "           fails ? \"FAIL\" : \"ok\", %d - fails, %d);\n"
+            "    return fails ? 1 : 0;\n}\n", embedded, nimpl - embedded, nimpl, nimpl);
         action_write_file(ai, "plan_write_test.c", tsrc);
     }
     free(tsrc);

@@ -99,11 +99,27 @@ if [ -s _t/work/plan_write_test.c ]; then
         _t/work/plan_write_test > _t/work/plan_write_test.run 2>&1
         rc=$?
         [ "$rc" -eq 0 ] || { echo "  [FAIL] 逐条测试退出码 $rc"; fails=$((fails+1)); }
-        grep -qa 'test ok (2/2)' _t/work/plan_write_test.run \
-            || { echo "  [FAIL] 逐条测试没打 test ok (2/2)"; fails=$((fails+1)); }
+        grep -qa 'test ok (2/2 points, embedded 2, todo 0)' _t/work/plan_write_test.run \
+            || { echo "  [FAIL] 逐条测试没打 test ok (2/2 points, embedded 2, todo 0)"; fails=$((fails+1)); }
     fi
 else
     echo "  [FAIL] 没生成逐条测试文件"; fails=$((fails+1))
+fi
+
+# 6c) §6.904 未覆盖要点的桩也要进测试：猜数字游戏（3 个要点全不会）→ test ok (3/3 points, embedded 0, todo 3)
+printf "::act on\n::code plan --write 写一个猜数字游戏\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_todo.txt 2>&1
+if [ -s _t/work/plan_write_test.c ]; then
+    gcc -std=c11 -Wall -Wextra -o _t/work/plan_write_todo _t/work/plan_write_test.c 2> _t/work/plan_write_todo.gcc \
+        || { echo "  [FAIL] 桩测试文件编不过"; fails=$((fails+1)); }
+    if [ -x _t/work/plan_write_todo ]; then
+        _t/work/plan_write_todo > _t/work/plan_write_todo.run 2>&1
+        rc=$?
+        [ "$rc" -eq 0 ] || { echo "  [FAIL] 桩测试退出码 $rc"; fails=$((fails+1)); }
+        grep -qaE 'test ok \([0-9]+/[0-9]+ points, embedded 0, todo [0-9]+\)' _t/work/plan_write_todo.run \
+            || { echo "  [FAIL] 桩测试摘要不对（应 test ok (N/N points, embedded 0, todo N)）"; fails=$((fails+1)); }
+        grep -qa 'TODO' _t/work/plan_write_todo.run \
+            || { echo "  [FAIL] 桩测试没标 TODO"; fails=$((fails+1)); }
+    fi
 fi
 
 # 7) §6.901 带 argc/argv 的模板也必须内嵌（文件行数器）：impl_1(int argc, char **argv) + 调用给 (0, NULL)
