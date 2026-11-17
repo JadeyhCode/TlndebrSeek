@@ -143,6 +143,25 @@ fi
 grep -qaF 'impl_2 → impl_1' _t/work/plan_write_report.md \
     || { echo "  [FAIL] 报告里的调用顺序不对"; fails=$((fails+1)); }
 
+# 6f) §6.912 严格模式：未覆盖要点记为失败（CI 用）；默认模式只标 TODO
+printf "::act on\n::code plan --write --strict 写一个数组统计小工具\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_strict_ok.txt 2>&1
+if grep -qa '严格模式' _t/work/plan_strict_ok.txt; then :; else echo "  [FAIL] 严格模式没在摘要里标出"; fails=$((fails+1)); fi
+gcc -std=c11 -Wall -Wextra -o _t/work/plan_strict_ok _t/work/plan_write_test.c 2>/dev/null
+if [ -x _t/work/plan_strict_ok ]; then
+    _t/work/plan_strict_ok > _t/work/plan_strict_ok.run 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] || { echo "  [FAIL] 全可合成树的严格测试应通过（rc=$rc）"; fails=$((fails+1)); }
+    grep -qa 'todo 0, strict' _t/work/plan_strict_ok.run || { echo "  [FAIL] 严格模式摘要缺 strict"; fails=$((fails+1)); }
+fi
+printf "::act on\n::code plan --write --strict 写一个猜数字游戏\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_strict_bad.txt 2>&1
+gcc -std=c11 -Wall -Wextra -o _t/work/plan_strict_bad _t/work/plan_write_test.c 2>/dev/null
+if [ -x _t/work/plan_strict_bad ]; then
+    _t/work/plan_strict_bad > _t/work/plan_strict_bad.run 2>&1
+    rc=$?
+    [ "$rc" -ne 0 ] || { echo "  [FAIL] 有未覆盖要点的树在严格模式下应失败"; fails=$((fails+1)); }
+    grep -qa 'FAIL (TODO)' _t/work/plan_strict_bad.run || { echo "  [FAIL] 严格模式没把 TODO 记为失败"; fails=$((fails+1)); }
+fi
+
 # 7) §6.901 带 argc/argv 的模板也必须内嵌（文件行数器）：impl_1(int argc, char **argv) + 调用给 (0, NULL)
 printf "::act on\n::code plan --write 写一个文件行数器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_argv.txt 2>&1
 grep -qaF 'static int impl_1(int argc, char **argv)' _t/work/plan_write.c \

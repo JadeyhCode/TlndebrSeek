@@ -23,6 +23,17 @@ DESCS2 = [
     "写一个数组工具集",
 ]
 
+DESCS8 = [
+    "写一个偶数个数器",
+    "写一个反转工具",
+    "写一个平方工具",
+    "写一个极差工具",
+    "写一个文件行数工具三号",
+    "写一个两数工具五号",
+    "写一个词频工具",
+    "写一个三要点工具",
+]
+
 DESCS7 = [
     "写一个偶数统计器二号",
     "写一个数组排序工具二号",
@@ -96,7 +107,8 @@ def run(aip, inp):
 
 
 def main():
-    descs = (DESCS7 if "--batch7" in sys.argv else
+    descs = (DESCS8 if "--batch8" in sys.argv else
+            DESCS7 if "--batch7" in sys.argv else
             DESCS6 if "--batch6" in sys.argv else
             DESCS5 if "--batch5" in sys.argv else
             DESCS4 if "--batch4" in sys.argv else

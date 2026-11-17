@@ -5658,12 +5658,14 @@ int main(int argc, char **argv) {
                     while (*d == ' ') d++;
                     if (!*d) { printf("[用法] ::code plan <一句话需求，比如 写一个跑酷游戏>\n"); continue; }
                     /* §6.878 `::code plan --data <描述>`：额外打印它实际用到的 plan.triples 边 */
-                    int show_edges = 0, do_write = 0;
+                    int show_edges = 0, do_write = 0, strict_mode = 0;
                     while (d[0] == '-' && d[1] == '-') {
                         if (strncmp(d, "--data", 6) == 0) {
                             show_edges = 1; d += 6;
                         } else if (strncmp(d, "--write", 7) == 0) {   /* §6.887 需求 → 可编译骨架 */
                             do_write = 1; d += 7;
+                        } else if (strncmp(d, "--strict", 8) == 0) {  /* §6.912 未覆盖要点记为失败（CI） */
+                            strict_mode = 1; d += 8;
                         } else break;
                         while (*d == ' ') d++;
                         if (!*d) { printf("[用法] ::code plan [--data|--write] <一句话需求>\n"); break; }
@@ -5673,7 +5675,7 @@ int main(int argc, char **argv) {
                         char *wb = malloc(2048);
                         if (!wb) { printf("[没内存]\n"); continue; }
                         wb[0] = 0;
-                        int wr = code_plan_write(a->brain, d, wb, 2048);
+                        int wr = code_plan_write(a->brain, d, wb, 2048, strict_mode);
                         printf("[plan --write] %s\n", wb);
                         free(wb);
                         if (wr < 0)

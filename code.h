@@ -2287,6 +2287,7 @@ static inline int code_plan(AI *ai, const char *desc, char *out, size_t cap) {
  *   ② 每个要点**逐条走 code_synth**：能合成就在旁边标出参考实现文件（`_t/work/synth_*.c`），
  *      不能合成也照实说"未覆盖"——骨架本身仍然可编译；
  *   ③ 骨架写到 `_t/work/plan_write.c`，用现成的 code_test_file 真编一遍（"可编译"不是嘴上说）。
+ * §6.912 `strict=1`：未覆盖的要点在逐条测试里**记为失败**（CI 用），默认模式只标 TODO 不算失败。
  * 判据：文件存在 + gcc 能编过 + 每个要点在文件里都有对应 TODO 函数。 */
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap);   /* §6.887 前置声明 */
 
@@ -2348,7 +2349,7 @@ static inline int code_plan_embed(const char *path, char *incs, size_t icap, siz
     return got_main ? (argc_form == 2 ? 2 : 1) : 0;
 }
 
-static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t cap) {
+static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t cap, int strict) {
     if (note && cap) note[0] = 0;
     if (!ai || !desc || !*desc) return -2;
     Token *root = code_plan_root(ai, desc);
@@ -2554,6 +2555,11 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
                     "static int test_impl_%d(void) {\n"
                     "    if (impl_%d(0, NULL) != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
                     "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+            else if (strict)
+                tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                    "static int test_impl_%d(void) {\n"
+                    "    todo_%d();  /* §6.912 严格模式：未覆盖要点记为失败 */\n"
+                    "    printf(\"test impl_%d FAIL (TODO)\\n\");\n    return 1;\n}\n", i + 1, i + 1, i + 1);
             else
                 tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
                     "static int test_impl_%d(void) {\n"
@@ -2565,9 +2571,10 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
             tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
                                    "    fails += test_impl_%d();\n", i + 1);
         tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
-            "    printf(\"test %%s (%%d/%%d points, embedded %d, todo %d)\\n\",\n"
+            "    printf(\"test %%s (%%d/%%d points, embedded %d, todo %d%s)\\n\",\n"
             "           fails ? \"FAIL\" : \"ok\", %d - fails, %d);\n"
-            "    return fails ? 1 : 0;\n}\n", embedded, nimpl - embedded, nimpl, nimpl);
+            "    return fails ? 1 : 0;\n}\n", embedded, nimpl - embedded, strict ? ", strict" : "",
+            nimpl, nimpl);
         action_write_file(ai, "plan_write_test.c", tsrc);
     }
     free(tsrc);
@@ -2584,11 +2591,11 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
             ru += (size_t)snprintf(rpt + ru, 32768 - ru,
                 "# ::code plan --write 报告\n\n"
                 "- 需求：%s\n"
-                "- 要点：%d（已覆盖 %d，已内嵌 %d，未覆盖 %d）\n"
+                "- 要点：%d（已覆盖 %d，已内嵌 %d，未覆盖 %d）%s\n"
                 "- 骨架：_t/work/plan_write.c —— %s\n"
                 "- 逐条测试：_t/work/plan_write_test.c —— %s\n\n"
                 "## 要点清单\n\n| # | 要点 | 状态 | 函数 | 测试 |\n|---|---|---|---|---|\n",
-                desc, nimpl, covered, embedded, nimpl - embedded,
+                desc, nimpl, covered, embedded, nimpl - embedded, strict ? "，**严格模式**（未覆盖 ⇒ 失败）" : "",
                 tnote, tnote2[0] ? tnote2 : "（未生成）");
             for (int i = 0; i < nimpl; ++i)
                 ru += (size_t)snprintf(rpt + ru, 32768 - ru,
@@ -2607,8 +2614,9 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     }
     for (int i = 0; i < nimpl; ++i) free(bodies[i]);
     free(bodies); free(emb); free(incs); free(frag);
-    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）；%s；测试 %s",
-                              nimpl, covered, embedded, tnote, tnote2[0] ? tnote2 : "（无测试文件）");
+    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）%s；%s；测试 %s",
+                              nimpl, covered, embedded, strict ? "（严格模式）" : "",
+                              tnote, tnote2[0] ? tnote2 : "（无测试文件）");
     for (int i = 0; i < nimpl; ++i) free(impl[i]);
     free(tree); free(src);
     return 0;
