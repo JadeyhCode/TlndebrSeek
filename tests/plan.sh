@@ -89,6 +89,23 @@ if [ -s _t/work/plan_write.c ]; then
 else
     echo "  [FAIL] --write 没写出骨架文件"; fails=$((fails+1))
 fi
+# 6b) §6.902 逐条测试文件：存在、能编、跑出 test ok (2/2)
+if [ -s _t/work/plan_write_test.c ]; then
+    grep -qaF '#include "plan_write.c"' _t/work/plan_write_test.c \
+        || { echo "  [FAIL] 测试文件没 include 骨架"; fails=$((fails+1)); }
+    gcc -std=c11 -Wall -Wextra -o _t/work/plan_write_test _t/work/plan_write_test.c 2> _t/work/plan_write_test.gcc \
+        || { echo "  [FAIL] 逐条测试文件编不过：$(head -2 _t/work/plan_write_test.gcc | tr '\n' ' ')"; fails=$((fails+1)); }
+    if [ -x _t/work/plan_write_test ]; then
+        _t/work/plan_write_test > _t/work/plan_write_test.run 2>&1
+        rc=$?
+        [ "$rc" -eq 0 ] || { echo "  [FAIL] 逐条测试退出码 $rc"; fails=$((fails+1)); }
+        grep -qa 'test ok (2/2)' _t/work/plan_write_test.run \
+            || { echo "  [FAIL] 逐条测试没打 test ok (2/2)"; fails=$((fails+1)); }
+    fi
+else
+    echo "  [FAIL] 没生成逐条测试文件"; fails=$((fails+1))
+fi
+
 # 7) §6.901 带 argc/argv 的模板也必须内嵌（文件行数器）：impl_1(int argc, char **argv) + 调用给 (0, NULL)
 printf "::act on\n::code plan --write 写一个文件行数器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_argv.txt 2>&1
 grep -qaF 'static int impl_1(int argc, char **argv)' _t/work/plan_write.c \

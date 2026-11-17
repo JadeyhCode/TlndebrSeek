@@ -23,6 +23,17 @@ DESCS2 = [
     "写一个数组工具集",
 ]
 
+DESCS3 = [
+    "写一个数组统计工具",
+    "写一个文件统计器",
+    "写一个矩阵统计器",
+    "写一个单词工具箱",
+    "写一个猜数字游戏",
+    "写一个数列求和解器",
+    "写一个负零统计器",
+    "写一个两数工具",
+]
+
 DESCS = [
     "写一个数组求和器",
     "写一个数组最值器",
@@ -41,7 +52,8 @@ def run(aip, inp):
 
 
 def main():
-    descs = DESCS2 if "--batch2" in sys.argv else DESCS
+    descs = (DESCS3 if "--batch3" in sys.argv else
+            DESCS2 if "--batch2" in sys.argv else DESCS)
     aip = os.path.join(ROOT, "build_aip")
     src = os.path.join(ROOT, "_t", "work", "plan_write.c")
     exe = src[:-2]
@@ -74,8 +86,23 @@ def main():
         if nemb < npts or ncov < npts:
             print("  [READ] %s（要点 %d / 已覆盖 %d / 已内嵌 %d）" % (desc, npts, ncov, nemb))
             continue
+        # §6.902 逐条测试文件：编过 + 跑出 "test ok"
+        tsrc = os.path.join(ROOT, "_t", "work", "plan_write_test.c")
+        tex = tsrc[:-2]
+        if not os.path.exists(tsrc):
+            print("  [FAIL] %s（没有逐条测试文件）" % desc)
+            continue
+        tcc = subprocess.run(["gcc", "-std=c11", "-Wall", "-Wextra", "-o", tex, tsrc], capture_output=True)
+        if tcc.returncode != 0:
+            print("  [FAIL] %s（测试文件编不过）" % desc)
+            continue
+        tr = subprocess.run([tex], capture_output=True, timeout=10)
+        tout = (tr.stdout + tr.stderr).decode("utf-8", "replace")
+        if tr.returncode != 0 or "test ok" not in tout:
+            print("  [FAIL] %s（逐条测试不过：rc=%d）" % (desc, tr.returncode))
+            continue
         ok += 1
-        print("  [PASS] %s（%d 个要点全部内嵌）" % (desc, npts))
+        print("  [PASS] %s（%d 个要点全部内嵌 + 逐条测试通过）" % (desc, npts))
     print("=> plan 盲测首跑：%d / %d" % (ok, len(descs)))
     return 0
 

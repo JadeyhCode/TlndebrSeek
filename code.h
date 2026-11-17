@@ -2460,7 +2460,7 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
                                   i + 1, impl[i]);
         }
     }
-    u += (size_t)snprintf(src + u, 262144 - u, "int main(void) {\n    int okp = 1;\n");
+    u += (size_t)snprintf(src + u, 262144 - u, "#ifndef PLAN_NO_MAIN\nint main(void) {\n    int okp = 1;\n");
     for (int i = 0; i < nimpl; ++i) {
         /* §6.899 骨架**逐条自测**：内嵌函数的返回码参与汇总（以前无条件打 plan ok，会撒谎） */
         if (emb[i] == 2)
@@ -2472,18 +2472,54 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     }
     u += (size_t)snprintf(src + u, 262144 - u,
                           "    printf(\"%%s\\n\", okp ? \"plan ok\" : \"plan FAIL\");\n"
-                          "    return okp ? 0 : 1;\n}\n");
-    for (int i = 0; i < nimpl; ++i) free(bodies[i]);
-    free(bodies); free(emb); free(incs); free(frag);
+                          "    return okp ? 0 : 1;\n}\n#endif\n");
     if (action_write_file(ai, "plan_write.c", src) != 0) {
         if (note && cap) snprintf(note, cap, "写文件失败：%s（--write 需要先 ::act on）", g_act.last_reason);
         for (int i = 0; i < nimpl; ++i) free(impl[i]);
         free(tree); free(src); return -2;
     }
+    /* §6.902 另出一份**逐条测试**文件：`#define PLAN_NO_MAIN` 后 include 骨架，
+     * 每个内嵌要点一个 test_impl_N，main 汇总；这才是“骨架有测试”的可执行证据。 */
+    char *tsrc = (char *)malloc(65536);
+    size_t tu = 0;
+    if (tsrc) {
+        tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+            "/* 由 TlndebrSeek 自动生成：::code plan --write 的逐条测试（§6.902）\n"
+            " * 需求：%s\n * 用法：gcc plan_write_test.c -o plan_write_test && ./plan_write_test\n */\n"
+            "#define PLAN_NO_MAIN\n#include \"plan_write.c\"\n\n", desc);
+        for (int i = 0; i < nimpl; ++i) {
+            if (emb[i] != 1) continue;
+            tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                "static int test_impl_%d(void) {\n"
+                "    if (impl_%d() != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
+                "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+        }
+        for (int i = 0; i < nimpl; ++i) {
+            if (emb[i] != 2) continue;
+            tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                "static int test_impl_%d(void) {\n"
+                "    if (impl_%d(0, NULL) != 0) { printf(\"test impl_%d FAIL\\n\"); return 1; }\n"
+                "    printf(\"test impl_%d ok\\n\");\n    return 0;\n}\n", i + 1, i + 1, i + 1, i + 1);
+        }
+        tu += (size_t)snprintf(tsrc + tu, 65536 - tu, "\nint main(void) {\n    int fails = 0;\n");
+        for (int i = 0; i < nimpl; ++i)
+            if (emb[i]) tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+                                               "    fails += test_impl_%d();\n", i + 1);
+        tu += (size_t)snprintf(tsrc + tu, 65536 - tu,
+            "    printf(\"test %%s (%%d/%%d)\\n\", fails ? \"FAIL\" : \"ok\", %d - fails, %d);\n"
+            "    return fails ? 1 : 0;\n}\n", embedded, embedded);
+        action_write_file(ai, "plan_write_test.c", tsrc);
+    }
+    free(tsrc);
     char tnote[512] = {0};
     code_test_file(ai, "plan_write.c", tnote, sizeof tnote);
-    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）；%s",
-                              nimpl, covered, embedded, tnote);
+    char tnote2[512] = {0};
+    if (tsrc == NULL) { /* 没内存就不写测试文件 */ }
+    else code_test_file(ai, "plan_write_test.c", tnote2, sizeof tnote2);
+    for (int i = 0; i < nimpl; ++i) free(bodies[i]);
+    free(bodies); free(emb); free(incs); free(frag);
+    if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）；%s；测试 %s",
+                              nimpl, covered, embedded, tnote, tnote2[0] ? tnote2 : "（无测试文件）");
     for (int i = 0; i < nimpl; ++i) free(impl[i]);
     free(tree); free(src);
     return 0;
