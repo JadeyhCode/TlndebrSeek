@@ -2455,10 +2455,17 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
                                   i + 1, impl[i]);
         }
     }
-    u += (size_t)snprintf(src + u, 262144 - u, "int main(void) {\n");
-    for (int i = 0; i < nimpl; ++i)
-        u += (size_t)snprintf(src + u, 262144 - u, "    %s_%d();\n", emb[i] ? "impl" : "todo", i + 1);
-    u += (size_t)snprintf(src + u, 262144 - u, "    fputs(\"plan ok\\n\", stdout);\n    return 0;\n}\n");
+    u += (size_t)snprintf(src + u, 262144 - u, "int main(void) {\n    int okp = 1;\n");
+    for (int i = 0; i < nimpl; ++i) {
+        /* §6.899 骨架**逐条自测**：内嵌函数的返回码参与汇总（以前无条件打 plan ok，会撒谎） */
+        if (emb[i])
+            u += (size_t)snprintf(src + u, 262144 - u, "    if (impl_%d() != 0) okp = 0;\n", i + 1);
+        else
+            u += (size_t)snprintf(src + u, 262144 - u, "    todo_%d();\n", i + 1);
+    }
+    u += (size_t)snprintf(src + u, 262144 - u,
+                          "    printf(\"%%s\\n\", okp ? \"plan ok\" : \"plan FAIL\");\n"
+                          "    return okp ? 0 : 1;\n}\n");
     for (int i = 0; i < nimpl; ++i) free(bodies[i]);
     free(bodies); free(emb); free(incs); free(frag);
     if (action_write_file(ai, "plan_write.c", src) != 0) {

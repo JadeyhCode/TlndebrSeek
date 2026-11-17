@@ -77,8 +77,13 @@ if [ -s _t/work/plan_write.c ]; then
     grep -qa 'static int impl_1' _t/work/plan_write.c || { echo "  [FAIL] 要点 1 没有内嵌成函数"; fails=$((fails+1)); }
     grep -qa 'static int impl_2' _t/work/plan_write.c || { echo "  [FAIL] 要点 2 没有内嵌成函数"; fails=$((fails+1)); }
     grep -qa '2 条已内嵌成函数' _t/work/plan_write.txt || { echo "  [FAIL] 摘要里没报内嵌函数数"; fails=$((fails+1)); }
+    # §6.899 骨架必须**逐条自测**：内嵌函数返回码汇总，失败要能报 plan FAIL
+    grep -qa 'if (impl_1() != 0) okp = 0;' _t/work/plan_write.c \
+        || { echo "  [FAIL] 骨架没有逐条检查 impl 返回码"; fails=$((fails+1)); }
     if [ -x _t/work/plan_write.verify ]; then
-        _t/work/plan_write.verify > _t/work/plan_write.run 2>&1 || { echo "  [FAIL] 骨架产物跑不起来"; fails=$((fails+1)); }
+        _t/work/plan_write.verify > _t/work/plan_write.run 2>&1
+        rc=$?
+        [ "$rc" -eq 0 ] || { echo "  [FAIL] 骨架产物退出码 $rc（应为 0）"; fails=$((fails+1)); }
         grep -qa 'plan ok' _t/work/plan_write.run || { echo "  [FAIL] 骨架产物没打 plan ok"; fails=$((fails+1)); }
     fi
 else
