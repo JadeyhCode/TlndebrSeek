@@ -122,6 +122,17 @@ if [ -s _t/work/plan_write_test.c ]; then
     fi
 fi
 
+# 6e) §6.908 可追溯报告：要点/覆盖/函数/测试/顺序（先重跑一次数组统计小工具，保证报告对得上）
+printf "::act on\n::code plan --write 写一个数组统计小工具\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_report_run.txt 2>&1
+if [ -s _t/work/plan_write_report.md ]; then
+    for w in '要点：2（已覆盖 2' '输出它们的和' '输出最大值' 'impl_1' 'test_impl_1' '调用顺序'; do
+        grep -qaF -- "$w" _t/work/plan_write_report.md \
+            || { echo "  [FAIL] 报告缺 $w"; fails=$((fails+1)); }
+    done
+else
+    echo "  [FAIL] 没生成 plan_write_report.md"; fails=$((fails+1))
+fi
+
 # 6d) §6.906 依赖边决定调用顺序（顺序工具：先写A 依赖 后写B ⇒ impl_2 必须排在 impl_1 之前）
 printf "::act on\n::code plan --write 写一个顺序工具\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_dep.txt 2>&1
 L1=$(grep -na 'if (impl_1()' _t/work/plan_write.c | head -1 | cut -d: -f1)
@@ -129,6 +140,8 @@ L2=$(grep -na 'if (impl_2()' _t/work/plan_write.c | head -1 | cut -d: -f1)
 if [ -n "$L1" ] && [ -n "$L2" ] && [ "$L2" -lt "$L1" ]; then :; else
     echo "  [FAIL] 依赖顺序不对（impl_2 行 $L2 应在 impl_1 行 $L1 之前）"; fails=$((fails+1));
 fi
+grep -qaF 'impl_2 → impl_1' _t/work/plan_write_report.md \
+    || { echo "  [FAIL] 报告里的调用顺序不对"; fails=$((fails+1)); }
 
 # 7) §6.901 带 argc/argv 的模板也必须内嵌（文件行数器）：impl_1(int argc, char **argv) + 调用给 (0, NULL)
 printf "::act on\n::code plan --write 写一个文件行数器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_argv.txt 2>&1

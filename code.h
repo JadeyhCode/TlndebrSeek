@@ -2305,38 +2305,44 @@ static inline int code_plan_embed(const char *path, char *incs, size_t icap, siz
     raw[rn] = 0;
     fclose(f);
     int in_main = 0, got_main = 0, argc_form = 0;
-    char *save = NULL;
-    for (char *ln = strtok_r(raw, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+    char *line = raw;
+    while (line && *line) {
+        char *next = strchr(line, '\n');
+        if (next) { *next = 0; next++; }
         if (!in_main) {
-            if (strncmp(ln, "int main(", 9) == 0) {
-                /* §6.901 任意 main 签名都内嵌：`int main(` 之后原样保留，只把名字换成 impl_x。
-                 * 带参形态（argc/argv）调用时给 (0, NULL)——文件模板有 tmpfile 兜底、整数模板有默认值。 */
+            if (strncmp(line, "int main(", 9) == 0) {
                 in_main = 1; got_main = 1;
-                argc_form = (strstr(ln, "void)") == NULL || strstr(ln, "argc") != NULL) ? 2 : 1;
+                argc_form = (strstr(line, "void)") == NULL || strstr(line, "argc") != NULL) ? 2 : 1;
                 if (*bn + 64 < bcap)
-                    *bn += (size_t)snprintf(body + *bn, bcap - *bn, "static int impl_x(%s\n", ln + 9);
-                continue;
-            }
-            if (strncmp(ln, "#include", 8) == 0) {
+                    *bn += (size_t)snprintf(body + *bn, bcap - *bn, "static int impl_x(%s\n", line + 9);
+            } else if (strncmp(line, "#include", 8) == 0) {
                 char key[128];
-                snprintf(key, sizeof key, "%s\n", ln);
-                if (!strstr(incs, key) && *in + strlen(ln) + 2 < icap)
-                    *in += (size_t)snprintf(incs + *in, icap - *in, "%s\n", ln);
-                continue;
+                snprintf(key, sizeof key, "%s\n", line);
+                if (!strstr(incs, key) && *in + strlen(line) + 2 < icap)
+                    *in += (size_t)snprintf(incs + *in, icap - *in, "%s\n", line);
+            } else if (strncmp(line, "static ", 7) == 0 && strchr(line, '(') && !strstr(frag, line)) {
+                /* §6.910 片段可能是**多行**（花括号没闭合）：整段收进来，不能只抓第一行 */
+                int brace = 0, done = 0;
+                char *cap = line;
+                while (cap && !done) {
+                    for (const char *r = cap; *r; ++r) {
+                        if (*r == '{') brace++;
+                        else if (*r == '}') brace--;
+                    }
+                    if (*fn + strlen(cap) + 2 < fcap)
+                        *fn += (size_t)snprintf(frag + *fn, fcap - *fn, "%s\n", cap);
+                    if (brace <= 0) { done = 1; break; }
+                    cap = next;
+                    if (!cap) break;
+                    char *nn = strchr(cap, '\n');
+                    if (nn) { *nn = 0; next = nn + 1; } else { next = NULL; }
+                }
             }
-            if (strncmp(ln, "static ", 7) == 0 && strchr(ln, '(')) {
-                const char *nm = ln + 7;
-                while (*nm == ' ') nm++;
-                char key[128];
-                snprintf(key, sizeof key, "%.40s", nm);
-                if (!strstr(frag, key) && *fn + strlen(ln) + 2 < fcap)
-                    *fn += (size_t)snprintf(frag + *fn, fcap - *fn, "%s\n", ln);
-                continue;
-            }
-            continue;
+        } else {
+            if (*bn + strlen(line) + 2 < bcap)
+                *bn += (size_t)snprintf(body + *bn, bcap - *bn, "%s\n", line);
         }
-        if (*bn + strlen(ln) + 2 < bcap)
-            *bn += (size_t)snprintf(body + *bn, bcap - *bn, "%s\n", ln);
+        line = next;
     }
     free(raw);
     return got_main ? (argc_form == 2 ? 2 : 1) : 0;
@@ -2570,6 +2576,35 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     char tnote2[512] = {0};
     if (tsrc == NULL) { /* 没内存就不写测试文件 */ }
     else code_test_file(ai, "plan_write_test.c", tnote2, sizeof tnote2);
+    /* §6.908 可追溯报告：需求 → 要点 → 函数 → 测试 → 覆盖/顺序，一份文件说清楚 */
+    {
+        char *rpt = (char *)malloc(32768);
+        size_t ru = 0;
+        if (rpt) {
+            ru += (size_t)snprintf(rpt + ru, 32768 - ru,
+                "# ::code plan --write 报告\n\n"
+                "- 需求：%s\n"
+                "- 要点：%d（已覆盖 %d，已内嵌 %d，未覆盖 %d）\n"
+                "- 骨架：_t/work/plan_write.c —— %s\n"
+                "- 逐条测试：_t/work/plan_write_test.c —— %s\n\n"
+                "## 要点清单\n\n| # | 要点 | 状态 | 函数 | 测试 |\n|---|---|---|---|---|\n",
+                desc, nimpl, covered, embedded, nimpl - embedded,
+                tnote, tnote2[0] ? tnote2 : "（未生成）");
+            for (int i = 0; i < nimpl; ++i)
+                ru += (size_t)snprintf(rpt + ru, 32768 - ru,
+                    "| %d | %s | %s | %s_%d | test_impl_%d |\n",
+                    i + 1, impl[i],
+                    emb[i] ? "已实现（内嵌）" : "未覆盖（TODO）",
+                    emb[i] ? "impl" : "todo", i + 1, i + 1);
+            ru += (size_t)snprintf(rpt + ru, 32768 - ru, "\n## 调用顺序（依赖拓扑序）\n\n");
+            for (int oi = 0; oi < nimpl; ++oi)
+                ru += (size_t)snprintf(rpt + ru, 32768 - ru, "%s%s_%d",
+                                      oi ? " → " : "", emb[order[oi]] ? "impl" : "todo", order[oi] + 1);
+            ru += (size_t)snprintf(rpt + ru, 32768 - ru, "\n");
+            action_write_file(ai, "plan_write_report.md", rpt);
+        }
+        free(rpt);
+    }
     for (int i = 0; i < nimpl; ++i) free(bodies[i]);
     free(bodies); free(emb); free(incs); free(frag);
     if (note && cap) snprintf(note, cap, "可编译骨架 _t/work/plan_write.c：%d 个要点，%d 个已覆盖（%d 条已内嵌成函数）；%s；测试 %s",

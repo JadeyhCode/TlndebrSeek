@@ -23,6 +23,28 @@ DESCS2 = [
     "写一个数组工具集",
 ]
 
+DESCS7 = [
+    "写一个偶数统计器二号",
+    "写一个数组排序工具二号",
+    "写一个去重工具四号",
+    "写一个文件单词器二号",
+    "写一个两数工具四号",
+    "写一个矩阵列工具",
+    "写一个字符串工具二号",
+    "写一个依赖树三号",
+]
+
+DESCS6 = [
+    "写一个偶数统计器",
+    "写一个负数工具",
+    "写一个矩阵行和工具",
+    "写一个字符串反转器",
+    "写一个文件字符器",
+    "写一个两数积工具",
+    "写一个依赖树二号",
+    "写一个前缀和工具",
+]
+
 DESCS5 = [
     "写一个排序工具",
     "写一个去重工具三号",
@@ -74,7 +96,9 @@ def run(aip, inp):
 
 
 def main():
-    descs = (DESCS5 if "--batch5" in sys.argv else
+    descs = (DESCS7 if "--batch7" in sys.argv else
+            DESCS6 if "--batch6" in sys.argv else
+            DESCS5 if "--batch5" in sys.argv else
             DESCS4 if "--batch4" in sys.argv else
             DESCS3 if "--batch3" in sys.argv else
             DESCS2 if "--batch2" in sys.argv else DESCS)
@@ -125,8 +149,17 @@ def main():
         if tr.returncode != 0 or "test ok" not in tout:
             print("  [FAIL] %s（逐条测试不过：rc=%d）" % (desc, tr.returncode))
             continue
+        # §6.908 报告：覆盖数一致 + 有调用顺序
+        rpt = os.path.join(ROOT, "_t", "work", "plan_write_report.md")
+        if not os.path.exists(rpt):
+            print("  [FAIL] %s（没有追溯报告）" % desc)
+            continue
+        rtxt = open(rpt, encoding="utf-8").read()
+        if ("已覆盖 %d" % ncov) not in rtxt or "调用顺序" not in rtxt:
+            print("  [FAIL] %s（报告内容不符）" % desc)
+            continue
         ok += 1
-        print("  [PASS] %s（%d 个要点全部内嵌 + 逐条测试通过）" % (desc, npts))
+        print("  [PASS] %s（%d 个要点全部内嵌 + 逐条测试通过 + 报告一致）" % (desc, npts))
     print("=> plan 盲测首跑：%d / %d" % (ok, len(descs)))
     return 0
 
