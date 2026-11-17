@@ -2174,6 +2174,7 @@ typedef struct {
     size_t exl;
     char impl[4096];
     size_t impln;
+    Token *implnode[64];   /* §6.906 每个实现要点所属的需求节点（做依赖拓扑用） */
     char edges[8192];   /* §6.878 依据：实际用到的 plan.triples 边（按出现顺序） */
     size_t edgen;
     int show_edges;
@@ -2204,6 +2205,7 @@ static inline void code_plan_walk(CodePlan *P, Token *t, int depth) {
             P->leaves++;
             P->impln += (size_t)snprintf(P->impl + P->impln, sizeof P->impl - P->impln,
                                          "%2d. %s\n", P->leaves, e->main->name);
+            if (P->leaves < 64) P->implnode[P->leaves] = t;   /* §6.906 记住来源节点 */
             continue;
         }
         if (P->d_exc && e->dyn == P->d_exc) {
@@ -2356,6 +2358,8 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     /* 收集实现要点（按 walk 顺序），最多 32 条 */
     static const int MAXP = 32;
     char *impl[32]; int nimpl = 0;
+    Token *implnode[32];
+    memset(implnode, 0, sizeof implnode);
     /* 直接复用一棵临时树：walk 会把 impl 行写进 P.impl */
     {
         CodePlan P;
@@ -2376,7 +2380,49 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
             while (*s == ' ') s++;
             while (*s >= '0' && *s <= '9') s++;
             while (*s == '.' || *s == ' ') s++;
-            if (*s) impl[nimpl++] = strdup(s);
+            if (*s) {
+                if (nimpl < 32) implnode[nimpl] = (nimpl + 1 < 64) ? P.implnode[nimpl + 1] : NULL;
+                impl[nimpl++] = strdup(s);
+            }
+        }
+    }
+    /* §6.906 要点之间的 `依赖` 边 → 调用拓扑序（稳定：无依赖时保持需求树顺序）。
+     * 数据形如 `需求:YA 依赖 需求:YB`，表示 A 的实现要排在 B 之后。 */
+    int order[32];
+    {
+        uint8_t rid_dep = rel_id_of(ai, "依赖", 0);
+        uint8_t d_dep = (rid_dep >= REL_DYN_BASE) ? (uint8_t)(rid_dep - REL_DYN_BASE + 1) : 0;
+        int dep[32][32];
+        memset(dep, 0, sizeof dep);
+        if (d_dep) {
+            for (int i = 0; i < nimpl; ++i) {
+                if (!implnode[i]) continue;
+                for (size_t j = 0; j < implnode[i]->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(implnode[i])[j];
+                    if (!e->main || e->dyn != d_dep) continue;
+                    for (int k = 0; k < nimpl; ++k)
+                        if (k != i && implnode[k] && e->main == implnode[k]) dep[i][k] = 1;
+                }
+            }
+        }
+        int done[32];
+        memset(done, 0, sizeof done);
+        int no = 0;
+        while (no < nimpl) {
+            int pick = -1;
+            for (int i = 0; i < nimpl && pick < 0; ++i) {
+                if (done[i]) continue;
+                int ready = 1;
+                for (int j = 0; j < nimpl; ++j)
+                    if (!done[j] && dep[i][j]) { ready = 0; break; }
+                if (ready) pick = i;
+            }
+            if (pick < 0) {   /* 成环：按需求树顺序兜底，不假装排得开 */
+                for (int i = 0; i < nimpl; ++i) if (!done[i]) { order[no++] = i; done[i] = 1; }
+                break;
+            }
+            order[no++] = pick;
+            done[pick] = 1;
         }
     }
     if (nimpl == 0) {
@@ -2460,8 +2506,11 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
                                   i + 1, impl[i]);
         }
     }
-    u += (size_t)snprintf(src + u, 262144 - u, "#ifndef PLAN_NO_MAIN\nint main(void) {\n    int okp = 1;\n");
-    for (int i = 0; i < nimpl; ++i) {
+    u += (size_t)snprintf(src + u, 262144 - u,
+                          "#ifndef PLAN_NO_MAIN\nint main(void) {\n    int okp = 1;\n"
+                          "    /* §6.906 依赖拓扑序调用 */\n");
+    for (int oi = 0; oi < nimpl; ++oi) {
+        int i = order[oi];
         /* §6.899 骨架**逐条自测**：内嵌函数的返回码参与汇总（以前无条件打 plan ok，会撒谎） */
         if (emb[i] == 2)
             u += (size_t)snprintf(src + u, 262144 - u, "    if (impl_%d(0, NULL) != 0) okp = 0;\n", i + 1);

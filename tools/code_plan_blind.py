@@ -23,6 +23,17 @@ DESCS2 = [
     "写一个数组工具集",
 ]
 
+DESCS5 = [
+    "写一个排序工具",
+    "写一个去重工具三号",
+    "写一个文件工具三号",
+    "写一个两数工具三号",
+    "写一个矩阵工具二号",
+    "写一个字符串工具",
+    "写一个顺序工具二号",
+    "写一个桩工具",
+]
+
 DESCS4 = [
     "写一个数组去重工具二号",
     "写一个文件行数工具二号",
@@ -63,7 +74,8 @@ def run(aip, inp):
 
 
 def main():
-    descs = (DESCS4 if "--batch4" in sys.argv else
+    descs = (DESCS5 if "--batch5" in sys.argv else
+            DESCS4 if "--batch4" in sys.argv else
             DESCS3 if "--batch3" in sys.argv else
             DESCS2 if "--batch2" in sys.argv else DESCS)
     aip = os.path.join(ROOT, "build_aip")
