@@ -607,6 +607,7 @@ typedef enum {
     CMD_LANG,               /* §6.639 语言包：list / load <code> / current / off */
     CMD_NET,                /* §6.680 联网检索（默认关）：status/on/off/search/get/log */
     CMD_TOOL,               /* 外部工具（本地大模型，默认关）：set/on/off/ask/log —— 答复不进图 */
+    CMD_ASK,                /* §6.917 干活时的外部顾问：先搜索、再问大模型（默认关，复用 ::tool 配置） */
     CMD_WEB,                /* 网页搜索（复用 ::net 的开关/白名单）：search/parse —— 结果一律待证 */
     CMD_PREMHOLD,           /* 前提成立的判据档：说到的（默认）/ 够得着 / 有据 */
     CMD_WGATE,              /* 写入分级闸门：情境层的随口一说要不要落库 */
@@ -885,6 +886,11 @@ static const CmdDef CMDS[] = {
       "::tool log                      看账（时间/模型/问题/字节/成败）\n"
       "⚠ 答复一律标 `[外部工具 <模型>]`，**不进图**：不算我的知识、不回灌关系层；\n"
       "60 s 超时、回包 ≤1 MB、不用 shell；失败照实说，不编不重试", CMD_TOOL },
+    { "ask", "<问题>", 1, "基本",
+      "**干活时的外部顾问**（复用 `::tool` 的开关/端点/思考强度）：平时干活也能问，不只训练。\n"
+      "::ask <问题>   先 `::net` 搜索（没开网照实说），再把结果连同问题问外部大模型；\n"
+      "             答复标 `[外部工具 <模型>]`、**不进图**；默认关，先 `::tool on` 并配好端点\n"
+      "⚠ 它给的是**行动建议**（怎么做/先检查什么/必要时出小题），不是我的知识", CMD_ASK },
     { "claim", "<子命令>", 1, "基本",
       "**待证**（不轻信）：带「听说/据说/论文/书上/网上」的话只记成待证，**不进事实层**。\n"
       "::claim            列出待证（编号/来源/内容）\n"
@@ -5772,6 +5778,17 @@ int main(int argc, char **argv) {
                     printf("[合成] %s\n", nb[0] ? nb : "（没做成）");
                     if (sr == 0) printf("       ⇒ **写出来了，而且测试全绿**（%s）\n", "::code 看痕");
                     else printf("       ⇒ 没过（rc=%d）；产物在 _t/work/ 下，源码不会替你编造\n", sr);
+                    if (sr != 0) {   /* §6.917 干活时也不会了：auto 开着就先搜索再问（默认关） */
+                        ToolCfg ta; tool_load(&ta);
+                        if (ta.on && ta.auto_escalate) {
+                            char qq[1024];
+                            snprintf(qq, sizeof qq,
+                                     "用 C 实现这个需求：%s。本地合成器没做出来（rc=%d），"
+                                     "请给可执行的实现步骤或排查建议。", d, sr);
+                            printf("[升级] 合成失败，按配置先搜索再问外部大模型…\n");
+                            tool_escalate_once(&ta, qq);
+                        }
+                    }
                     continue;
                 }
                 if (arg && strncmp(arg, "frag", 4) == 0 && (arg[4] == 0 || arg[4] == ' ')) {
@@ -6378,6 +6395,15 @@ int main(int argc, char **argv) {
                     continue;
                 }
                 printf("[用法] ::web search <关键词> ｜ ::web parse <文件.html>（两者都要先 ::net on，parse 除外）\n");
+                continue;
+            }
+            case CMD_ASK: {
+                /* §6.917 平时干活也能用：先搜索、再问外部大模型（和训练无关，默认关）。 */
+                const char *q = carg ? carg : "";
+                while (*q == ' ') q++;
+                if (!*q) { printf("[用法] ::ask <问题>（先搜索，搜不到再问外部大模型）\n"); continue; }
+                ToolCfg ta; tool_load(&ta);
+                tool_escalate_once(&ta, q);
                 continue;
             }
             case CMD_TOOL: {

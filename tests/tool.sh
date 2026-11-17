@@ -45,7 +45,7 @@ printf '%s' "$o" | grep -q '工具没打开' && ok "默认关：拒绝（工具�
 echo "== ② 配上 + 打开：问得到，且**标出处** =="
 o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::tool ask 你好")
 printf '%s' "$o" | grep -q '假端点的答复' && ok "答复回来了" || bad "没拿到答复" "$(printf '%s' "$o" | grep -a '外部工具' | tail -2)"
-printf '%s' "$o" | grep -q '不是我的知识' && ok "标了「不是我的知识」" || bad "没标出处" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -q '\*\*不是我的知识\*\*' && ok "标了「不是我的知识」" || bad "没标出处" "$(printf '%s' "$o" | tail -3)"
 
 echo "== ③ 请求体是 JSON（查 curl 的 @文件 那个坑）=="
 if [ -s "$W/body.json" ]; then
@@ -136,6 +136,23 @@ o=$(run '::tool auto off
 紫金葫芦的第三个铆钉为什么会唱歌')
 printf '%s' "$o" | grep -q '\[升级\]' && bad "auto=0 仍然升级了" "$(printf '%s' "$o" | head -3)" || ok "auto=0 不升级（只说不懂）"
 printf '%s' "$o" | grep -q '假端点的答复' && bad "auto=0 却拿到外部答复" "" || ok "auto=0 没有外部答复"
+
+echo "== ⑮ §6.917 ::ask：平时干活也能问（先搜索，再问大模型）=="
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::ask 我的链接器报错了，怎么排查")
+printf '%s' "$o" | grep -q '\[升级\] ① 搜索' && ok "::ask 先报搜索" || bad "::ask 没报搜索" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -q '假端点的答复' && ok "::ask 拿到外部答复" || bad "::ask 没拿到答复" "$(printf '%s' "$o" | tail -3)"
+grep -q '用户问题' "$W/body.json" && ok "::ask 提问体带原问题" || bad "::ask 提问体缺问题" "$(head -c 120 "$W/body.json")"
+
+echo "== ⑯ §6.917 干活失败也升级：::code synth 没做成 + auto=1 =="
+o=$(run '::tool auto on
+::code synth 写一个会唱歌的咖啡机控制系统')
+printf '%s' "$o" | grep -q '\[升级\] 合成失败' && ok "合成失败触发了升级" || bad "合成失败没升级" "$(printf '%s' "$o" | tail -4)"
+printf '%s' "$o" | grep -q '\[升级\] ① 搜索' && ok "合成失败升级也先搜索" || bad "合成失败升级没搜索" "$(printf '%s' "$o" | tail -4)"
+
+echo "== ⑰ ::ask 没配置时明确拒绝（不发请求）=="
+rm -f "$W/tool.txt"
+o=$(run '::ask 你好')
+printf '%s' "$o" | grep -q '不能升级' && ok "没配置：::ask 拒绝并说明" || bad "没配置却没拒绝" "$(printf '%s' "$o" | head -3)"
 
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL tool（$pass 过 / $fail 红）"; exit 1; fi
