@@ -31986,3 +31986,45 @@ plan 盲测第六批（新建 8 条）首跑 **5/8**，其中 `偶数统计器` 
 - 第八批 8/8 说明的是“**已学能力的组合**”在 plan 管线里都能落成可编译、可测代码；
   它不代表 `code_synth` 会写新领域（游戏工具/登录系统仍 READ）。
 - 严格模式只是判据开关，不改变能力本身；它的价值是把“部分完成”在 CI 里变成显式红灯。
+
+## §6.914 外部大模型升级通道（第一步）：DeepSeek 配置 / 思考强度 / 系统提示词（2026-11-15）
+
+目标（用户需求）：配置文件里给 DeepSeek 的 **api_key / base_url / model / 思考强度**，
+本内核遇到不会的题先搜索、搜索无果再问 DeepSeek；系统提示词规定三类行为：
+**问怎么做 ⇒ 给行动建议；问做没做好 ⇒ 先检查再下结论；必要时出几道小题**。
+默认关、密钥不入库、离线可测。
+
+### 一、这轮做了什么（`tool.h` + `main.c`，只碰外部工具层）
+
+1. **配置项扩展**（`tool.txt`，全部有 env 覆盖）：
+   `provider` / `base_url`（别名 `url`）/ `api_key`（别名 `key`）/ `model` /
+   `thinking`（`low|medium|high`，env `AIP_TOOL_THINK`）/ `system_file`（env `AIP_TOOL_SYSTEM`）。
+2. **DeepSeek 默认值**：`provider=deepseek` 时自动补 `https://api.deepseek.com/v1` 和
+   `deepseek-chat`——配置文件里只填 `api_key` 也能用。
+3. **系统提示词**：内置 `TOOL_SYS_DEFAULT`，显式写死四条规则（行动建议 / 先检查再结论 /
+   必要时出小题 / 不确定就说不知道）；`system_file=` 可整段覆盖。
+4. **思考强度 → `max_tokens`**：低 1024 / 中 4096 / 高 16384（不猜服务端参数，只调输出预算）；
+   请求体变成 **system + user 两条消息**，答复仍标 `[外部工具]`、**不进图**。
+5. CLI：新增 `::tool think low|medium|high`；`::tool status` 显示端点/模型/思考强度/系统提示词来源。
+
+### 二、离线验收（`tests/tool.sh` 从 10 项扩到 20 项）
+
+用 `tools/fake_openai.py` 起假端点、不联网，新增断言：
+- 请求体含 `"role":"system"`、含“行动建议”“先检查”口径；
+- 三档思考强度分别产出 `max_tokens` 1024 / 4096 / 16384；
+- `provider=deepseek + key`（不填 url/model）时 `::tool status` 自动补全端点与模型；
+- `system_file=` 覆盖生效，且覆盖后思考强度仍生效。
+
+### 三、真实端点端到端（2026-11-15，key 不入库）
+
+用一个真实的 DeepSeek key 做过一次端到端：
+- 直连 `POST https://api.deepseek.com/v1/chat/completions` → **HTTP 200**；
+- 用本内核 `::tool`（`provider=deepseek` + 只填 key + `thinking=high`）→ 5.7 s 返回，
+  答复是**分步排查**（先 grep 确认 main、再确认编译命令包含该文件…），符合“问怎么做给行动建议”；
+- key 只写进 `.gitignore` 里的 `tool.txt`，跑完删除；`grep -r` 确认仓库无 key 残留。
+
+### 四、边界（照实说）
+
+- 这轮只做“**能问、按行动口径问、可配 DeepSeek**”；**还没接“先搜索 → 搜不到再问”的升级链路**，
+  也还没接训练流水线的自动触发——那是下一轮。
+- 密钥存放在 `tool.txt`，已加入 `.gitignore`（`tool.log` 同样忽略），绝不写进仓库/日志。

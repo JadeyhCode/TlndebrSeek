@@ -66,6 +66,47 @@ o=$(run '::tool set http://127.0.0.1:1/v1 k m\n::tool on\n::tool ask 你好')
 printf '%s' "$o" | grep -q '没答上来' && ok "失败照实说（没答上来）" || bad "失败时不说实话" "$(printf '%s' "$o" | tail -2)"
 printf '%s' "$o" | grep -q '假端点的答复' && bad "失败却给了答复（编的）" "$(printf '%s' "$o" | tail -2)" || ok "失败时不编答案"
 
+echo "== ⑦ §6.914 系统提示词：请求体里必须是 system+user，且带行动建议口径 =="
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::tool ask 我该怎么做")
+[ -s "$W/body.json" ] || bad "没有请求体" "body.json 缺"
+grep -q '"role":"system"' "$W/body.json" && ok "请求体含 system 角色" || bad "请求体没有 system" "$(head -c 160 "$W/body.json")"
+grep -q '直接给可执行的行动建议' "$W/body.json" && ok "系统提示词要求行动建议" || bad "系统提示词缺行动建议" "$(head -c 160 "$W/body.json")"
+grep -q '先检查他给的材料' "$W/body.json" && ok "系统提示词要求先检查再结论" || bad "系统提示词缺先检查" "$(head -c 160 "$W/body.json")"
+grep -q '第 3' "$W/body.json" && bad "系统提示词串了别的规则" "" || ok "系统提示词是固定模板"
+
+echo "== ⑧ 思考强度：low/medium/high → max_tokens 1024/4096/16384 =="
+for lv in low medium high; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::tool think $lv\n::tool ask 你好")
+    case "$lv" in low) want=1024;; medium) want=4096;; high) want=16384;; esac
+    grep -q "\"max_tokens\":$want" "$W/body.json" && ok "$lv → max_tokens $want" || bad "$lv 的 max_tokens 不对" "$(grep -o '"max_tokens":[0-9]*' "$W/body.json" | head -1)"
+done
+
+echo "== ⑨ DeepSeek 默认端点：只填 provider/key 也能用（不联网，只看 status）=="
+cat > "$W/tool.txt" <<'CFG'
+on=0
+provider=deepseek
+key=test-key
+thinking=high
+CFG
+o=$(run '::tool status')
+printf '%s' "$o" | grep -q 'https://api.deepseek.com/v1' && ok "DeepSeek 默认端点自动补全" || bad "没补 DeepSeek 端点" "$(printf '%s' "$o" | grep -a '端点' | head -2)"
+printf '%s' "$o" | grep -q 'deepseek-chat' && ok "DeepSeek 默认模型自动补全" || bad "没补 DeepSeek 模型" "$(printf '%s' "$o" | grep -a '模型' | head -2)"
+printf '%s' "$o" | grep -q 'max_tokens=16384' && ok "thinking=high 被读进配置" || bad "thinking 没生效" "$(printf '%s' "$o" | grep -a '思考强度' | head -1)"
+
+echo "== ⑩ system_file 覆盖：自定义提示词要原样进 system 消息 =="
+printf '你是自定义顾问：只给三步行动计划。\n' > "$W/my_sys.txt"
+cat > "$W/tool.txt" <<CFG
+on=1
+url=http://127.0.0.1:$PORT/v1
+key=k
+model=m
+thinking=low
+system_file=$W/my_sys.txt
+CFG
+o=$(run '::tool ask 怎么做')
+grep -q '只给三步行动计划' "$W/body.json" && ok "system_file 覆盖生效" || bad "system_file 没生效" "$(head -c 200 "$W/body.json")"
+grep -q '"max_tokens":1024' "$W/body.json" && ok "覆盖后思考强度仍生效" || bad "覆盖后 max_tokens 不对" "$(grep -o '"max_tokens":[0-9]*' "$W/body.json" | head -1)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL tool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS tool（$pass 过 / 0 红）"

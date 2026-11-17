@@ -878,7 +878,8 @@ static const CmdDef CMDS[] = {
       "**外部工具**（本地大模型，默认**关**）：把它当工具用，不当脑子用。\n"
       "::tool set <url> <key> <model>  配 OpenAI 兼容端点（例如 `http://127.0.0.1:18321/v1`）\n"
       "::tool on|off                   开/关（默认关：一次都不往外走）\n"
-      "::tool ask <问题>               发过去、**原样**显示答复\n"
+      "::tool think low|medium|high     思考强度（max_tokens 1024/4096/16384）\n"
+      "::tool ask <问题>               发过去、**原样**显示答复（带系统提示词：行动建议/先检查再结论/必要时出小题）\n"
       "::tool log                      看账（时间/模型/问题/字节/成败）\n"
       "⚠ 答复一律标 `[外部工具 <模型>]`，**不进图**：不算我的知识、不回灌关系层；\n"
       "60 s 超时、回包 ≤1 MB、不用 shell；失败照实说，不编不重试", CMD_TOOL },
@@ -6346,10 +6347,14 @@ int main(int argc, char **argv) {
                 if (!arg || !*arg || !strncmp(arg, "status", 6)) {
                     printf("[外部工具 = %s]（%s）\n", tc.on ? "开" : "关（默认）",
                            tc.on ? "会往本地端点发请求" : "一次都不往外走");
-                    printf("  端点：%s\n  模型：%s\n  钥匙：%s\n",
+                    printf("  端点：%s\n  模型：%s\n  钥匙：%s\n  思考强度：%s（max_tokens=%d）\n",
                            tc.url[0] ? tc.url : "（未配：::tool set <url> <key> <model>）",
                            tc.model[0] ? tc.model : "?",
-                           tc.key[0] ? "已配（不回显）" : "（未配）");
+                           tc.key[0] ? "已配（不回显）" : "（未配）",
+                           tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低",
+                           tool_think_tokens(tc.think));
+                    printf("  系统提示词：%s\n",
+                           tc.sys_file[0] ? tc.sys_file : "（内置：行动建议/先检查再结论/必要时出小题）");
                     printf("  本次：问 %lu / 成 %lu / 败 %lu；账在 %s\n",
                            tc.n_ask, tc.n_ok, tc.n_fail, TOOL_LOG);
                     printf("  ⚠ 答复一律标 [外部工具]，**不进图**（不算我的知识）\n");
@@ -6392,6 +6397,18 @@ int main(int argc, char **argv) {
                            tc.url, tc.model, TOOL_CFG);
                     continue;
                 }
+                if (!strncmp(arg, "think", 5) && (arg[5] == 0 || arg[5] == ' ')) {
+                    const char *v = arg + 5;
+                    while (*v == ' ') v++;
+                    if (!strcmp(v, "high") || !strcmp(v, "2")) tc.think = 2;
+                    else if (!strcmp(v, "medium") || !strcmp(v, "med") || !strcmp(v, "1")) tc.think = 1;
+                    else if (!strcmp(v, "low") || !strcmp(v, "0")) tc.think = 0;
+                    else { printf("[用法] ::tool think low|medium|high（当前 max_tokens=%d）\n", tool_think_tokens(tc.think)); continue; }
+                    tool_save(&tc);
+                    printf("[思考强度 = %s]（max_tokens=%d，已写 %s）\n",
+                           tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低", tool_think_tokens(tc.think), TOOL_CFG);
+                    continue;
+                }
                 if (!strncmp(arg, "log", 3) && (arg[3] == 0 || arg[3] == ' ')) {
                     FILE *lf = fopen(TOOL_LOG, "r");
                     if (!lf) { printf("[外部工具] 还没有账（%s 不存在）\n", TOOL_LOG); continue; }
@@ -6416,7 +6433,7 @@ int main(int argc, char **argv) {
                     }
                     continue;
                 }
-                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool ask <问题> ｜ ::tool log\n");
+                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool think low|medium|high ｜ ::tool ask <问题> ｜ ::tool log\n");
                 continue;
             }
             case CMD_NET: {

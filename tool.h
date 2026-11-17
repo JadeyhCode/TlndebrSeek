@@ -40,13 +40,47 @@
 #define TOOL_CFG       "tool.txt"
 #define TOOL_LOG       "tool.log"
 
+/* §6.914 系统提示词：把"问它"变成"要行动"。
+ * 规则来自用户：① 问怎么做 ⇒ 给可执行建议；② 问做没做好 ⇒ 先检查材料再下结论；
+ * ③ 必要时出几道小题；④ 不确定就说不知道。可用 `system_file=` 覆盖。 */
+#define TOOL_SYS_DEFAULT \
+    "你是用户的外部行动顾问，不是闲聊机器人。规则：\n" \
+    "1) 用户问「怎么做」时，直接给可执行的行动建议（步骤/命令/取舍/顺序），不要泛泛而谈；\n" \
+    "2) 用户问「做没做好/对不对」时，先检查他给的材料（代码/日志/结果），指出具体问题与证据，再下结论；\n" \
+    "3) 必要时给用户出几道小题，让他练手或验证理解；\n" \
+    "4) 不确定就直说不知道，不要编造。"
+
 typedef struct {
     int  on;                       /* 默认关 */
+    int  think;                    /* §6.914 思考强度：0 低 / 1 中 / 2 高（决定 max_tokens） */
+    char provider[16];             /* deepseek / openai / local */
     char url[TOOL_URL_LEN];
     char key[TOOL_KEY_LEN];
     char model[TOOL_MODEL_LEN];
+    char sys_file[TOOL_URL_LEN];   /* system_file=：从文件读系统提示词 */
     unsigned long n_ask, n_ok, n_fail;
 } ToolCfg;
+
+/* §6.914 思考强度 → 输出预算（不猜服务的参数，只调 max_tokens） */
+static inline int tool_think_tokens(int think) {
+    return think >= 2 ? 16384 : think == 1 ? 4096 : 1024;
+}
+
+/* 取系统提示词：system_file 优先，其次内置；永远是"行动建议"口径。 */
+static inline void tool_system_prompt(const ToolCfg *c, char *out, size_t cap) {
+    if (!out || !cap) return;
+    out[0] = 0;
+    if (c && c->sys_file[0]) {
+        FILE *f = fopen(c->sys_file, "r");
+        if (f) {
+            size_t n = fread(out, 1, cap - 1, f);
+            out[n] = 0;
+            fclose(f);
+            if (out[0]) return;
+        }
+    }
+    snprintf(out, cap, "%s", TOOL_SYS_DEFAULT);
+}
 
 static inline long tool_now_ms(void) {
     struct timespec ts;
@@ -58,6 +92,11 @@ static inline long tool_now_ms(void) {
 static inline void tool_load(ToolCfg *c) {
     if (!c) return;
     memset(c, 0, sizeof *c);
+    c->think = 1;                  /* 默认中 */
+    const char *et = getenv("AIP_TOOL_THINK");
+    if (et && et[0]) c->think = atoi(et);
+    const char *es = getenv("AIP_TOOL_SYSTEM");
+    if (es && es[0]) snprintf(c->sys_file, sizeof c->sys_file, "%s", es);
     const char *e = getenv("AIP_TOOL");
     if (e && e[0] == '1') c->on = 1;
     const char *eu = getenv("AIP_TOOL_URL");
@@ -84,12 +123,24 @@ static inline void tool_load(ToolCfg *c) {
         while (*v == ' ' || *v == '\t') v++;
         size_t vl = strlen(v);
         while (vl && (v[vl - 1] == '\n' || v[vl - 1] == '\r' || v[vl - 1] == ' ')) v[--vl] = 0;
-        if (!strcmp(k, "url"))        snprintf(c->url, sizeof c->url, "%s", v);
-        else if (!strcmp(k, "key"))   snprintf(c->key, sizeof c->key, "%s", v);
+        if (!strcmp(k, "url") || !strcmp(k, "base_url")) snprintf(c->url, sizeof c->url, "%s", v);
+        else if (!strcmp(k, "key") || !strcmp(k, "api_key")) snprintf(c->key, sizeof c->key, "%s", v);
         else if (!strcmp(k, "model")) snprintf(c->model, sizeof c->model, "%s", v);
         else if (!strcmp(k, "on"))    c->on = (v[0] == '1');
+        else if (!strcmp(k, "provider")) snprintf(c->provider, sizeof c->provider, "%s", v);
+        else if (!strcmp(k, "system_file")) snprintf(c->sys_file, sizeof c->sys_file, "%s", v);
+        else if (!strcmp(k, "thinking") || !strcmp(k, "think")) {
+            if (!strcmp(v, "high") || !strcmp(v, "2")) c->think = 2;
+            else if (!strcmp(v, "medium") || !strcmp(v, "med") || !strcmp(v, "1")) c->think = 1;
+            else if (!strcmp(v, "low") || !strcmp(v, "0")) c->think = 0;
+        }
     }
     fclose(f);
+    /* §6.914 DeepSeek 默认端点/模型：配置里只填 api_key 也能用 */
+    if (!strcmp(c->provider, "deepseek")) {
+        if (!c->url[0]) snprintf(c->url, sizeof c->url, "%s", "https://api.deepseek.com/v1");
+        if (!c->model[0]) snprintf(c->model, sizeof c->model, "%s", "deepseek-chat");
+    }
 }
 
 static inline int tool_save(const ToolCfg *c) {
@@ -97,7 +148,9 @@ static inline int tool_save(const ToolCfg *c) {
     if (!f) return 0;
     fprintf(f, "# tool.txt — 外部工具（本地大模型）端点。::tool set <url> <key> <model>\n");
     fprintf(f, "# 这个文件只被 ::tool 用；答复一律标 [外部工具]，不进图。\n");
-    fprintf(f, "on=%d\nurl=%s\nkey=%s\nmodel=%s\n", c->on, c->url, c->key, c->model);
+    fprintf(f, "on=%d\nthinking=%s\nprovider=%s\nurl=%s\nkey=%s\nmodel=%s\nsystem_file=%s\n",
+            c->on, c->think >= 2 ? "high" : c->think == 1 ? "medium" : "low",
+            c->provider, c->url, c->key, c->model, c->sys_file);
     fclose(f);
     return 1;
 }
@@ -223,13 +276,17 @@ static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t c
     snprintf(body_path, sizeof body_path, "@/tmp/aip_tool_body.%ld", (long)getpid());
     snprintf(out_path, sizeof out_path, "/tmp/aip_tool_out.%ld", (long)getpid());
 
-    char esc[4096];
+    char esc[4096], sysraw[2048], syse[8192];
     tool_json_esc(esc, sizeof esc, question);
+    tool_system_prompt(c, sysraw, sizeof sysraw);
+    tool_json_esc(syse, sizeof syse, sysraw);
     FILE *bf = fopen(body_path + 1, "w");
     if (!bf) { snprintf(err, errcap, "写不了临时文件"); return 0; }
-    fprintf(bf, "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],"
-                "\"temperature\":0,\"max_tokens\":512,\"stream\":false}",
-            c->model[0] ? c->model : "local", esc);
+    fprintf(bf, "{\"model\":\"%s\",\"messages\":["
+                "{\"role\":\"system\",\"content\":\"%s\"},"
+                "{\"role\":\"user\",\"content\":\"%s\"}],"
+                "\"temperature\":0,\"max_tokens\":%d,\"stream\":false}",
+            c->model[0] ? c->model : "local", syse, esc, tool_think_tokens(c->think));
     fclose(bf);
 
     char auth[TOOL_KEY_LEN + 32];

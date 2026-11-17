@@ -4,6 +4,9 @@ build_*
 !code/build_code_model.sh
 *.o
 # 临时/测量目录（每次跑测试都会重建）
+# §6.914 外部工具密钥/账：绝不入库
+tool.txt
+tool.log
 _t/
 # 旧快照（历史留档，单独放在 _backup/，不进版本控制）
 _backup/
