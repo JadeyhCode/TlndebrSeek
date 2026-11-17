@@ -12,6 +12,17 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DESCS2 = [
+    "写一个数组累计器",
+    "写一个数组极值器二号",
+    "写一个数组切片器二号",
+    "写一个数组变换器",
+    "写一个文件单词器",
+    "写一个工程计算器",
+    "写一个单词计数器",
+    "写一个数组工具集",
+]
+
 DESCS = [
     "写一个数组求和器",
     "写一个数组最值器",
@@ -30,11 +41,12 @@ def run(aip, inp):
 
 
 def main():
+    descs = DESCS2 if "--batch2" in sys.argv else DESCS
     aip = os.path.join(ROOT, "build_aip")
     src = os.path.join(ROOT, "_t", "work", "plan_write.c")
     exe = src[:-2]
     ok = 0
-    for desc in DESCS:
+    for desc in descs:
         # 清掉上一轮的产物，避免把旧骨架当新结果
         for p in (src, exe):
             if os.path.exists(p):
@@ -64,7 +76,7 @@ def main():
             continue
         ok += 1
         print("  [PASS] %s（%d 个要点全部内嵌）" % (desc, npts))
-    print("=> plan 盲测首跑：%d / %d" % (ok, len(DESCS)))
+    print("=> plan 盲测首跑：%d / %d" % (ok, len(descs)))
     return 0
 
 

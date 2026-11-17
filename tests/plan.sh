@@ -89,6 +89,21 @@ if [ -s _t/work/plan_write.c ]; then
 else
     echo "  [FAIL] --write 没写出骨架文件"; fails=$((fails+1))
 fi
+# 7) §6.901 带 argc/argv 的模板也必须内嵌（文件行数器）：impl_1(int argc, char **argv) + 调用给 (0, NULL)
+printf "::act on\n::code plan --write 写一个文件行数器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_argv.txt 2>&1
+grep -qaF 'static int impl_1(int argc, char **argv)' _t/work/plan_write.c \
+    || { echo "  [FAIL] argc/argv 形态没有内嵌"; fails=$((fails+1)); }
+grep -qaF 'impl_1(0, NULL)' _t/work/plan_write.c \
+    || { echo "  [FAIL] argc/argv 形态调用没给 (0, NULL)"; fails=$((fails+1)); }
+gcc -std=c11 -Wall -Wextra -o _t/work/plan_write_argv _t/work/plan_write.c 2> _t/work/plan_write_argv.gcc \
+    || { echo "  [FAIL] argc 骨架编不过：$(head -2 _t/work/plan_write_argv.gcc | tr '\n' ' ')"; fails=$((fails+1)); }
+if [ -x _t/work/plan_write_argv ]; then
+    _t/work/plan_write_argv > _t/work/plan_write_argv.run 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] || { echo "  [FAIL] argc 骨架退出码 $rc"; fails=$((fails+1)); }
+    grep -qa 'plan ok' _t/work/plan_write_argv.run || { echo "  [FAIL] argc 骨架没打 plan ok"; fails=$((fails+1)); }
+fi
+
 # 未登记的根：明确拒绝，不写文件
 rm -f _t/work/plan_write.c
 printf "::act on\n::code plan --write 写一个区块链浏览器\n::quit\n" | "$AIP" --model "$M" > _t/work/plan_write_bad.txt 2>&1

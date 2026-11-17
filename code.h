@@ -2294,6 +2294,7 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap); 
 static inline int code_plan_embed(const char *path, char *incs, size_t icap, size_t *in,
                                   char *frag, size_t fcap, size_t *fn,
                                   char *body, size_t bcap, size_t *bn) {
+    /* 返回 0=没拆出 main；1=无参 main(void)；2=带参 main(argc, argv)（§6.901） */
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     char *raw = (char *)malloc(65536);
@@ -2301,14 +2302,17 @@ static inline int code_plan_embed(const char *path, char *incs, size_t icap, siz
     size_t rn = fread(raw, 1, 65535, f);
     raw[rn] = 0;
     fclose(f);
-    int in_main = 0, got_main = 0;
+    int in_main = 0, got_main = 0, argc_form = 0;
     char *save = NULL;
     for (char *ln = strtok_r(raw, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
         if (!in_main) {
-            if (strncmp(ln, "int main(void)", 14) == 0) {
+            if (strncmp(ln, "int main(", 9) == 0) {
+                /* §6.901 任意 main 签名都内嵌：`int main(` 之后原样保留，只把名字换成 impl_x。
+                 * 带参形态（argc/argv）调用时给 (0, NULL)——文件模板有 tmpfile 兜底、整数模板有默认值。 */
                 in_main = 1; got_main = 1;
-                if (*bn + 40 < bcap)
-                    *bn += (size_t)snprintf(body + *bn, bcap - *bn, "static int impl_x(void) {\n");
+                argc_form = (strstr(ln, "void)") == NULL || strstr(ln, "argc") != NULL) ? 2 : 1;
+                if (*bn + 64 < bcap)
+                    *bn += (size_t)snprintf(body + *bn, bcap - *bn, "static int impl_x(%s\n", ln + 9);
                 continue;
             }
             if (strncmp(ln, "#include", 8) == 0) {
@@ -2333,7 +2337,7 @@ static inline int code_plan_embed(const char *path, char *incs, size_t icap, siz
             *bn += (size_t)snprintf(body + *bn, bcap - *bn, "%s\n", ln);
     }
     free(raw);
-    return got_main;
+    return got_main ? (argc_form == 2 ? 2 : 1) : 0;
 }
 
 static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t cap) {
@@ -2410,9 +2414,10 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
         bodies[i] = calloc(1, 16384);
         if (!bodies[i]) continue;
         size_t bn = 0;
-        if (code_plan_embed(path, incs, 8192, &in, frag, 16384, &fn, bodies[i], 16384, &bn) && bn > 0) {
+        int form = code_plan_embed(path, incs, 8192, &in, frag, 16384, &fn, bodies[i], 16384, &bn);
+        if (form && bn > 0) {
             embedded++;
-            emb[i] = 1;
+            emb[i] = form;       /* 1=impl_i(void)  2=impl_i(argc, argv) */
         } else {
             free(bodies[i]); bodies[i] = NULL;
         }
@@ -2458,7 +2463,9 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     u += (size_t)snprintf(src + u, 262144 - u, "int main(void) {\n    int okp = 1;\n");
     for (int i = 0; i < nimpl; ++i) {
         /* §6.899 骨架**逐条自测**：内嵌函数的返回码参与汇总（以前无条件打 plan ok，会撒谎） */
-        if (emb[i])
+        if (emb[i] == 2)
+            u += (size_t)snprintf(src + u, 262144 - u, "    if (impl_%d(0, NULL) != 0) okp = 0;\n", i + 1);
+        else if (emb[i])
             u += (size_t)snprintf(src + u, 262144 - u, "    if (impl_%d() != 0) okp = 0;\n", i + 1);
         else
             u += (size_t)snprintf(src + u, 262144 - u, "    todo_%d();\n", i + 1);
