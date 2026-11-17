@@ -878,6 +878,7 @@ static const CmdDef CMDS[] = {
       "**外部工具**（本地大模型，默认**关**）：把它当工具用，不当脑子用。\n"
       "::tool set <url> <key> <model>  配 OpenAI 兼容端点（例如 `http://127.0.0.1:18321/v1`）\n"
       "::tool on|off                   开/关（默认关：一次都不往外走）\n"
+      "::tool auto on|off               自动升级：本地不会时先搜索再问（默认关）\n"
       "::tool think low|medium|high     思考强度（max_tokens 1024/4096/16384）\n"
       "::tool escalate <问题>           升级链路：先 ::net 搜索，搜不到再问大模型（两段都照实报）\n"
       "::tool ask <问题>               发过去、**原样**显示答复（带系统提示词：行动建议/先检查再结论/必要时出小题）\n"
@@ -2149,6 +2150,46 @@ static size_t proc_build_from_prove(AI *ai, const char *name, char *const *args,
         p = eol + 1;
     }
     return made;
+}
+
+
+/* §6.915/§6.916 升级链路（可被 `::tool escalate` 与“不会自动升级”共用）：
+ * ① 搜索（联网关着就照实说）→ ② 拼问题 → ③ 问外部大模型（答复不进图）。 */
+static void tool_escalate_once(ToolCfg *tc, const char *q) {
+    if (!tc || !q || !*q) return;
+    if (!tc->on || !tc->url[0]) {
+        printf("[升级] 外部工具没开/没配（::tool on + ::tool set …），不能升级；先本地解决。\n");
+        return;
+    }
+    char ctx[3072];
+    ctx[0] = 0;
+    size_t cl = 0;
+    if (g_net.on) {
+        WebHit hits[WEB_MAX_HITS];
+        char why[256] = {0};
+        int hn = web_search(q, hits, 3, why, sizeof why);
+        printf("[升级] ① 搜索「%s」：%d 条%s\n", q, hn, hn ? "" : "（没成）");
+        for (int i = 0; i < hn && cl < sizeof ctx - 400; ++i)
+            cl += (size_t)snprintf(ctx + cl, sizeof ctx - cl,
+                "%d. %s\n   %s\n   %s\n", i + 1, hits[i].title, hits[i].url, hits[i].snip);
+        if (!hn) snprintf(ctx, sizeof ctx, "（搜索没成：%s）", why[0] ? why : "没结果");
+    } else {
+        snprintf(ctx, sizeof ctx, "联网关着：::net on 之后才会真去搜；这次没搜");
+        printf("[升级] ① 搜索：跳过（%s）\n", ctx);
+    }
+    char qq[4096];
+    snprintf(qq, sizeof qq,
+             "【升级】用户问题：%s\n\n"
+             "背景：本内核内部知识未命中；以下是网络检索的结果（可能是空的/失败的）：\n%s\n"
+             "请按系统提示词回答：问怎么做就给可执行步骤；问做没做好就先检查材料再下结论；"
+             "必要时出几道小题。", q, ctx);
+    printf("[升级] ② 问外部大模型（%s，思考强度 %s）…\n",
+           tc->model[0] ? tc->model : "?", tc->think >= 2 ? "高" : tc->think == 1 ? "中" : "低");
+    char ans[8192], err[256];
+    if (tool_ask(tc, qq, ans, sizeof ans, err, sizeof err))
+        printf("[外部工具 %s] 答（**不是我的知识**，不进图）：\n%s\n", tc->model[0] ? tc->model : "?", ans);
+    else
+        printf("[升级] 外部工具没答上来：%s（搜索结果是照实的，可自己看）\n", err[0] ? err : "（没原因）");
 }
 
 int main(int argc, char **argv) {
@@ -6354,6 +6395,7 @@ int main(int argc, char **argv) {
                            tc.key[0] ? "已配（不回显）" : "（未配）",
                            tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低",
                            tool_think_tokens(tc.think));
+                    printf("  自动升级：%s\n", tc.auto_escalate ? "开（不会时先搜索再问）" : "关（默认）");
                     printf("  系统提示词：%s\n",
                            tc.sys_file[0] ? tc.sys_file : "（内置：行动建议/先检查再结论/必要时出小题）");
                     printf("  本次：问 %lu / 成 %lu / 败 %lu；账在 %s\n",
@@ -6398,6 +6440,17 @@ int main(int argc, char **argv) {
                            tc.url, tc.model, TOOL_CFG);
                     continue;
                 }
+                if (!strncmp(arg, "auto", 4) && (arg[4] == 0 || arg[4] == ' ')) {
+                    const char *v = arg + 4;
+                    while (*v == ' ') v++;
+                    if (!strcmp(v, "on")) tc.auto_escalate = 1;
+                    else if (!strcmp(v, "off")) tc.auto_escalate = 0;
+                    else { printf("[用法] ::tool auto on|off（当前 %s）\n", tc.auto_escalate ? "开" : "关"); continue; }
+                    tool_save(&tc);
+                    printf("[自动升级 = %s]（%s）\n", tc.auto_escalate ? "开" : "关",
+                           tc.auto_escalate ? "本地不会时先搜索、再问外部大模型" : "不会时只说不懂，不往外走");
+                    continue;
+                }
                 if (!strncmp(arg, "think", 5) && (arg[5] == 0 || arg[5] == ' ')) {
                     const char *v = arg + 5;
                     while (*v == ' ') v++;
@@ -6411,48 +6464,11 @@ int main(int argc, char **argv) {
                     continue;
                 }
                 if (!strncmp(arg, "escalate", 8) && (arg[8] == 0 || arg[8] == ' ')) {
-                    /* §6.915 升级链路：先搜索，搜不到再问外部大模型（默认关的层照旧不动）。
-                     * 搜索走 web.h（需要 ::net on + 白名单）；失败就照实写进提问，不装。 */
+                    /* §6.915 升级链路：先搜索，搜不到再问外部大模型（默认关的层照旧不动）。 */
                     const char *q = arg + 8;
                     while (*q == ' ') q++;
                     if (!*q) { printf("[用法] ::tool escalate <问题>（先搜索，搜不到再问外部大模型）\n"); continue; }
-                    if (!tc.on || !tc.url[0]) {
-                        printf("[升级] 外部工具没开/没配（::tool on + ::tool set …），不能升级；"
-                               "先本地解决。\n");
-                        continue;
-                    }
-                    char ctx[3072];
-                    ctx[0] = 0;
-                    size_t cl = 0;
-                    if (g_net.on) {
-                        WebHit hits[WEB_MAX_HITS];
-                        char why[256] = {0};
-                        int hn = web_search(q, hits, 3, why, sizeof why);
-                        printf("[升级] ① 搜索「%s」：%d 条%s\n", q, hn, hn ? "" : "（没成）");
-                        for (int i = 0; i < hn && cl < sizeof ctx - 400; ++i) {
-                            cl += (size_t)snprintf(ctx + cl, sizeof ctx - cl,
-                                "%d. %s\n   %s\n   %s\n", i + 1, hits[i].title,
-                                hits[i].url, hits[i].snip);
-                        }
-                        if (!hn) snprintf(ctx, sizeof ctx, "（搜索没成：%s）", why[0] ? why : "没结果");
-                    } else {
-                        snprintf(ctx, sizeof ctx, "（联网关着：::net on 之后才会真去搜；这次没搜）");
-                        printf("[升级] ① 搜索：跳过（%s）\n", ctx);
-                    }
-                    char qq[4096];
-                    snprintf(qq, sizeof qq,
-                             "【升级】用户问题：%s\n\n"
-                             "背景：本内核内部知识未命中；以下是网络检索的结果（可能是空的/失败的）：\n%s\n"
-                             "请按系统提示词回答：问怎么做就给可执行步骤；问做没做好就先检查材料再下结论；"
-                             "必要时出几道小题。", q, ctx);
-                    printf("[升级] ② 问外部大模型（%s，思考强度 %s）…\n",
-                           tc.model[0] ? tc.model : "?", tc.think >= 2 ? "高" : tc.think == 1 ? "中" : "低");
-                    char ans[8192], err[256];
-                    if (tool_ask(&tc, qq, ans, sizeof ans, err, sizeof err)) {
-                        printf("[外部工具 %s] 答（**不是我的知识**，不进图）：\n%s\n", tc.model[0] ? tc.model : "?", ans);
-                    } else {
-                        printf("[升级] 外部工具没答上来：%s（搜索结果是照实的，可自己看）\n", err[0] ? err : "（没原因）");
-                    }
+                    tool_escalate_once(&tc, q);
                     continue;
                 }
                 if (!strncmp(arg, "log", 3) && (arg[3] == 0 || arg[3] == ' ')) {
@@ -6479,7 +6495,7 @@ int main(int argc, char **argv) {
                     }
                     continue;
                 }
-                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool think low|medium|high ｜ ::tool ask <问题> ｜ ::tool escalate <问题> ｜ ::tool log\n");
+                printf("[用法] ::tool on|off ｜ ::tool set <url> <key> <model> ｜ ::tool auto on|off ｜ ::tool think low|medium|high ｜ ::tool ask <问题> ｜ ::tool escalate <问题> ｜ ::tool log\n");
                 continue;
             }
             case CMD_NET: {
@@ -7789,6 +7805,23 @@ int main(int argc, char **argv) {
          * 供 shell 断言检查（答案本身照常走 stdout）。*/
         if (getenv("AIP_SRC_ECHO")) fprintf(stderr, "[src] %s\n", ai_src_name(g_last_src));
         stdout_act(out, NULL);
+        /* §6.916 不会自动升级（默认关）：答复是“不会”且 auto=1 时才先搜索再问；外部答复不进图。
+         * 答复会被排版成“我 不 太 懂”这种带空格的字，判据先去空格再比。 */
+        if (!en_ascii_q && input[0] != ':') {
+            static char flat[4096];
+            size_t fi = 0;
+            for (const char *p = out; *p && fi + 1 < sizeof flat; ++p)
+                if (*p != ' ' && *p != '\n' && *p != '\t') flat[fi++] = *p;
+            flat[fi] = 0;
+            if (strstr(flat, "不太懂") || strstr(flat, "没有依据") || strstr(flat, "推不出来") ||
+                strstr(flat, "没学过") || strstr(flat, "答不上")) {
+                ToolCfg ta; tool_load(&ta);
+                if (ta.on && ta.auto_escalate) {
+                    printf("[升级] 这题本地没有依据（不会），按配置先搜索再问外部大模型…\n");
+                    tool_escalate_once(&ta, input);
+                }
+            }
+        }
     }
 
     printf("\n");

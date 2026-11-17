@@ -52,6 +52,7 @@
 
 typedef struct {
     int  on;                       /* 默认关 */
+    int  auto_escalate;            /* §6.916 自动升级：不会时先搜索再问（默认关） */
     int  think;                    /* §6.914 思考强度：0 低 / 1 中 / 2 高（决定 max_tokens） */
     char provider[16];             /* deepseek / openai / local */
     char url[TOOL_URL_LEN];
@@ -97,6 +98,8 @@ static inline void tool_load(ToolCfg *c) {
     if (et && et[0]) c->think = atoi(et);
     const char *es = getenv("AIP_TOOL_SYSTEM");
     if (es && es[0]) snprintf(c->sys_file, sizeof c->sys_file, "%s", es);
+    const char *ea = getenv("AIP_TOOL_AUTO");
+    if (ea && ea[0] == '1') c->auto_escalate = 1;
     const char *e = getenv("AIP_TOOL");
     if (e && e[0] == '1') c->on = 1;
     const char *eu = getenv("AIP_TOOL_URL");
@@ -127,6 +130,7 @@ static inline void tool_load(ToolCfg *c) {
         else if (!strcmp(k, "key") || !strcmp(k, "api_key")) snprintf(c->key, sizeof c->key, "%s", v);
         else if (!strcmp(k, "model")) snprintf(c->model, sizeof c->model, "%s", v);
         else if (!strcmp(k, "on"))    c->on = (v[0] == '1');
+        else if (!strcmp(k, "auto"))  c->auto_escalate = (v[0] == '1');
         else if (!strcmp(k, "provider")) snprintf(c->provider, sizeof c->provider, "%s", v);
         else if (!strcmp(k, "system_file")) snprintf(c->sys_file, sizeof c->sys_file, "%s", v);
         else if (!strcmp(k, "thinking") || !strcmp(k, "think")) {
@@ -148,8 +152,8 @@ static inline int tool_save(const ToolCfg *c) {
     if (!f) return 0;
     fprintf(f, "# tool.txt — 外部工具（本地大模型）端点。::tool set <url> <key> <model>\n");
     fprintf(f, "# 这个文件只被 ::tool 用；答复一律标 [外部工具]，不进图。\n");
-    fprintf(f, "on=%d\nthinking=%s\nprovider=%s\nurl=%s\nkey=%s\nmodel=%s\nsystem_file=%s\n",
-            c->on, c->think >= 2 ? "high" : c->think == 1 ? "medium" : "low",
+    fprintf(f, "on=%d\nauto=%d\nthinking=%s\nprovider=%s\nurl=%s\nkey=%s\nmodel=%s\nsystem_file=%s\n",
+            c->on, c->auto_escalate, c->think >= 2 ? "high" : c->think == 1 ? "medium" : "low",
             c->provider, c->url, c->key, c->model, c->sys_file);
     fclose(f);
     return 1;

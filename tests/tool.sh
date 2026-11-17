@@ -121,6 +121,22 @@ o=$(run '::tool off')
 o=$(run '::tool escalate 你好')
 printf '%s' "$o" | grep -q '不能升级' && ok "工具关着：拒绝升级" || bad "工具关着还升级" "$(printf '%s' "$o" | head -2)"
 
+echo "== ⑬ §6.916 自动升级：auto=1 时“不会”的题先搜索再问 =="
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::tool auto on\n::tool status")
+printf '%s' "$o" | grep -q '自动升级：开' && ok "status 显示自动升级开" || bad "status 没显示自动升级" "$(printf '%s' "$o" | grep -a 自动升级)"
+o=$(run '::tool auto on
+紫金葫芦的第三个铆钉为什么会唱歌')
+printf '%s' "$o" | grep -q '\[升级\] 这题本地没有依据' && ok "不会时触发了自动升级" || bad "不会时没升级" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -q '\[升级\] ① 搜索' && ok "自动升级先报搜索阶段" || bad "自动升级没报搜索" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -q '假端点的答复' && ok "自动升级拿到了答案" || bad "自动升级没拿到答案" "$(printf '%s' "$o" | tail -3)"
+grep -q '【升级】' "$W/body.json" && ok "自动升级的提问带【升级】前缀" || bad "自动升级提问没标记" "$(head -c 120 "$W/body.json")"
+
+echo "== ⑭ auto=0（默认）时不会的题不往外走 =="
+o=$(run '::tool auto off
+紫金葫芦的第三个铆钉为什么会唱歌')
+printf '%s' "$o" | grep -q '\[升级\]' && bad "auto=0 仍然升级了" "$(printf '%s' "$o" | head -3)" || ok "auto=0 不升级（只说不懂）"
+printf '%s' "$o" | grep -q '假端点的答复' && bad "auto=0 却拿到外部答复" "" || ok "auto=0 没有外部答复"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL tool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS tool（$pass 过 / 0 红）"
