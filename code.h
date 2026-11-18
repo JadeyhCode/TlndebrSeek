@@ -413,7 +413,34 @@ static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
  * 输入形状看 模板 --[种类]--> 种类 的名字；输出形状看 输出 --[打印:*]--> 的名字。
  * 语义：矩阵与数组的语句用的是不同变量（m[][] vs v[]），混链一定编不过。 */
 /* §6.880 描述要标量 / 要数组的判定（与 §6.863 闸门用同一张表，避免两处漂移）。 */
-static inline int code_desc_wants_scalar(const char *desc) {
+/* §6.939 形状词下沉：`形状词:X --[要标量/要数组]--> 1` 是数据；图里没有时
+ * 才退回下面两张引导表（bootstrap，等数据补齐后删）。 */
+static int code_shape_word_graph(AI *ai, const char *desc, const char *relname) {
+    if (!ai || !ai->pool || !desc || !relname) return 0;
+    uint8_t rid = rel_id_of(ai, relname, 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    static const char PFX[] = "形状词:";
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage) continue;
+        if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        int hit = 0;
+        for (size_t j = 0; j < t->count && !hit; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->dyn == d) hit = 1;
+        }
+        if (hit && strstr(desc, t->name + sizeof PFX - 1)) {
+            if (getenv("AIP_SHAPEDBG"))
+                fprintf(stderr, "[shapedbg] 图命中 %s（%s）\n", t->name, relname);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static inline int code_desc_wants_scalar(AI *ai, const char *desc) {
+    if (code_shape_word_graph(ai, desc, "要标量")) return 1;
     static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
                                "第二大的数", "第二小的数", "第三大的数", "第三小的数",
                                "中间的那个数", "求和", "之和", "总和", "最大值", "最小值",
@@ -453,7 +480,8 @@ static inline int code_stmt_liftable(const char *stmt) {
     return 1;
 }
 
-static inline int code_desc_wants_array(const char *desc) {
+static inline int code_desc_wants_array(AI *ai, const char *desc) {
+    if (code_shape_word_graph(ai, desc, "要数组")) return 1;
     static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
                                "排序后输出", "输出这些", "倒序", "列和", "每一列",
                                "排列后输出", "从小到大排序", "从大到小排序", NULL};
@@ -1575,7 +1603,7 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
      * （模板是整数数组、输出是标量、关键词在描述里出现在末算子之后）。只追加**唯一**候选；
      * 找不到就不动（保持原样，交给 §6.863 的拒绝闸门）。这样“每个数乘 5 之后输出总和”会补成 2 算子链，
      * 而不是退化成“打印整个数组”。 */
-    if (n > 0 && n < CODE_MAX_OPS && code_desc_wants_scalar(desc) && !code_desc_wants_array(desc) &&
+    if (n > 0 && n < CODE_MAX_OPS && code_desc_wants_scalar(ai, desc) && !code_desc_wants_array(ai, desc) &&
         code_op_out_shape(ai, ops[n - 1]) >= 2) {
         Token *cand = NULL;
         size_t cpos = 0, clen = 0;
