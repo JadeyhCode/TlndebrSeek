@@ -1981,11 +1981,15 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     return code_emit(ai, tmpl, body, fcodes, fnames, nf, outbase, hd, note, cap);
 }
 /* §6.834 方案 C 第一步：**说法归一**（只给命令层用；不进 code_synth 内部，避免递归与误触发）。 */
-static inline int code_rewrite(AI *ai, const char *desc, char *out, size_t cap) {
+static inline int code_rewrite_ex(AI *ai, const char *desc, char *out, size_t cap, int safe_only) {
     if (!ai || !desc || !out || cap == 0) return 0;
     uint8_t rid = rel_id_of(ai, "改写", 0);
     if (rid < REL_DYN_BASE) return 0;
     uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    /* §6.925b 只有标了 `安全` 的改写才允许**前置**（否则会把“数组峰值/倒序”这类
+     * 关键词改没，门禁实测抓过两次）。兜底路径仍用全部改写。 */
+    uint8_t rid_safe = rel_id_of(ai, "安全", 0);
+    uint8_t d_safe = (rid_safe >= REL_DYN_BASE) ? (uint8_t)(rid_safe - REL_DYN_BASE + 1) : 0;
     snprintf(out, cap, "%s", desc);
     int changed = 0;
     for (;;) {
@@ -1993,16 +1997,25 @@ static inline int code_rewrite(AI *ai, const char *desc, char *out, size_t cap) 
         const char *bfrom = NULL, *bto = NULL;
         for (size_t i = 0; i < ai->pool->count; ++i) {
             Token *t = ai->pool->tokens[i];
-            if (!t || !t->name || t->count < 2) continue;
+            if (!t || !t->name || t->count < 1) continue;
             const char *to = NULL;
+            int is_safe = 0;
             for (size_t j = 0; j < t->count; ++j) {
                 const AssocEntry *e = &token_assocs_ro(t)[j];
-                if (e->main && e->dyn == d) { to = e->main->name; break; }
+                if (e->main && e->dyn == d) { to = e->main->name; }
+                if (e->main && d_safe && e->dyn == d_safe) is_safe = 1;
             }
             if (!to) continue;
-            if (!strstr(out, t->name)) continue;
-            size_t l = strlen(t->name);
-            if (l > blen) { blen = l; bfrom = t->name; bto = to; }
+            if (safe_only && !is_safe) continue;
+            /* §6.925 数据里的主语是 `改写:<原词>`（为了不把原词当实体混进图），
+             * 这里必须剥掉前缀再比文本 —— 以前直接拿 `改写:峰值` 去 strstr，
+             * 永远匹配不上 ⇒ 整张改写表是死数据。 */
+            const char *nm = t->name;
+            static const char REW_PFX[] = "改写:";
+            if (!strncmp(nm, REW_PFX, sizeof REW_PFX - 1)) nm += sizeof REW_PFX - 1;
+            if (!*nm || !strstr(out, nm)) continue;
+            size_t l = strlen(nm);
+            if (l > blen) { blen = l; bfrom = nm; bto = to; }
         }
         if (!bfrom) break;
         const char *pos = strstr(out, bfrom);
@@ -2022,6 +2035,10 @@ static inline int code_rewrite(AI *ai, const char *desc, char *out, size_t cap) 
 /* §6.837 方案 C 第一步落地：**操作类归一**。把“没匹配上”的描述改写成规范说法：
  *   识别输入形状（一行整数/一行字符串/两个整数/矩阵）→ 按出现顺序贴规范操作短语 → 再走原管线。
  * 只在命令层、只在 note 明确“没有匹配”时调用。 */
+static inline int code_rewrite(AI *ai, const char *desc, char *out, size_t cap) {
+    return code_rewrite_ex(ai, desc, out, cap, 0);
+}
+
 static inline int code_struct_canon(AI *ai, const char *desc, char *out, size_t cap) {
     if (!ai || !desc || !out || cap == 0) return 0;
     uint8_t rid_w = rel_id_of(ai, "词", 0);
@@ -2645,6 +2662,14 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
     /* §6.725 匹配用"去掉虚词"的副本（参数解析也用副本里的位置） */
     char ndbuf[1024];
     code_norm_desc(ai, desc, ndbuf, sizeof ndbuf);
+    /* §6.925 **说法归一前置**：以前 `改写` 只在“没匹配”时兜底；换个说法但关键词还在时
+     * 会直接错配（generalize_eval 的 WRONG 里大半是这一类）。现在先归一，再检索。 */
+    char rwbuf[1024];
+    if (code_rewrite_ex(ai, ndbuf, rwbuf, sizeof rwbuf, 1) && strcmp(rwbuf, ndbuf) != 0) {
+        size_t rl = strlen(rwbuf);
+        while (rl && (rwbuf[rl - 1] == ' ')) rwbuf[--rl] = 0;
+        if (rl > 3) snprintf(ndbuf, sizeof ndbuf, "%s", rwbuf);
+    }
     const char *nd = ndbuf;
     /* §6.719 运算链先于任务检索：**两个以上**运算词时，描述讲的是"一串操作"，
      * 不该被某个任务的关键词（如"矩阵""行数""最大公约数"）抢走。
