@@ -12,7 +12,7 @@ run() { ( cd "$W" && printf '%b\n::quit\n' "$1" | ./build_aip --model model.bin 
 pass=0; fail=0
 ok()  { echo "  [OK]   $1"; pass=$((pass + 1)); }
 bad() { echo "  [FAIL] $1"; echo "         证据: $2"; fail=$((fail + 1)); }
-trap 'kill ${SRV:-0} 2>/dev/null' EXIT
+trap 'kill ${SRV:-0} ${SRV2:-0} 2>/dev/null' EXIT
 
 echo "== ① 合成失败自动入队，列表能看到，同一问题不重复入队 =="
 run '::code synth 写一个会唱歌的咖啡机控制系统' > /dev/null
@@ -21,6 +21,7 @@ n=$(grep -c "咖啡机" "$W/_t/curious.tsv" 2>/dev/null || true)
 [ "$n" = "1" ] && ok "入队且 24h 去重（1 条）" || bad "入队/去重不对" "条数=$n"
 o=$(run '::curious')
 printf '%s' "$o" | grep -qa '咖啡机' && ok "列表能看到" || bad "列表没有" "$(printf '%s' "$o" | tail -2)"
+printf '%s' "$o" | grep -qa '为什么问：没有匹配' && ok "每条带“为什么问”（失败原因）" || bad "没记失败原因" "$(printf '%s' "$o" | grep -a 咖啡机 | head -1)"
 
 echo "== ② 没开外部工具时 ask 明确拒绝 =="
 o=$(run '::curious ask 1')
@@ -43,6 +44,32 @@ printf '%s' "$o" | grep -qa '丢掉第 1 条' && ok "drop 生效" || bad "drop �
 o=$(run '::curious clear')
 printf '%s' "$o" | grep -qa '队列清空' && ok "clear 生效" || bad "clear 没生效" "$(printf '%s' "$o" | tail -2)"
 [ -f "$W/_t/curious.tsv" ] && bad "clear 后文件还在" "" || ok "clear 后文件没了"
+
+echo "== ⑤ §6.928 学会后自动销项：队列状态变 learned =="
+python3 "$ROOT/tools/fake_openai.py" --port 0 --reply '### CODE
+```c
+#include <stdio.h>
+int main(void){puts("tea");return 0;}
+```
+### RATIONALE
+只打印占位，证明学会流程走通。
+### TESTS
+IN: a => OUT: tea
+IN: b => OUT: tea
+### EVIDENCE
+编译过。' > "$W/srv2.log" 2>&1 &
+SRV2=$!
+PORT2=""; i=0
+while [ "$i" -lt 50 ]; do PORT2=$(head -1 "$W/srv2.log" 2>/dev/null | tr -cd '0-9'); [ -n "$PORT2" ] && break; i=$((i+1)); sleep 0.1; done
+[ -n "$PORT2" ] || { echo "FAIL: 第二个假端点没起来"; exit 1; }
+o=$(run "::code synth 写一个会唱歌的咖啡机控制系统二号
+::tool set http://127.0.0.1:$PORT2/v1 k m
+::tool on
+::code learn 写一个会唱歌的咖啡机控制系统二号
+::curious")
+printf '%s' "$o" | grep -qa '接受：编译过了' && ok "学习接受" || bad "学习没接受" "$(printf '%s' "$o" | grep -a 学习 | tail -2)"
+printf '%s' "$o" | grep -qa '\[learned\]' && ok "队列自动销项（learned）" || bad "队列没销项" "$(printf '%s' "$o" | grep -a 二号 | head -2)"
+kill "$SRV2" 2>/dev/null
 
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL curious（$pass 过 / $fail 红）"; exit 1; fi

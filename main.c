@@ -2238,7 +2238,9 @@ static void learn_flatten(const char *src, char *out, size_t cap) {
 
 /* §6.927 好奇心队列：`_t/curious.tsv`，一行 `时间戳\t问题\t状态`。
  * 只记本地问题，不联网；同一问题 24h 内只入队一次。 */
-static void curious_enqueue(const char *what) {
+static void curious_resolve(const char *what);
+
+static void curious_enqueue(const char *what, const char *why) {
     if (!what || !*what) return;
     mkdir("_t", 0755);
     mkdir("_t/work", 0755);
@@ -2259,7 +2261,50 @@ static void curious_enqueue(const char *what) {
         fclose(f);
     }
     FILE *a = fopen("_t/curious.tsv", "ab");
-    if (a) { fprintf(a, "%ld\t%s\tpending\n", now, what); fclose(a); }
+    if (a) { fprintf(a, "%ld\t%s\t%s\tpending\n", now, what, (why && *why) ? why : "（没有记录原因）"); fclose(a); }
+}
+
+/* §6.928 学会后销项：把队列里同一问题的 pending 标成 learned（不删，留痕） */
+static void curious_resolve(const char *what) {
+    if (!what || !*what) return;
+    FILE *f = fopen("_t/curious.tsv", "rb");
+    if (!f) return;
+    char tmp[512];
+    snprintf(tmp, sizeof tmp, "_t/curious.%ld.tmp", (long)getpid());
+    FILE *g = fopen(tmp, "wb");
+    if (!g) { fclose(f); return; }
+    char line[2048];
+    while (fgets(line, sizeof line, f)) {
+        char *t1 = strchr(line, '\t');
+        if (t1) {
+            char *q = t1 + 1;
+            char *t2 = strchr(q, '\t');
+            if (t2) {
+                char qsave = *t2;
+                (void)qsave;
+                char *qend = t2;
+                char saved = *qend;
+                *qend = 0;
+                int same = !strcmp(q, what);
+                *qend = saved;
+                if (same) {
+                    char *t3 = strstr(t2 + 1, "\t");
+                    if (t3) {
+                        char *nl = strchr(t3, '\n');
+                        if (nl) {
+                            snprintf(t3, (size_t)(nl - t3) + 1, "\tlearned");
+                            strncat(line, "\n", sizeof line - strlen(line) - 1);
+                        }
+                    }
+                }
+            }
+        }
+        fputs(line, g);
+    }
+    fclose(f);
+    fclose(g);
+    remove("_t/curious.tsv");
+    rename(tmp, "_t/curious.tsv");
 }
 
 int main(int argc, char **argv) {
@@ -5001,18 +5046,26 @@ int main(int argc, char **argv) {
                 if (!f) { printf("[好奇] 队列是空的（合成失败时自动入队）\n"); continue; }
                 char line[2048];
                 long idx = 0;
-                printf("[好奇] 队列（时间 / 状态 / 问题）：\n");
+                printf("[好奇] 队列（时间 / 问题 / 状态 / 为什么问）：\n");
                 while (fgets(line, sizeof line, f)) {
                     idx++;
                     char *tab = strchr(line, '\t');
                     if (!tab) continue;
                     *tab = 0;
+                    long ts = atol(line);
                     char *q = tab + 1;
-                    char *tab2 = strchr(q, '\t');
-                    if (tab2) { *tab2 = 0; }
-                    char *nl2 = strchr(q, '\n');
+                    char *t2 = strchr(q, '\t');
+                    if (!t2) continue;
+                    *t2 = 0;
+                    char *why = t2 + 1;
+                    char *t3 = strchr(why, '\t');
+                    char *st = NULL;
+                    if (t3) { *t3 = 0; st = t3 + 1; } 
+                    char *nl2 = strchr(why, '\n');
                     if (nl2) *nl2 = 0;
-                    printf("  %ld. %s  %s\n", idx, line, q);
+                    if (st) { char *nl3 = strchr(st, '\n'); if (nl3) *nl3 = 0; }
+                    (void)ts;
+                    printf("  %ld. %s  [%s]  为什么问：%s\n", idx, q, st ? st : "?", why);
                 }
                 fclose(f);
                 printf("  共 %ld 条；`::curious ask N|all` 走升级链路\n", idx);
@@ -6085,6 +6138,7 @@ int main(int argc, char **argv) {
                         mkdir("_t/learn", 0755);
                         FILE *rf = fopen("_t/learn/registry.tsv", "ab");
                         if (rf) { fprintf(rf, "%s\t%s\n", d, cpath); fclose(rf); }
+                        curious_resolve(d);
                     }
                     printf("[学习] 接受：编译过了，且有理由+证据。\n");
                     printf("       候选：%s（.out 可运行）\n", cpath);
@@ -6174,7 +6228,7 @@ int main(int argc, char **argv) {
                     printf("[合成] %s\n", nb[0] ? nb : "（没做成）");
                     if (sr == 0) printf("       ⇒ **写出来了，而且测试全绿**（%s）\n", "::code 看痕");
                     else printf("       ⇒ 没过（rc=%d）；产物在 _t/work/ 下，源码不会替你编造\n", sr);
-                    if (sr != 0) curious_enqueue(d);
+                    if (sr != 0) curious_enqueue(d, nb[0] ? nb : "（没有匹配）");
                     if (sr != 0) {   /* §6.917 干活时也不会了：auto 开着就先搜索再问（默认关） */
                         ToolCfg ta; tool_load(&ta);
                         if (ta.on && ta.auto_escalate) {
