@@ -608,6 +608,7 @@ typedef enum {
     CMD_NET,                /* §6.680 联网检索（默认关）：status/on/off/search/get/log */
     CMD_TOOL,               /* 外部工具（本地大模型，默认关）：set/on/off/ask/log —— 答复不进图 */
     CMD_ASK,                /* §6.917 干活时的外部顾问：先搜索、再问大模型（默认关，复用 ::tool 配置） */
+    CMD_WHYFOR,             /* §6.919 理由层：这个对象为什么可信（理由/证据/原因） */
     CMD_WEB,                /* 网页搜索（复用 ::net 的开关/白名单）：search/parse —— 结果一律待证 */
     CMD_PREMHOLD,           /* 前提成立的判据档：说到的（默认）/ 够得着 / 有据 */
     CMD_WGATE,              /* 写入分级闸门：情境层的随口一说要不要落库 */
@@ -792,6 +793,11 @@ static const CmdDef CMDS[] = {
       CMD_REL },
     { "why", NULL, 2, "基本",
       "问 A 关系 B 成不成立，并打出推导路径", CMD_WHY },
+    { "whyfor", "<对象>", 1, "基本",
+      "**理由层**：这个对象为什么可信/为什么这么做（§6.919）。\n"
+      "::whyfor 需求:数组工具集   打出它的 理由 / 证据 / 原因 / 意图 / 做法\n"
+      "没有理由或证据就直说「没有理由，不敢信」——不编一个理由出来\n"
+      "⚠ 纪律：配方/结论要落盘，必须同时有 `理由` 和 `证据`；失败用 `原因` 记", CMD_WHYFOR },
     { "verifywrites", "on|off", CARG_OPT, "调试/诊断",
       "写后读回校验（默认关，§6.248）：ai_write_rel 声称成功就立刻用读路径复核，\n"
       "不符就记数 —— 用来兜住「报了没学进去」那一类错", CMD_VERIFYWRITES },
@@ -4865,6 +4871,38 @@ int main(int argc, char **argv) {
                         printf("   ⚠ 「%s」在数据里是**独占**关系，这里却记了 %zu 个宾语 —— "
                                "学的时候没拦（§6.199）；要按独占用，先改口\n",
                                AI_RELS[k].name, nobj);
+                }
+                continue;
+            }
+            case CMD_WHYFOR: {
+                /* §6.919 理由层：回答“为什么这么干/为什么可信”，没有就说没有。 */
+                const char *obj = carg ? carg : "";
+                while (*obj == ' ') obj++;
+                if (!*obj) { printf("[用法] ::whyfor <对象>（例如 需求:数组工具集 / 目标:自学闭环）\n"); continue; }
+                Token *tk = pool_find(a->brain->pool, obj);
+                if (!tk || tk->count == 0) {
+                    printf("[理由] 图里没有「%s」——没有理由，不敢信。\n", obj);
+                    continue;
+                }
+                int shown = 0;
+                for (size_t j = 0; j < tk->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(tk)[j];
+                    if (!e->main) continue;
+                    const char *rn = e->dyn ? rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + e->dyn - 1)) : NULL;
+                    if (!rn) continue;
+                    const char *label = NULL;
+                    if (!strcmp(rn, "理由")) label = "理由";
+                    else if (!strcmp(rn, "证据")) label = "证据";
+                    else if (!strcmp(rn, "原因")) label = "原因";
+                    else if (!strcmp(rn, "意图")) label = "意图";
+                    else if (!strcmp(rn, "做法")) label = "做法";
+                    if (!label) continue;
+                    printf("  [%s] %s\n", label, e->main->name ? e->main->name : "?");
+                    shown++;
+                }
+                if (!shown) {
+                    printf("[理由] 「%s」没有登记 理由/证据/原因——**没有理由，不敢信**"
+                           "（§6.919：无理由无证据的结论不落盘）。\n", obj);
                 }
                 continue;
             }
