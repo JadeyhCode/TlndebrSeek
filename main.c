@@ -837,6 +837,7 @@ static const CmdDef CMDS[] = {
       "受审的外部执行 + 写文件（默认关）：::act on|off｜run <命令…>｜write <相对路径> <文本…>｜out｜timeout <ms>", CMD_ACT },
     { "code", NULL, 1, "基本",
       "写-跑-看错-改 的机械闭环（降级版）：::code try <相对路径>｜::code build <目录>（多文件一次编）"
+      "｜::code learn <描述>（自学：本地先做，不会才问教师；无理由/无证据/编译不过都不落盘）"
       "｜::code test <目录|文件.c>｜::code frag <关键词>（查图里的真实片段）｜::code strict on|off｜::code multi on|off｜::code 看痕。修法只有两类，最多改一次；改完还编不过会**还原**源码", CMD_CODE },
     { "feat", "<特征词> [特征词…]", 2, "基本",
       "**特征集合 → 概念**：把每个特征词的**入边来源**当一票，看哪个词被命中最多次\n"
@@ -2202,6 +2203,28 @@ static void tool_escalate_once(ToolCfg *tc, const char *q) {
         printf("[外部工具 %s] 答（**不是我的知识**，不进图）：\n%s\n", tc->model[0] ? tc->model : "?", ans);
     else
         printf("[升级] 外部工具没答上来：%s（搜索结果是照实的，可自己看）\n", err[0] ? err : "（没原因）");
+}
+
+
+/* §6.920 学习用系统提示词：只要“代码 + 理由 + 证据”三段，格式固定，便于机器验证。 */
+static const char *LEARN_SYS =
+    "你是代码教师。只输出下面三段格式，不要多余的话：\n"
+    "### CODE\n```c\n<完整、自包含、可编译的 C11 程序>\n```\n"
+    "### RATIONALE\n<为什么这样实现（一句话）>\n"
+    "### EVIDENCE\n<你怎么验证的（一句话；没验证就写没验证）>\n"
+    "硬规则：代码只 include 标准库；必须能独立编译；不许伪造理由或证据。";
+
+/* 去掉换行/制表符，把一段文本压成一行（写 triples 用） */
+static void learn_flatten(const char *src, char *out, size_t cap) {
+    size_t n = 0;
+    if (!out || !cap) return;
+    for (const char *p = src; p && *p && n + 1 < cap; ++p) {
+        char ch = *p;
+        if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
+        out[n++] = ch;
+    }
+    out[n] = 0;
+    while (n && out[n - 1] == ' ') out[--n] = 0;
 }
 
 int main(int argc, char **argv) {
@@ -5779,6 +5802,105 @@ int main(int argc, char **argv) {
                         printf("[提示] 需求根没匹配上：先在 code/knowledge/plan.triples 里登记这条需求\n");
                     else if (nl == 0)
                         printf("[提示] 拆出来了但没有可执行要点（补 --[实现]--> 边）\n");
+                    continue;
+                }
+                if (arg && strncmp(arg, "learn", 5) == 0) {
+                    /* §6.920 自学闭环 v1：本地先做；不会才问教师；**无理由/无证据/编译不过都不落盘**。 */
+                    const char *d = arg + 5;
+                    while (*d == ' ') d++;
+                    if (!*d) { printf("[用法] ::code learn <中文任务描述>\n"); continue; }
+                    char nb0[512] = {0};
+                    int sr0 = code_synth(a->brain, d, nb0, sizeof nb0);
+                    if (sr0 == 0) {
+                        printf("[学习] 本地已经会了（合成+自测通过），不需要教师：%s\n", d);
+                        continue;
+                    }
+                    if (strstr(nb0, "写文件失败") && strstr(nb0, "链：")) {
+                        printf("[学习] 本地其实会，但写入门关着（先 ::act on 再重试）；本轮不落盘。\n");
+                        continue;
+                    }
+                    ToolCfg lc; tool_load(&lc);
+                    if (!lc.on || !lc.url[0]) {
+                        printf("[学习] 本地不会，且**不能瞎写**：外部教师没开/没配（::tool on + ::tool set 后重试）。\n");
+                        printf("       本轮不落盘（理由：没有可验证的来源）。\n");
+                        continue;
+                    }
+                    char qq[2048];
+                    snprintf(qq, sizeof qq, "需求：%s\n本地合成器失败：%s\n请按格式给实现。",
+                             d, nb0[0] ? nb0 : "（没有匹配）");
+                    printf("[学习] 问教师（%s，思考强度 %s）…\n",
+                           lc.model[0] ? lc.model : "?", lc.think >= 2 ? "高" : lc.think == 1 ? "中" : "低");
+                    char *ans = (char *)malloc(65536);
+                    char err[256] = {0};
+                    if (!ans) { printf("[学习] 没内存\n"); continue; }
+                    int okq = tool_ask_sys(&lc, LEARN_SYS, qq, ans, 65536, err, sizeof err);
+                    if (!okq) {
+                        printf("[学习] 教师没答上来：%s；不落盘。\n", err[0] ? err : "（没原因）");
+                        free(ans);
+                        continue;
+                    }
+                    /* 解析三段 */
+                    const char *code = NULL, *rat = NULL, *evi = NULL;
+                    size_t codelen = 0;
+                    const char *f = strstr(ans, "```c");
+                    if (!f) f = strstr(ans, "```");
+                    if (f) {
+                        f = strchr(f, '\n');
+                        if (f) {
+                            f++;
+                            const char *g = strstr(f, "```");
+                            if (g) { code = f; codelen = (size_t)(g - f); }
+                        }
+                    }
+                    const char *r = strstr(ans, "### RATIONALE");
+                    if (r) {
+                        r += strlen("### RATIONALE");
+                        while (*r == '\n' || *r == ' ' || *r == '\r') r++;
+                        const char *e = strstr(r, "### EVIDENCE");
+                        if (e) { rat = r; evi = e + strlen("### EVIDENCE"); }
+                        else rat = r;
+                    }
+                    if (evi) while (*evi == '\n' || *evi == ' ' || *evi == '\r') evi++;
+                    mkdir("_t", 0755);
+                    mkdir("_t/learn", 0755);
+                    if (!code || codelen < 20) {
+                        printf("[学习] 拒绝：回包里没有可编译的代码段（不落盘）。\n");
+                        continue;
+                    }
+                    char rat1[1024] = {0}, evi1[1024] = {0};
+                    if (rat) { size_t n = strcspn(rat, "\n"); if (n > 900) n = 900; memcpy(rat1, rat, n); rat1[n] = 0; }
+                    if (evi) { size_t n = strcspn(evi, "\n"); if (n > 900) n = 900; memcpy(evi1, evi, n); evi1[n] = 0; }
+                    learn_flatten(rat1, rat1, sizeof rat1);
+                    learn_flatten(evi1, evi1, sizeof evi1);
+                    if (!rat1[0]) { printf("[学习] 拒绝：**没有理由**（§6.919：无理由不落盘）。\n"); continue; }
+                    if (!evi1[0]) { printf("[学习] 拒绝：**没有证据**（§6.919：无证据不落盘）。\n"); continue; }
+                    char cpath[128], clog[160];
+                    snprintf(cpath, sizeof cpath, "_t/learn/cand_%ld.c", (long)getpid());
+                    snprintf(clog, sizeof clog, "_t/learn/cand_%ld.log", (long)getpid());
+                    FILE *cf = fopen(cpath, "wb");
+                    if (!cf) { printf("[学习] 写不了 %s\n", cpath); free(ans); continue; }
+                    fwrite(code, 1, codelen, cf);
+                    fclose(cf);
+                    char ccmd[512];
+                    snprintf(ccmd, sizeof ccmd,
+                             "gcc -std=c11 -w -o %s.out %s > %s 2>&1", cpath, cpath, clog);
+                    int crc = system(ccmd);
+                    if (crc != 0) {
+                        printf("[学习] 拒绝：编译没过（%s；证据在 %s），不落盘。\n", cpath, clog);
+                        free(ans);
+                        continue;
+                    }
+                    FILE *af = fopen("_t/learn/accepted.triples", "ab");
+                    if (af) {
+                        fprintf(af, "学习:%s\t理由\t%s\n", d, rat1);
+                        fprintf(af, "学习:%s\t证据\t%s（gcc 编译通过，候选 %s）\n", d, evi1, cpath);
+                        fclose(af);
+                    }
+                    printf("[学习] 接受：编译过了，且有理由+证据。\n");
+                    printf("       候选：%s（.out 可运行）\n", cpath);
+                    printf("       理由：%s\n       证据：%s\n", rat1, evi1);
+                    printf("       落盘：::ingest _t/learn/accepted.triples（审核后再进主图）\n");
+                    free(ans);
                     continue;
                 }
                 if (arg && strncmp(arg, "synth", 5) == 0) {

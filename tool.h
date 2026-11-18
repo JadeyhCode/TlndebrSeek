@@ -265,8 +265,8 @@ static inline int tool_pick_content(const char *json, char *out, size_t cap) {
 }
 
 /* 问一次工具。返回 1 = 成功（out 里是答复原文）；0 = 失败（err 里是原因）。 */
-static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t cap,
-                           char *err, size_t errcap) {
+static inline int tool_ask_sys(ToolCfg *c, const char *sys_override, const char *question,
+                               char *out, size_t cap, char *err, size_t errcap) {
     if (out && cap) out[0] = 0;
     if (err && errcap) err[0] = 0;
     if (!c || !question || !out) return 0;
@@ -282,7 +282,8 @@ static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t c
 
     char esc[4096], sysraw[2048], syse[8192];
     tool_json_esc(esc, sizeof esc, question);
-    tool_system_prompt(c, sysraw, sizeof sysraw);
+    if (sys_override && *sys_override) snprintf(sysraw, sizeof sysraw, "%s", sys_override);
+    else tool_system_prompt(c, sysraw, sizeof sysraw);
     tool_json_esc(syse, sizeof syse, sysraw);
     FILE *bf = fopen(body_path + 1, "w");
     if (!bf) { snprintf(err, errcap, "写不了临时文件"); return 0; }
@@ -393,6 +394,12 @@ static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t c
     if (ok) c->n_ok++; else c->n_fail++;
     c->n_ask++;
     return ok;
+}
+
+/* 旧签名：用配置里的系统提示词 */
+static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t cap,
+                           char *err, size_t errcap) {
+    return tool_ask_sys(c, NULL, question, out, cap, err, errcap);
 }
 
 #endif /* TOOL_H */
