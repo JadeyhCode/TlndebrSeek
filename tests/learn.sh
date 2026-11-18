@@ -52,6 +52,9 @@ int main(void){long x,s=0;while(scanf("%ld",&x)==1)s+=x;printf("%ld\n",s);return
 ```
 ### RATIONALE
 边读边加，不需要数组，省内存。
+### TESTS
+IN: 1 2 3 => OUT: 6
+IN: 4 5 => OUT: 9
 ### EVIDENCE
 本地 gcc 编译通过。'
 o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 实现一个简易的待办清单管理器")
@@ -85,6 +88,37 @@ int main(void){ this is not C; return 0; }
 没验证。'
 o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个坏程序")
 printf '%s' "$o" | grep -qa '编译没过' && ok "编译不过：拒绝" || bad "编译不过也接受" "$(printf '%s' "$o" | tail -3)"
+stop_server
+
+echo "== ⑥ 教师测试不过：拒绝（编译过不算证明）=="
+start_server '### CODE
+```c
+#include <stdio.h>
+int main(void){long x,s=0;while(scanf("%ld",&x)==1)s+=x;printf("%ld\n",s);return 0;}
+```
+### RATIONALE
+边读边加。
+### TESTS
+IN: 1 2 => OUT: 999
+IN: 3 4 => OUT: 7
+### EVIDENCE
+本地编译过。'
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个求和器三号")
+printf '%s' "$o" | grep -qa '教师测试没过' && ok "教师测试不过：拒绝" || bad "教师测试不过也接受" "$(printf '%s' "$o" | tail -3)"
+stop_server
+
+echo "== ⑦ 教师没给 TESTS：拒绝（没有可复现证据）=="
+start_server '### CODE
+```c
+#include <stdio.h>
+int main(void){puts("hi");return 0;}
+```
+### RATIONALE
+打印 hi。
+### EVIDENCE
+编译过。'
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个打印 hi 的程序二号")
+printf '%s' "$o" | grep -qa '没给够测试' && ok "没 TESTS：拒绝" || bad "没 TESTS 也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
 echo ""

@@ -2208,11 +2208,13 @@ static void tool_escalate_once(ToolCfg *tc, const char *q) {
 
 /* §6.920 学习用系统提示词：只要“代码 + 理由 + 证据”三段，格式固定，便于机器验证。 */
 static const char *LEARN_SYS =
-    "你是代码教师。只输出下面三段格式，不要多余的话：\n"
+    "你是代码教师。只输出下面四段格式，不要多余的话：\n"
     "### CODE\n```c\n<完整、自包含、可编译的 C11 程序>\n```\n"
     "### RATIONALE\n<为什么这样实现（一句话）>\n"
+    "### TESTS\n<每行一个用例：IN: <标准输入一行> => OUT: <期望输出一行>>\n"
     "### EVIDENCE\n<你怎么验证的（一句话；没验证就写没验证）>\n"
-    "硬规则：代码只 include 标准库；必须能独立编译；不许伪造理由或证据。";
+    "硬规则：代码只 include 标准库；必须能独立编译；必须给至少 2 个 TESTS；"
+    "不许伪造理由、测试或证据。";
 
 /* 去掉换行/制表符，把一段文本压成一行（写 triples 用） */
 static void learn_flatten(const char *src, char *out, size_t cap) {
@@ -5861,6 +5863,37 @@ int main(int argc, char **argv) {
                         else rat = r;
                     }
                     if (evi) while (*evi == '\n' || *evi == ' ' || *evi == '\r') evi++;
+                    /* §6.922 教师必须给可复现的 TESTS：内核自己跑，跑不过就拒绝 */
+                    char tin[8][256] = {{0}}, tout[8][256] = {{0}};
+                    int ntests = 0;
+                    const char *ts = strstr(ans, "### TESTS");
+                    if (ts) {
+                        char tb[4096];
+                        snprintf(tb, sizeof tb, "%s", ts + 9);
+                        char *sv = NULL;
+                        for (char *ln = strtok_r(tb, "\n\r", &sv); ln && ntests < 8;
+                             ln = strtok_r(NULL, "\n\r", &sv)) {
+                            char *inp = strstr(ln, "IN:");
+                            char *outp = strstr(ln, "OUT:");
+                            if (!inp || !outp || outp < inp) continue;
+                            inp += 3;
+                            while (*inp == ' ' || *inp == '\t') inp++;
+                            char *ine = outp;
+                            while (ine > inp && (ine[-1] == ' ' || ine[-1] == '\t' || ine[-1] == '=' ||
+                                                 ine[-1] == '>' || ine[-1] == '`')) ine--;
+                            if (ine <= inp) continue;
+                            size_t il = (size_t)(ine - inp);
+                            if (il >= sizeof tin[0]) il = sizeof tin[0] - 1;
+                            memcpy(tin[ntests], inp, il); tin[ntests][il] = 0;
+                            outp += 4;
+                            while (*outp == ' ' || *outp == '\t') outp++;
+                            size_t ol = strlen(outp);
+                            while (ol && (outp[ol-1] == ' ' || outp[ol-1] == '\t' || outp[ol-1] == '`')) ol--;
+                            if (ol >= sizeof tout[0]) ol = sizeof tout[0] - 1;
+                            memcpy(tout[ntests], outp, ol); tout[ntests][ol] = 0;
+                            ntests++;
+                        }
+                    }
                     mkdir("_t", 0755);
                     mkdir("_t/learn", 0755);
                     if (!code || codelen < 20) {
@@ -5890,10 +5923,42 @@ int main(int argc, char **argv) {
                         free(ans);
                         continue;
                     }
+                    if (ntests < 2) {
+                        printf("[学习] 拒绝：**教师没给够测试**（TESTS 少于 2 条；编译过不算证明）。\n");
+                        free(ans);
+                        continue;
+                    }
+                    int passed = 0;
+                    for (int ti = 0; ti < ntests; ++ti) {
+                        char ipath[160], opath[160], ocmd[700];
+                        snprintf(ipath, sizeof ipath, "_t/learn/cand_%ld.in", (long)getpid());
+                        snprintf(opath, sizeof opath, "_t/learn/cand_%ld.out.txt", (long)getpid());
+                        FILE *inf = fopen(ipath, "wb");
+                        if (inf) { fprintf(inf, "%s\n", tin[ti]); fclose(inf); }
+                        snprintf(ocmd, sizeof ocmd,
+                                 "timeout 5 %s.out < %s > %s 2>/dev/null", cpath, ipath, opath);
+                        { int trc = system(ocmd); (void)trc; }
+                        char gotv[512] = {0};
+                        FILE *of = fopen(opath, "rb");
+                        if (of) { size_t n = fread(gotv, 1, sizeof gotv - 1, of); gotv[n] = 0; fclose(of); }
+                        /* 归一化空白再比（不去猜格式） */
+                        char a1[512] = {0}, b1[512] = {0};
+                        size_t an = 0, bn = 0;
+                        for (const char *q = gotv; *q && an + 1 < sizeof a1; ++q)
+                            if (*q != ' ' && *q != '\t' && *q != '\n' && *q != '\r') a1[an++] = *q;
+                        for (const char *q = tout[ti]; *q && bn + 1 < sizeof b1; ++q)
+                            if (*q != ' ' && *q != '\t' && *q != '\n' && *q != '\r') b1[bn++] = *q;
+                        if (!strcmp(a1, b1)) { passed++; continue; }
+                        printf("[学习] 拒绝：教师测试没过（IN:「%s」期望「%s」实际「%s」）。\n",
+                               tin[ti], tout[ti], gotv[0] ? gotv : "(空)");
+                        break;
+                    }
+                    if (passed < ntests) { free(ans); continue; }
                     FILE *af = fopen("_t/learn/accepted.triples", "ab");
                     if (af) {
                         fprintf(af, "学习:%s\t理由\t%s\n", d, rat1);
-                        fprintf(af, "学习:%s\t证据\t%s（gcc 编译通过，候选 %s）\n", d, evi1, cpath);
+                        fprintf(af, "学习:%s\t证据\t%s（gcc 编译通过 + 教师测试 %d/%d 通过，候选 %s）\n",
+                                d, evi1, passed, ntests, cpath);
                         fclose(af);
                     }
                     printf("[学习] 接受：编译过了，且有理由+证据。\n");
