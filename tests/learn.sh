@@ -155,6 +155,12 @@ printf '#include <stdio.h>\nint main(void){puts("ok");return 0;}\n' > "$W/_t/lea
 o=$(run '::code accept 测试对的题')
 printf '%s' "$o" | grep -qa '通过' && ok "测试重跑通过：接受" || bad "测试对也没过" "$(printf '%s' "$o" | tail -2)"
 
+echo "== ⑫ §6.936 进图后可查：::ingest 学习记录 → ::whyfor 打出理由/证据 =="
+o=$(run '::ingest _t/learn/graph.triples
+::whyfor 学习:测试对的题')
+printf '%s' "$o" | grep -qa '\[理由\]' && ok "进图后能查理由" || bad "查不到理由" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '\[证据\]' && ok "进图后能查证据" || bad "查不到证据" "$(printf '%s' "$o" | tail -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL learn（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS learn（$pass 过 / 0 红）"
