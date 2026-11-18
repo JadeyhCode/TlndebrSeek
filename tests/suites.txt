@@ -193,6 +193,7 @@ whyfor|sh tests/whyfor.sh
 curious|sh tests/curious.sh
 shard|sh tests/shard.sh
 shardquery|sh tests/shardquery.sh
+shardindex|sh tests/shardindex.sh
 rewrite|sh tests/rewrite.sh
 learn|sh tests/learn.sh
 candy|sh tests/candy.sh > candy.log 2>&1; rc=$?; [ "$rc" -eq 0 ] || cat candy.log; tail -3 candy.log; [ "$rc" -eq 0 ]
