@@ -27,7 +27,7 @@ bad() { printf '  [FAIL] %s\n        证据: %s\n' "$1" "${2:-}"; fail=$((fail +
 
 # 现场造一份"够合成用"的模型（不带 13 MB 的 capi：合成器用不到它）
 {
-    for f in c2 generalized searched prim plan opclass rewrite skeletons compose; do
+    for f in c2 generalized searched prim plan opclass rewrite shapewords skeletons compose; do
         [ -s "$K/$f.triples" ] && printf '::ingest %s/%s.triples\n' "$K" "$f"
     done
     printf '::save %s/model.bin\n::quit\n' "$WORK"

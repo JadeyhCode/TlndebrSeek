@@ -22,10 +22,23 @@ o=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大
 printf '%s' "$o" | grep -qa '图命中 形状词:第六个数（要标量）' && ok "命中图里的标量词" || bad "没查图" "$(printf '%s' "$o" | grep -a shapedbg | head -2)"
 printf '%s' "$o" | grep -qa '图命中 形状词:排序后输出（要数组）' && ok "命中图里的数组词" || bad "数组词没命中" "$(printf '%s' "$o" | grep -a shapedbg | head -2)"
 
-echo "== ③ 图里没有的词不装命中（后备表仍负责已知词）=="
+echo "== ③ 图里没有的词不装命中（已无后备表，全靠数据）=="
 o=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大到小排序后输出第七个数\n::quit\n' \
     | AIP_SHAPEDBG=1 "$BIN" --model "$M" 2>&1)
 printf '%s' "$o" | grep -qa '图命中 形状词:第七个数' && bad "不存在的词也命中了" "" || ok "不存在的词不命中"
+
+echo "== ④ 真消融：同一二进制，有数据 vs 无数据行为不同 =="
+if [ -f /tmp/noshape.bin ]; then
+    a=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大到小排序后输出第二个数\n::quit\n' \
+        | AIP_CHAINDBG=1 "$BIN" --model /tmp/noshape.bin 2>&1)
+    printf '%s' "$a" | grep -qa '优先标量' && bad "无数据模型也命中了" "" || ok "无数据：不走优先标量闸门"
+    printf '%s' "$a" | grep -qa '写出来了' && ok "无数据：落回数组链（行为已知）" || ok "无数据：另有路径"
+    b=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大到小排序后输出第二个数\n::quit\n' \
+        | AIP_CHAINDBG=1 "$BIN" --model "$M" 2>&1)
+    printf '%s' "$b" | grep -qa '优先标量词命中' && ok "有数据：优先标量闸门生效（让位）" || bad "有数据也没让位" "$(printf '%s' "$b" | grep -a gate | head -1)"
+else
+    echo "  [NOTE] 没有 /tmp/noshape.bin 基准模型，跳过消融（不假冒）"
+fi
 
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shapewords（$pass 过 / $fail 红）"; exit 1; fi
