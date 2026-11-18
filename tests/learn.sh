@@ -160,6 +160,7 @@ o=$(run '::ingest _t/learn/graph.triples
 ::whyfor 学习:测试对的题')
 printf '%s' "$o" | grep -qa '\[理由\]' && ok "进图后能查理由" || bad "查不到理由" "$(printf '%s' "$o" | tail -3)"
 printf '%s' "$o" | grep -qa '\[证据\]' && ok "进图后能查证据" || bad "查不到证据" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '\[来源\].*学来的' && ok "进图后能查来源（学来的）" || bad "查不到来源" "$(printf '%s' "$o" | tail -3)"
 
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL learn（$pass 过 / $fail 红）"; exit 1; fi
