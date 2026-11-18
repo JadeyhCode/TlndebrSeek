@@ -161,6 +161,11 @@ pool_task_setup() {   # $1=套件名（没用上） $2=worker 号
             cp "$f" "$SB/code/knowledge/$(basename "$f")"
         done
     fi
+    # §6.938 硬编码登记表也要进沙箱：hardcode 套件按它判“有没有黑户语义表”
+    if [ -f "$ROOT/docs/硬编码登记.md" ]; then
+        mkdir -p "$SB/docs"
+        cp "$ROOT/docs/硬编码登记.md" "$SB/docs/"
+    fi
     cp "$ROOT/model.bin" "$SB/model.bin"
     cp "$ROOT/build_aip" "$SB/build_aip"
     # 套件里 `sh "$ROOT/tests/prebuilt.sh" aip …` 复制的就是这一份（不再各编 16 s）

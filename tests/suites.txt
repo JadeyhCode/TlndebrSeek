@@ -193,6 +193,7 @@ whyfor|sh tests/whyfor.sh
 curious|sh tests/curious.sh
 shard|sh tests/shard.sh
 shardquery|sh tests/shardquery.sh
+hardcode|sh tests/hardcode.sh
 shardindex|sh tests/shardindex.sh
 rewrite|sh tests/rewrite.sh
 learn|sh tests/learn.sh
