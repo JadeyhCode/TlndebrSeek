@@ -2639,6 +2639,63 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
     return 0;
 }
 
+/* §6.926 取一个运算的打印类型（`输出 --[打印:*]-->` 的名字去前缀）。
+ * 返回 1 = 取到；0 = 这个运算没声明。 */
+static inline int code_op_print_kind(AI *ai, const char *opname, char *out, size_t cap) {
+    if (!ai || !ai->pool || !opname || !out || !cap) return 0;
+    Token *t = pool_find(ai->pool, opname);
+    if (!t) return 0;
+    uint8_t rid = rel_id_of(ai, "输出", 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    for (size_t i = 0; i < t->count; ++i) {
+        const AssocEntry *e = &token_assocs_ro(t)[i];
+        if (!e->main || !e->main->name || e->dyn != d) continue;
+        const char *nm = e->main->name;
+        static const char PFX[] = "打印:";
+        if (!strncmp(nm, PFX, sizeof PFX - 1)) nm += sizeof PFX - 1;
+        snprintf(out, cap, "%s", nm);
+        return 1;
+    }
+    return 0;
+}
+
+/* §6.926 题目明确要 yes/no（或“是否…”）时，链里至少要有一步的输出类型能表达真假；
+ * 全是数值/数组输出就拒 —— 把“自信地答错”改成“证据不足”。 */
+static inline int code_chain_wants_bool(const char *nd) {
+    if (!nd) return 0;
+    return strstr(nd, "yes") || strstr(nd, "no") || strstr(nd, "Yes") || strstr(nd, "No") ||
+           strstr(nd, "是否");
+}
+
+static inline int code_chain_has_bool(const AI *ai, const char *note) {
+    (void)ai;
+    if (!note) return 0;
+    const char *p = strstr(note, "个运算（");
+    if (!p) return 0;
+    p = strstr(p, "（");
+    if (!p) return 0;
+    p += strlen("（");
+    const char *e = strstr(p, "）");
+    if (!e) return 0;
+    char ops[512];
+    size_t n = (size_t)(e - p);
+    if (n >= sizeof ops) n = sizeof ops - 1;
+    memcpy(ops, p, n);
+    ops[n] = 0;
+    char *sv = NULL;
+    for (char *tok = strtok_r(ops, "→", &sv); tok; tok = strtok_r(NULL, "→", &sv)) {
+        while (*tok == ' ') tok++;
+        size_t l = strlen(tok);
+        while (l && (tok[l-1] == ' ')) tok[--l] = 0;
+        char kind[64];
+        if (code_op_print_kind((AI *)ai, tok, kind, sizeof kind)) {
+            if (strstr(kind, "布尔") || strstr(kind, "真假") || strstr(kind, "判断")) return 1;
+        }
+    }
+    return 0;
+}
+
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
     if (note && cap) note[0] = 0;
     if (!ai || !ai->pool || !desc || !desc[0]) return -2;
@@ -2682,7 +2739,15 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
         /* §6.881b 链**拼出来但编不过**时不许堵死回退路：以前直接 return 这个失败码，
          * 于是"两个整数的和"这类被 `的和` 误命的标量题拿到一份编不过的 .c，连配方都轮不到。
          * 判据用现成的 note（code_test_file 会写"没编过"）—— 测试红但不编错的仍算答案。 */
-        if (crc_chain != -1 && !(note && strstr(note, "没编过"))) return crc_chain;
+        if (crc_chain != -1 && !(note && strstr(note, "没编过"))) {
+            /* §6.926 yes/no 题：链只会输出数值/数组 ⇒ 证据不足，拒 */
+            if (code_chain_wants_bool(nd) && strstr(note, "链：") && !code_chain_has_bool(ai, note)) {
+                if (note && cap)
+                    snprintf(note, cap, "题目要 yes/no，但链只能输出数值/数组 —— **证据不足，先拒**（§6.926）");
+                return -1;
+            }
+            return crc_chain;
+        }
     }
 
     /* ① 找最匹配的任务 */

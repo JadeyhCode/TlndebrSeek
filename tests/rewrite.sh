@@ -30,6 +30,12 @@ o=$(printf '::act on\n::code synth 读入一行整数（标准输入），输出
     | "$BIN" --model "$M" 2>&1)
 printf '%s' "$o" | grep -aq '写出来了' && ok "总数→总和 生效" || bad "总数没归一" "$(printf '%s' "$o" | grep -a '合成' | tail -1)"
 
+echo "== ③ §6.926 yes/no 题：链只会输出数值 ⇒ 证据不足先拒（不硬答）=="
+o=$(printf '::act on\n::code synth 写一个程序：读入一行整数（标准输入），输出是否只有一个峰值（输出 yes 或 no）。\n::quit\n' \
+    | "$BIN" --model "$M" 2>&1)
+printf '%s' "$o" | grep -aqE '证据不足|没有匹配' && ok "yes/no 题拒绝了" || bad "yes/no 题硬答了" "$(printf '%s' "$o" | grep -a '合成' | tail -2)"
+printf '%s' "$o" | grep -aq '写出来了' && bad "yes/no 题还答出来了" "" || ok "没有硬写出数值答案"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL rewrite（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS rewrite（$pass 过 / 0 红）"
