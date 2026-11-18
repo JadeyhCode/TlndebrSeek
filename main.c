@@ -6005,8 +6005,12 @@ int main(int argc, char **argv) {
                         if (!t3) continue;
                         *t3 = 0;
                         char *evi = t3 + 1;
+                        char *t4 = strchr(evi, '\t');
+                        char *tstr = NULL;
+                        if (t4) { *t4 = 0; tstr = t4 + 1; }
                         char *nl = strchr(evi, '\n');
                         if (nl) *nl = 0;
+                        if (tstr) { char *nl2 = strchr(tstr, '\n'); if (nl2) *nl2 = 0; }
                         if (strcmp(want, "all") != 0 && strcmp(line, want) != 0) continue;
                         if (!rat[0] || !evi[0]) {
                             printf("[接受] 拒绝：缺%s（无理由/无证据不落盘）\n",
@@ -6022,6 +6026,45 @@ int main(int argc, char **argv) {
                         FILE *bf = fopen(bin, "rb");
                         if (!bf) { printf("[接受] 拒绝：候选编译不过（%s），不落盘\n", cand); skipped++; continue; }
                         fclose(bf);
+                        /* §6.935 重跑教师 TESTS：测试不是文件里的装饰，accept 时再验一遍 */
+                        if (tstr && tstr[0]) {
+                            int tbad = 0, tn = 0;
+                            char *sv2 = NULL;
+                            char *copy = strdup(tstr);
+                            if (copy) {
+                                for (char *one = strtok_r(copy, ";", &sv2); one && !tbad;
+                                     one = strtok_r(NULL, ";", &sv2)) {
+                                    char *arrow = strstr(one, "=>");
+                                    if (!arrow) continue;
+                                    *arrow = 0;
+                                    const char *inp = one, *outp = arrow + 2;
+                                    tn++;
+                                    char ip[160], op[160], ocmd[1200];
+                                    snprintf(ip, sizeof ip, "_t/learn/acc_%ld.in", (long)getpid());
+                                    snprintf(op, sizeof op, "_t/learn/acc_%ld.out", (long)getpid());
+                                    FILE *inf = fopen(ip, "wb");
+                                    if (inf) { fprintf(inf, "%s\n", inp); fclose(inf); }
+                                    snprintf(ocmd, sizeof ocmd, "timeout 5 %s < %s > %s 2>/dev/null", bin, ip, op);
+                                    { int trc2 = system(ocmd); (void)trc2; }
+                                    char gotv[512] = {0};
+                                    FILE *of2 = fopen(op, "rb");
+                                    if (of2) { size_t n2 = fread(gotv, 1, sizeof gotv - 1, of2); gotv[n2] = 0; fclose(of2); }
+                                    char a1[512] = {0}, b1[512] = {0};
+                                    size_t an2 = 0, bn2 = 0;
+                                    for (const char *q2 = gotv; *q2 && an2 + 1 < sizeof a1; ++q2)
+                                        if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') a1[an2++] = *q2;
+                                    for (const char *q2 = outp; *q2 && bn2 + 1 < sizeof b1; ++q2)
+                                        if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') b1[bn2++] = *q2;
+                                    if (strcmp(a1, b1) != 0) tbad = 1;
+                                }
+                                free(copy);
+                            }
+                            if (tbad) {
+                                printf("[接受] 拒绝：测试重跑没过（%d 条里有一条不对），不落盘\n", tn);
+                                skipped++;
+                                continue;
+                            }
+                        }
                         if (g) {
                             fprintf(g, "学习:%s\t理由\t%s\n", line, rat);
                             fprintf(g, "学习:%s\t证据\t%s（重新编译通过）\n", line, evi);
@@ -6188,7 +6231,13 @@ int main(int argc, char **argv) {
                     if (af) {
                         FILE *tsv = fopen("_t/learn/accepted.tsv", "ab");
                         if (tsv) {
-                            fprintf(tsv, "%s\t%s\t%s\t%s\n", d, cpath, rat1, evi1);
+                            char tenc[2048];
+                            size_t te = 0;
+                            tenc[0] = 0;
+                            for (int ti = 0; ti < ntests && te + 8 < sizeof tenc; ++ti)
+                                te += (size_t)snprintf(tenc + te, sizeof tenc - te, "%s=>%s;",
+                                                       tin[ti], tout[ti]);
+                            fprintf(tsv, "%s\t%s\t%s\t%s\t%s\n", d, cpath, rat1, evi1, tenc);
                             fclose(tsv);
                         }
                         fprintf(af, "学习:%s\t理由\t%s\n", d, rat1);

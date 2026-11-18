@@ -144,6 +144,17 @@ printf '%s' "$o" | grep -qa '通过' && ok "三样齐：通过" || bad "三样�
 [ -s "$W/_t/learn/graph.triples" ] && grep -qa '理由' "$W/_t/learn/graph.triples" && ok "待灌区写了理由" || bad "待灌区缺理由" ""
 grep -qa '重新编译通过' "$W/_t/learn/graph.triples" 2>/dev/null && ok "证据带重新编译" || bad "证据没带编译" ""
 
+echo "== ⑪ §6.935 accept 重跑 TESTS：存着的测试不对就不许落盘 =="
+printf '测试不对的题\t_t/learn/good.c\t理由：占位\t证据：编译过\tx=>bye;\n' > "$W/_t/learn/accepted.tsv"
+rm -f "$W/_t/learn/graph.triples"
+o=$(run '::code accept 测试不对的题')
+printf '%s' "$o" | grep -qa '测试重跑没过' && ok "测试重跑不过：拒绝" || bad "测试不对也接受" "$(printf '%s' "$o" | tail -2)"
+[ -s "$W/_t/learn/graph.triples" ] && bad "拒绝了还写待灌区" "" || ok "拒绝后没有落盘"
+printf '测试对的题\t_t/learn/good.c\t理由：占位\t证据：编译过\nx=>ok;\n' > "$W/_t/learn/accepted.tsv"
+printf '#include <stdio.h>\nint main(void){puts("ok");return 0;}\n' > "$W/_t/learn/good.c"
+o=$(run '::code accept 测试对的题')
+printf '%s' "$o" | grep -qa '通过' && ok "测试重跑通过：接受" || bad "测试对也没过" "$(printf '%s' "$o" | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL learn（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS learn（$pass 过 / 0 红）"
