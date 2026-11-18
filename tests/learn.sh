@@ -121,6 +121,12 @@ o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写�
 printf '%s' "$o" | grep -qa '没给够测试' && ok "没 TESTS：拒绝" || bad "没 TESTS 也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
+echo "== ⑧ teacher-free：学过的题，关掉教师 + act on 后本地还能做 =="
+o=$(run '::act on
+::code synth 实现一个简易的待办清单管理器')
+printf '%s' "$o" | grep -qa '本地记住的解' && ok "teacher-free：命中记住的解" || bad "教师关了就不会" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '测试全绿' && ok "teacher-free：产物测试全绿" || bad "teacher-free 产物不过" "$(printf '%s' "$o" | tail -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL learn（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS learn（$pass 过 / 0 红）"

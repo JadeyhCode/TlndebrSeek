@@ -15,6 +15,7 @@
 """
 import os
 import random
+import glob
 import re
 import subprocess
 import sys
@@ -28,6 +29,22 @@ import code_hidden as H
 BIN = os.path.join(ROOT, "build_aip")
 MODEL = os.path.join(ROOT, "code", "code_model.bin")
 OUT = os.path.join(ROOT, "_t", "work")
+
+
+def synth_no_teacher(desc):
+    env = dict(os.environ)
+    for k in ("AIP_TOOL", "AIP_TOOL_URL", "AIP_TOOL_KEY", "AIP_TOOL_MODEL", "AIP_TOOL_AUTO"):
+        env.pop(k, None)
+    before = set(glob.glob(os.path.join(ROOT, "_t", "work", "synth_learn_*.c")))
+    p = subprocess.run([BIN, "--model", MODEL],
+                       input=("::act on\n::code synth %s\n::quit\n" % desc).encode(),
+                       capture_output=True, env=env, cwd=ROOT, timeout=120)
+    out = (p.stdout + p.stderr).decode("utf-8", "replace")
+    after = set(glob.glob(os.path.join(ROOT, "_t", "work", "synth_learn_*.c")))
+    new = sorted(after - before)
+    if "本地记住的解" in out and new:
+        return new[-1]
+    return None
 
 
 def learn(desc):
@@ -93,7 +110,7 @@ def main():
         limit = int(sys.argv[sys.argv.index("--limit") + 1])
     rng = random.Random(20261219)
     tasks = S.BLIND50[:limit]
-    base = acc = sem = false_acc = 0
+    base = acc = sem = false_acc = tf = 0
     print("== blind50 自学首跑 ==")
     for t in tasks:
         got, _ = B.judge(t, rng)
@@ -112,14 +129,19 @@ def main():
             continue
         acc += 1
         path = m.group(1)
-        if eval_candidate(t, path, rng, 4):
+        semantic_ok = eval_candidate(t, path, rng, 4)
+        if semantic_ok:
             sem += 1
             print("  [LEARN-OK] %s" % t["name"])
         else:
             false_acc += 1
             print("  [FALSE-ACCEPT] %s（接受了但 gold 不过）" % t["name"])
-    print("=> baseline %d/%d ｜ learn 接受 %d ｜ 语义通过 %d ｜ 误收 %d" %
-          (base, len(tasks), acc, sem, false_acc))
+        tfp = synth_no_teacher(t["desc"])
+        if tfp and eval_candidate(t, tfp, rng, 4):
+            tf += 1
+            print("  [TEACHER-FREE] %s（关掉教师，同题本地还能做）" % t["name"])
+    print("=> baseline %d/%d ｜ learn 接受 %d ｜ 语义通过 %d ｜ 误收 %d ｜ teacher-free %d" %
+          (base, len(tasks), acc, sem, false_acc, tf))
     return 0
 
 

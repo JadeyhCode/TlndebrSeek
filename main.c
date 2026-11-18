@@ -5961,6 +5961,12 @@ int main(int argc, char **argv) {
                                 d, evi1, passed, ntests, cpath);
                         fclose(af);
                     }
+                    {   /* §6.923 记住：同一描述下次不叫教师也能做（teacher-free 的最小形态） */
+                        mkdir("_t", 0755);
+                        mkdir("_t/learn", 0755);
+                        FILE *rf = fopen("_t/learn/registry.tsv", "ab");
+                        if (rf) { fprintf(rf, "%s\t%s\n", d, cpath); fclose(rf); }
+                    }
                     printf("[学习] 接受：编译过了，且有理由+证据。\n");
                     printf("       候选：%s（.out 可运行）\n", cpath);
                     printf("       理由：%s\n       证据：%s\n", rat1, evi1);
@@ -5997,6 +6003,52 @@ int main(int argc, char **argv) {
                                 printf("[改写] %s => %s\n", d, rw);
                                 snprintf(nb, sizeof nb, "（改写后命中）%s", nb2);
                                 sr = sr2;
+                            }
+                        }
+                    }
+                    if (sr != 0) {
+                        /* §6.923 教师关掉后仍能做：查学习注册表（同描述 → 记住的候选） */
+                        FILE *rf = fopen("_t/learn/registry.tsv", "rb");
+                        char hit[512] = {0};
+                        if (rf) {
+                            char rl[2048];
+                            while (fgets(rl, sizeof rl, rf)) {
+                                char *tab = strchr(rl, '\t');
+                                if (!tab) continue;
+                                *tab = 0;
+                                char *cp = tab + 1;
+                                char *nl2 = strchr(cp, '\n');
+                                if (nl2) *nl2 = 0;
+                                if (!strcmp(rl, d)) { snprintf(hit, sizeof hit, "%s", cp); break; }
+                            }
+                            fclose(rf);
+                        }
+                        if (hit[0]) {
+                            char dst[160];
+                            mkdir("_t", 0755);
+                            mkdir("_t/work", 0755);
+                            snprintf(dst, sizeof dst, "_t/work/synth_learn_%ld.c", (long)getpid());
+                            FILE *sf = fopen(hit, "rb"), *df = fopen(dst, "wb");
+                            int cp_ok = 0;
+                            if (sf && df) {
+                                char buf[4096];
+                                size_t n;
+                                while ((n = fread(buf, 1, sizeof buf, sf)) > 0) fwrite(buf, 1, n, df);
+                                cp_ok = 1;
+                            }
+                            if (sf) fclose(sf);
+                            if (df) fclose(df);
+                            if (cp_ok) {
+                                char lnote[512] = {0};
+                                char rel[200];
+                                snprintf(rel, sizeof rel, "synth_learn_%ld.c", (long)getpid());
+                                int lr = code_test_file(a->brain, rel, lnote, sizeof lnote);
+                                if (lr == 0) {
+                                    printf("[合成] 本地记住的解（学习来的，教师已关）：%s\n", hit);
+                                    printf("       ⇒ **写出来了，而且测试全绿**（%s）\n", lnote);
+                                    sr = 0;
+                                    snprintf(nb, sizeof nb, "本地记住的解（teacher-free）");
+                                }
                             }
                         }
                     }
