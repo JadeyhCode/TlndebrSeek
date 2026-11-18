@@ -769,7 +769,36 @@ BLIND49 = [
          gold=lambda p: [p[0] + p[1], p[0] * p[1]]),
 ]
 
+def _inc_run(a):
+    best = cur = 1
+    for i in range(1, len(a)):
+        cur = cur + 1 if a[i] > a[i - 1] else 1
+        best = max(best, cur)
+    return best
+
+
+BLIND50 = [
+    dict(name="素数和", shape="arr", desc="读入一行整数（标准输入），输出其中所有素数的和。",
+         gold=lambda a: sum(x for x in a if x > 1 and all(x % d for d in range(2, int(x ** 0.5) + 1)))),
+    dict(name="中位数", shape="arr", desc="读入一行整数（标准输入），输出排序后中间的那个数。",
+         gold=lambda a: sorted(a)[len(a) // 2]),
+    dict(name="最长递增段", shape="arr", desc="读入一行整数（标准输入），输出最长的连续递增子序列的长度。",
+         gold=lambda a: _inc_run(a)),
+    dict(name="相邻差最大", shape="arr", desc="读入一行整数（标准输入），输出相邻两个数的差的绝对值的最大值。",
+         gold=lambda a: max(abs(a[i] - a[i - 1]) for i in range(1, len(a))) if len(a) > 1 else 0),
+    dict(name="矩阵转置", shape="matrix", desc="读入一个矩阵（标准输入），输出它的转置。",
+         gold=lambda m: [m[r][c] for c in range(len(m[0])) for r in range(len(m))]),
+    dict(name="词数乘最长词", shape="str", desc="读入一行字符串（标准输入），输出单词个数乘以最长单词的长度。",
+         gold=lambda s: len(s.split()) * max((len(w) for w in s.split()), default=0)),
+    dict(name="最大公约数", shape="two", desc="读入两个整数（命令行参数），输出它们的最大公约数。",
+         gold=lambda p: int(__import__("math").gcd(p[0], p[1]))),
+    dict(name="行数乘最长行", shape="file", desc="读入一个文件（命令行参数），输出文件的行数乘以最长行的长度。",
+         gold=lambda t: len(t.splitlines()) * max((len(x) for x in t.splitlines()), default=0)),
+]
+
 def _set_of(argv):
+    if "--blind50" in argv:
+        return BLIND50
     if "--blind49" in argv:
         return BLIND49
     if "--blind48" in argv:
