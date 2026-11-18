@@ -43,6 +43,16 @@ p95=$(printf '%s' "$o" | sed -n 's/.*p95 \([0-9.]*\) ms.*/\1/p')
 [ -n "$p95" ] && ok "p95 = $p95 ms（2 分片/10 万节点）" || bad "没打出 p95" "$(printf '%s' "$o" | tail -2)"
 [ -n "$p95" ] && python3 -c "import sys; sys.exit(0 if float('$p95') < 200 else 1)" && ok "p95 < 200 ms" || bad "p95 超 200ms" "$p95"
 
+echo "== ④ 桶索引（§6.933）：按哈希高 8 位分桶，查询只读 1/256 =="
+"$W/c7b_index" "$W/s" "$W/idxdir" > "$W/idxdir.log" 2>&1
+nb=$(ls "$W/idxdir" 2>/dev/null | wc -l)
+[ "$nb" -ge 100 ] && ok "桶数 $nb（哈希铺开）" || bad "桶数太少" "$nb"
+o=$("$W/c7bq" --index "$W/idxdir" "$W/s" 100000 200 2>&1)
+printf '%s' "$o" | grep -q '命中 200 / 未命中 0' && ok "桶索引 200 次全命中" || bad "桶索引路由不对" "$(printf '%s' "$o" | tail -2)"
+printf '%s' "$o" | grep -q '桶索引' && ok "走的是桶索引路径" || bad "没走桶索引" "$(printf '%s' "$o" | head -2)"
+p95=$(printf '%s' "$o" | sed -n 's/.*p95 \([0-9.]*\) ms.*/\1/p')
+[ -n "$p95" ] && python3 -c "import sys; sys.exit(0 if float('$p95') < 200 else 1)" && ok "桶索引 p95 = $p95 ms" || bad "桶索引 p95 超 200ms" "$p95"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardindex（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardindex（$pass 过 / 0 红）"

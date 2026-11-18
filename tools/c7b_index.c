@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <dirent.h>
+#include <sys/stat.h>
 #include "../ai.h"
 #include "../corpus7b.h"
 
@@ -83,15 +84,37 @@ int main(int argc, char **argv) {
         c7b_close(c);
     }
     qsort(rec, n, sizeof *rec, cmp_rec);
-    FILE *f = fopen(out, "wb");
-    if (!f) { fprintf(stderr, "写不开 %s\n", out); free(rec); return 1; }
-    fwrite("C7BI1", 1, 5, f);
-    uint32_t cnt = (uint32_t)n;
-    fwrite(&cnt, 4, 1, f);
-    fwrite(rec, sizeof *rec, n, f);
-    fclose(f);
-    printf("分片 %d 个 / 节点 %zu 个 ⇒ %s（%zu 字节，约 %.1f B/节点）\n",
-           nshard, n, out, 5u + 4u + n * sizeof *rec, n ? (double)(9u + n * sizeof *rec) / (double)n : 0.0);
-    free(rec);
+    /* §6.933 分桶：按哈希高 8 位切成 256 个桶，每个桶单独一个文件。
+     * 这样查询只读 1/256 的索引（2.5B 的 3–8 GB 索引不必整份进内存）。 */
+    mkdir(out, 0755);
+    size_t per_bucket[256] = {0};
+    for (size_t i = 0; i < n; ++i) per_bucket[rec[i].hash >> 56]++;
+    size_t off[256];
+    size_t acc = 0;
+    for (int b = 0; b < 256; ++b) { off[b] = acc; acc += per_bucket[b]; }
+    C7BIRec *bucketed = (C7BIRec *)malloc((n ? n : 1) * sizeof *bucketed);
+    if (!bucketed) { free(rec); return 1; }
+    size_t fill[256] = {0};
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t b = (uint32_t)(rec[i].hash >> 56);
+        bucketed[off[b] + fill[b]++] = rec[i];
+    }
+    int nb = 0;
+    for (int b = 0; b < 256; ++b) {
+        if (!per_bucket[b]) continue;
+        char path[1024];
+        snprintf(path, sizeof path, "%s/%03d.idx", out, b);
+        FILE *f = fopen(path, "wb");
+        if (!f) { fprintf(stderr, "写不开 %s\n", path); free(rec); free(bucketed); return 1; }
+        fwrite("C7BK1", 1, 5, f);
+        uint32_t cnt = (uint32_t)per_bucket[b];
+        fwrite(&cnt, 4, 1, f);
+        fwrite(bucketed + off[b], sizeof *bucketed, per_bucket[b], f);
+        fclose(f);
+        nb++;
+    }
+    printf("分片 %d 个 / 节点 %zu 个 ⇒ 目录 %s（%d 个桶，约 %.1f B/节点）\n",
+           nshard, n, out, nb, n ? (double)(9u + n * sizeof *rec) / (double)n : 0.0);
+    free(rec); free(bucketed);
     return 0;
 }

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include "../ai.h"
 #include "../corpus7b.h"
@@ -34,7 +35,12 @@ static uint64_t fnv1a64(const char *s) {
 typedef struct { uint64_t hash; uint32_t shard; } IdxRec;
 
 /* §6.932 带全局路由：--index <idx> <分片目录> <总节点数> <查询数> */
+static int bench_index_dir(const char *idxdir, const char *dir, int total, int nq);
+
 static int bench_index(const char *idx, const char *dir, int total, int nq) {
+    /* §6.933 桶索引：目录形态 ⇒ 每次只读一个桶（2.5B 的索引不必整份进内存） */
+    struct stat stt;
+    if (stat(idx, &stt) == 0 && S_ISDIR(stt.st_mode)) return bench_index_dir(idx, dir, total, nq);
     FILE *f = fopen(idx, "rb");
     if (!f) { fprintf(stderr, "打不开索引 %s\n", idx); return 1; }
     char magic[6] = {0};
@@ -96,6 +102,81 @@ static int bench_index(const char *idx, const char *dir, int total, int nq) {
            sum / nq / 1000.0, lat[nq / 2] / 1000.0, lat[(int)((double)nq * 0.95)] / 1000.0, lat[nq - 1] / 1000.0);
     for (int i = 0; i < 256; ++i) if (cache[i]) c7b_close(cache[i]);
     free(rec); free(lat);
+    return 0;
+}
+
+/* 桶索引查询：hash 高 8 位选桶 → 读该桶 → 二分 */
+static int bench_index_dir(const char *idxdir, const char *dir, int total, int nq) {
+    IdxRec *bucket[256];
+    uint32_t bcount[256];
+    memset(bucket, 0, sizeof bucket);
+    memset(bcount, 0, sizeof bcount);
+    double *lat = (double *)malloc((size_t)nq * sizeof(double));
+    if (!lat) return 1;
+    C7B *cache[256]; memset(cache, 0, sizeof cache);
+    int opened = 0, hit = 0, miss = 0, nb = 0;
+    unsigned seed = 987654321u;
+    char err[256] = {0};
+    if (total <= 0) total = 100000;
+    for (int i = 0; i < nq; ++i) {
+        seed = seed * 1103515245u + 12345u;
+        int id = (int)(seed % (unsigned)total);
+        char name[32];
+        snprintf(name, sizeof name, "N%d", id);
+        double q0 = now_us();
+        uint64_t h = fnv1a64(name);
+        uint32_t b = (uint32_t)(h >> 56);
+        if (!bucket[b]) {
+            char path[1024];
+            snprintf(path, sizeof path, "%s/%03u.idx", idxdir, b);
+            FILE *bf = fopen(path, "rb");
+            if (bf) {
+                char mg[6] = {0};
+                uint32_t c2 = 0;
+                if (fread(mg, 1, 5, bf) == 5 && !memcmp(mg, "C7BK1", 5) && fread(&c2, 4, 1, bf) == 1) {
+                    IdxRec *r = (IdxRec *)malloc((size_t)c2 * sizeof *r);
+                    if (r && fread(r, sizeof *r, c2, bf) == c2) { bucket[b] = r; bcount[b] = c2; nb++; }
+                    else free(r);
+                }
+                fclose(bf);
+            }
+            if (!bucket[b]) { bcount[b] = 0; }
+        }
+        int shard = -1;
+        if (bucket[b]) {
+            uint32_t lo = 0, hi = bcount[b];
+            while (lo < hi) {
+                uint32_t mid = lo + (hi - lo) / 2;
+                if (bucket[b][mid].hash < h) lo = mid + 1; else hi = mid;
+            }
+            if (lo < bcount[b] && bucket[b][lo].hash == h) shard = (int)bucket[b][lo].shard;
+        }
+        int ok = 0;
+        if (shard >= 0) {
+            if (shard < 256 && !cache[shard]) {
+                char path[1024];
+                snprintf(path, sizeof path, "%s/s.%03d.c7b2", dir, shard);
+                cache[shard] = c7b_open(path, err, sizeof err);
+                if (cache[shard]) opened++;
+            }
+            if (shard < 256 && cache[shard]) {
+                uint32_t nid = 0;
+                C7B2Fact fa[4];
+                if (c7b2_find_node(cache[shard], name, &nid) == 0) { (void)c7b2_facts(cache[shard], nid, fa, 4); ok = 1; }
+            }
+        }
+        if (ok) hit++; else miss++;
+        lat[i] = now_us() - q0;
+    }
+    qsort(lat, (size_t)nq, sizeof(double), cmp_double);
+    double sum = 0;
+    for (int i = 0; i < nq; ++i) sum += lat[i];
+    printf("桶索引: 读到 %d 个桶；打开了 %d 个分片\n", nb, opened);
+    printf("查询: %d 次（命中 %d / 未命中 %d，总节点 %d）\n", nq, hit, miss, total);
+    printf("延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
+           sum / nq / 1000.0, lat[nq / 2] / 1000.0, lat[(int)((double)nq * 0.95)] / 1000.0, lat[nq - 1] / 1000.0);
+    for (int i = 0; i < 256; ++i) { if (cache[i]) c7b_close(cache[i]); free(bucket[i]); }
+    free(lat);
     return 0;
 }
 
