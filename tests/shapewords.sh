@@ -40,6 +40,11 @@ else
     echo "  [NOTE] 没有 /tmp/noshape.bin 基准模型，跳过消融（不假冒）"
 fi
 
+echo "== ⑤ §6.940 输出形态词也下沉了：W[] 表已删、数据在图里 =="
+grep -qE 'static const char \*W\[\]' code.h && bad "W[] 还在代码里" "" || ok "W[] 已删"
+o=$(printf '::rel 形态词:下标\n::quit\n' | "$BIN" --model "$M" 2>&1)
+printf '%s' "$o" | grep -qa '要形态' && ok "模型里有 形态词:下标→要形态" || bad "模型里没有" "$(printf '%s' "$o" | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shapewords（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shapewords（$pass 过 / 0 红）"

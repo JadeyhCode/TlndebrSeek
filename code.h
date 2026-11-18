@@ -983,8 +983,37 @@ static inline int code_word_known(AI *ai, const char *g) {
 /* §6.816 **需求词闸门（窄口径）**：只盯少数“输出形态词”——正常描述里很少见，
  * 一旦出现而命中单元的知识里没有，就说明我们没实现这个需求 ⇒ 拒绝。
  * 比“内容词覆盖率”稳：覆盖率会把隐藏组大批误拒（实测见文档 9.21）。 */
+/* §6.940 输出形态词：图数据 `形态词:X --[要形态]--> 1`；查不到才退回内置表（bootstrap）。 */
+static int code_form_word_graph(AI *ai, const char *desc, const char *kn, char *missing, size_t cap) {
+    if (!ai || !ai->pool || !desc) return 0;
+    uint8_t rid = rel_id_of(ai, "要形态", 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    static const char PFX[] = "形态词:";
+    int bad = 0;
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage) continue;
+        if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        int hit = 0;
+        for (size_t j = 0; j < t->count && !hit; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->dyn == d) hit = 1;
+        }
+        if (!hit) continue;
+        const char *w = t->name + sizeof PFX - 1;
+        if (!strstr(desc, w)) continue;
+        if (kn && strstr(kn, w)) continue;   /* 命中单元的知识里已经有这个词 ⇒ 不算缺 */
+        bad++;
+        if (missing && cap) {
+            size_t ml = strlen(missing);
+            if (ml + strlen(w) + 2 < cap) snprintf(missing + ml, cap - ml, "%s ", w);
+        }
+    }
+    return bad;
+}
+
 static inline int code_gate_artifacts(AI *ai, Token *unit, const char *desc, char *missing, size_t cap) {
-    static const char *W[] = {"下标", "索引", "之差", "包含", "交替", "互为", "个数", "之和", NULL};
     if (!ai || !unit || !desc) return 0;
     char kn[8192];
     size_t kl = 0;
@@ -994,18 +1023,10 @@ static inline int code_gate_artifacts(AI *ai, Token *unit, const char *desc, cha
         if (!e->main || !e->main->name) continue;
         kl += (size_t)snprintf(kn + kl, sizeof kn - kl, "%s ", e->main->name);
     }
-    int bad = 0;
     if (missing && cap) missing[0] = 0;
-    for (int i = 0; W[i]; ++i) {
-        if (!strstr(desc, W[i])) continue;
-        if (strstr(kn, W[i])) continue;
-        bad++;
-        if (missing && cap) {
-            size_t ml = strlen(missing);
-            if (ml + strlen(W[i]) + 2 < cap) snprintf(missing + ml, cap - ml, "%s ", W[i]);
-        }
-    }
-    return bad;
+    /* §6.940 只查图（原 W[] 表已删）；图里没登记就不拦 —— 数据负责，代码不再兜底 */
+    if (missing && cap) missing[0] = 0;
+    return code_form_word_graph(ai, desc, kn, missing, cap);
 }
 static inline double code_desc_cover(AI *ai, Token *unit, const char *desc, char *missing, size_t cap) {
     if (!ai || !unit || !desc) return 1.0;
