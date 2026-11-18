@@ -609,6 +609,7 @@ typedef enum {
     CMD_TOOL,               /* 外部工具（本地大模型，默认关）：set/on/off/ask/log —— 答复不进图 */
     CMD_ASK,                /* §6.917 干活时的外部顾问：先搜索、再问大模型（默认关，复用 ::tool 配置） */
     CMD_WHYFOR,             /* §6.919 理由层：这个对象为什么可信（理由/证据/原因） */
+    CMD_CURIOUS,            /* §6.927 好奇心队列：不会的题先进队列，再按需搜索/问 */
     CMD_WEB,                /* 网页搜索（复用 ::net 的开关/白名单）：search/parse —— 结果一律待证 */
     CMD_PREMHOLD,           /* 前提成立的判据档：说到的（默认）/ 够得着 / 有据 */
     CMD_WGATE,              /* 写入分级闸门：情境层的随口一说要不要落库 */
@@ -898,6 +899,12 @@ static const CmdDef CMDS[] = {
       "::ask <问题>   先 `::net` 搜索（没开网照实说），再把结果连同问题问外部大模型；\n"
       "             答复标 `[外部工具 <模型>]`、**不进图**；默认关，先 `::tool on` 并配好端点\n"
       "⚠ 它给的是**行动建议**（怎么做/先检查什么/必要时出小题），不是我的知识", CMD_ASK },
+    { "curious", "<子命令>", 1, "基本",
+      "**好奇心队列**（§6.927）：不会的题先记下来，不立刻乱问。\n"
+      "::curious             看队列（编号/时间/问题/状态）\n"
+      "::curious ask N|all   按顺序走升级链路（先搜索、再问大模型；默认关的层照旧不动）\n"
+      "::curious drop N|clear 丢掉一条/清空\n"
+      "⚠ 同一问题 24h 内只入队一次；外部答复不进图、只作为行动建议", CMD_CURIOUS },
     { "claim", "<子命令>", 1, "基本",
       "**待证**（不轻信）：带「听说/据说/论文/书上/网上」的话只记成待证，**不进事实层**。\n"
       "::claim            列出待证（编号/来源/内容）\n"
@@ -2227,6 +2234,32 @@ static void learn_flatten(const char *src, char *out, size_t cap) {
     }
     out[n] = 0;
     while (n && out[n - 1] == ' ') out[--n] = 0;
+}
+
+/* §6.927 好奇心队列：`_t/curious.tsv`，一行 `时间戳\t问题\t状态`。
+ * 只记本地问题，不联网；同一问题 24h 内只入队一次。 */
+static void curious_enqueue(const char *what) {
+    if (!what || !*what) return;
+    mkdir("_t", 0755);
+    mkdir("_t/work", 0755);
+    long now = (long)time(NULL);
+    FILE *f = fopen("_t/curious.tsv", "rb");
+    if (f) {
+        char line[2048];
+        while (fgets(line, sizeof line, f)) {
+            long ts = atol(line);
+            char *tab = strchr(line, '\t');
+            if (!tab) continue;
+            char *q = tab + 1;
+            char *tab2 = strchr(q, '\t');
+            if (!tab2) continue;
+            *tab2 = 0;
+            if (!strcmp(q, what) && now - ts < 24 * 3600) { fclose(f); return; }   /* 24h 去重 */
+        }
+        fclose(f);
+    }
+    FILE *a = fopen("_t/curious.tsv", "ab");
+    if (a) { fprintf(a, "%ld\t%s\tpending\n", now, what); fclose(a); }
 }
 
 int main(int argc, char **argv) {
@@ -4899,6 +4932,92 @@ int main(int argc, char **argv) {
                 }
                 continue;
             }
+            case CMD_CURIOUS: {
+                /* §6.927 好奇心队列：列表 / 逐条升级 / 丢弃 */
+                const char *sub = carg ? carg : "";
+                while (*sub == ' ') sub++;
+                if (*sub && !strncmp(sub, "drop", 4)) {
+                    const char *v = sub + 4;
+                    while (*v == ' ') v++;
+                    long want = atol(v);
+                    FILE *f = fopen("_t/curious.tsv", "rb");
+                    if (!f) { printf("[好奇] 队列是空的\n"); continue; }
+                    char tmp[512];
+                    snprintf(tmp, sizeof tmp, "_t/curious.%ld.tmp", (long)getpid());
+                    FILE *g = fopen(tmp, "wb");
+                    char line[2048];
+                    long idx = 0, kept = 0;
+                    while (f && fgets(line, sizeof line, f)) {
+                        idx++;
+                        if (idx == want) continue;
+                        if (g) fputs(line, g);
+                        kept++;
+                    }
+                    if (f) fclose(f);
+                    if (g) fclose(g);
+                    remove("_t/curious.tsv");
+                    rename(tmp, "_t/curious.tsv");
+                    printf("[好奇] 丢掉第 %ld 条；剩 %ld 条\n", want, kept);
+                    continue;
+                }
+                if (*sub && !strncmp(sub, "clear", 5)) {
+                    remove("_t/curious.tsv");
+                    printf("[好奇] 队列清空\n");
+                    continue;
+                }
+                if (*sub && !strncmp(sub, "ask", 3)) {
+                    const char *v = sub + 3;
+                    while (*v == ' ') v++;
+                    int all = !strcmp(v, "all");
+                    long want = all ? 0 : atol(v);
+                    ToolCfg qc; tool_load(&qc);
+                    if (!qc.on || !qc.url[0]) {
+                        printf("[好奇] 外部工具没开/没配（::tool on + ::tool set），只能看队列，问不了。\n");
+                        continue;
+                    }
+                    FILE *f = fopen("_t/curious.tsv", "rb");
+                    if (!f) { printf("[好奇] 队列是空的\n"); continue; }
+                    char line[2048];
+                    long idx = 0, asked = 0;
+                    while (fgets(line, sizeof line, f) && asked < (all ? 8 : 1)) {
+                        idx++;
+                        if (!all && idx != want) continue;
+                        char *tab = strchr(line, '\t');
+                        if (!tab) continue;
+                        char *q = tab + 1;
+                        char *tab2 = strchr(q, '\t');
+                        if (tab2) *tab2 = 0;
+                        char *nl2 = strchr(q, '\n');
+                        if (nl2) *nl2 = 0;
+                        printf("[好奇] 第 %ld 条：%s\n", idx, q);
+                        tool_escalate_once(&qc, q);
+                        asked++;
+                    }
+                    fclose(f);
+                    printf("[好奇] 这次问了 %ld 条（外部答复不进图）\n", asked);
+                    continue;
+                }
+                FILE *f = fopen("_t/curious.tsv", "rb");
+                if (!f) { printf("[好奇] 队列是空的（合成失败时自动入队）\n"); continue; }
+                char line[2048];
+                long idx = 0;
+                printf("[好奇] 队列（时间 / 状态 / 问题）：\n");
+                while (fgets(line, sizeof line, f)) {
+                    idx++;
+                    char *tab = strchr(line, '\t');
+                    if (!tab) continue;
+                    *tab = 0;
+                    char *q = tab + 1;
+                    char *tab2 = strchr(q, '\t');
+                    if (tab2) { *tab2 = 0; }
+                    char *nl2 = strchr(q, '\n');
+                    if (nl2) *nl2 = 0;
+                    printf("  %ld. %s  %s\n", idx, line, q);
+                }
+                fclose(f);
+                printf("  共 %ld 条；`::curious ask N|all` 走升级链路\n", idx);
+                continue;
+            }
             case CMD_WHYFOR: {
                 /* §6.919 理由层：回答“为什么这么干/为什么可信”，没有就说没有。 */
                 const char *obj = carg ? carg : "";
@@ -6055,6 +6174,7 @@ int main(int argc, char **argv) {
                     printf("[合成] %s\n", nb[0] ? nb : "（没做成）");
                     if (sr == 0) printf("       ⇒ **写出来了，而且测试全绿**（%s）\n", "::code 看痕");
                     else printf("       ⇒ 没过（rc=%d）；产物在 _t/work/ 下，源码不会替你编造\n", sr);
+                    if (sr != 0) curious_enqueue(d);
                     if (sr != 0) {   /* §6.917 干活时也不会了：auto 开着就先搜索再问（默认关） */
                         ToolCfg ta; tool_load(&ta);
                         if (ta.on && ta.auto_escalate) {
