@@ -839,6 +839,7 @@ static const CmdDef CMDS[] = {
     { "code", NULL, 1, "基本",
       "写-跑-看错-改 的机械闭环（降级版）：::code try <相对路径>｜::code build <目录>（多文件一次编）"
       "｜::code learn <描述>（自学：本地先做，不会才问教师；无理由/无证据/编译不过都不落盘）"
+      "｜::code accept <描述|all>（审进待灌区：理由/证据/重编三样齐才过）"
       "｜::code test <目录|文件.c>｜::code frag <关键词>（查图里的真实片段）｜::code strict on|off｜::code multi on|off｜::code 看痕。修法只有两类，最多改一次；改完还编不过会**还原**源码", CMD_CODE },
     { "feat", "<特征词> [特征词…]", 2, "基本",
       "**特征集合 → 概念**：把每个特征词的**入边来源**当一票，看哪个词被命中最多次\n"
@@ -5978,6 +5979,63 @@ int main(int argc, char **argv) {
                         printf("[提示] 拆出来了但没有可执行要点（补 --[实现]--> 边）\n");
                     continue;
                 }
+                if (arg && strncmp(arg, "accept", 6) == 0) {
+                    /* §6.934 “无理由不落盘”的硬闸门：学来的东西要进图，必须
+                     * ① 有理由 ② 有证据 ③ 还能编译；缺一样就拒绝，并说缺什么。 */
+                    const char *want = arg + 6;
+                    while (*want == ' ') want++;
+                    if (!*want) { printf("[用法] ::code accept <描述|all>（把学到的候选审进待灌区）\n"); continue; }
+                    FILE *f = fopen("_t/learn/accepted.tsv", "rb");
+                    if (!f) { printf("[接受] 没有候选（先 ::code learn）\n"); continue; }
+                    char line[4096];
+                    int total = 0, okn = 0, skipped = 0;
+                    mkdir("_t/learn", 0755);
+                    FILE *g = fopen("_t/learn/graph.triples", "ab");
+                    while (fgets(line, sizeof line, f)) {
+                        total++;
+                        char *t1 = strchr(line, '\t');
+                        if (!t1) continue;
+                        *t1 = 0;
+                        char *cand = t1 + 1;
+                        char *t2 = strchr(cand, '\t');
+                        if (!t2) continue;
+                        *t2 = 0;
+                        char *rat = t2 + 1;
+                        char *t3 = strchr(rat, '\t');
+                        if (!t3) continue;
+                        *t3 = 0;
+                        char *evi = t3 + 1;
+                        char *nl = strchr(evi, '\n');
+                        if (nl) *nl = 0;
+                        if (strcmp(want, "all") != 0 && strcmp(line, want) != 0) continue;
+                        if (!rat[0] || !evi[0]) {
+                            printf("[接受] 拒绝：缺%s（无理由/无证据不落盘）\n",
+                                   !rat[0] ? "理由" : "证据");
+                            skipped++;
+                            continue;
+                        }
+                        char cmd[512];
+                        snprintf(cmd, sizeof cmd, "gcc -std=c11 -w -o %s.out %s > /dev/null 2>&1", cand, cand);
+                        { int crc = system(cmd); (void)crc; }
+                        char bin[600];
+                        snprintf(bin, sizeof bin, "%s.out", cand);
+                        FILE *bf = fopen(bin, "rb");
+                        if (!bf) { printf("[接受] 拒绝：候选编译不过（%s），不落盘\n", cand); skipped++; continue; }
+                        fclose(bf);
+                        if (g) {
+                            fprintf(g, "学习:%s\t理由\t%s\n", line, rat);
+                            fprintf(g, "学习:%s\t证据\t%s（重新编译通过）\n", line, evi);
+                        }
+                        printf("[接受] 通过：%s（理由/证据/编译三样齐）\n", line);
+                        okn++;
+                    }
+                    fclose(f);
+                    if (g) fclose(g);
+                    printf("[接受] 扫了 %d 条，通过 %d，拒绝 %d；待灌区 _t/learn/graph.triples\n",
+                           total, okn, skipped);
+                    printf("       进图：::ingest _t/learn/graph.triples（进图仍标“学来的”）\n");
+                    continue;
+                }
                 if (arg && strncmp(arg, "learn", 5) == 0) {
                     /* §6.920 自学闭环 v1：本地先做；不会才问教师；**无理由/无证据/编译不过都不落盘**。 */
                     const char *d = arg + 5;
@@ -6128,6 +6186,11 @@ int main(int argc, char **argv) {
                     if (passed < ntests) { free(ans); continue; }
                     FILE *af = fopen("_t/learn/accepted.triples", "ab");
                     if (af) {
+                        FILE *tsv = fopen("_t/learn/accepted.tsv", "ab");
+                        if (tsv) {
+                            fprintf(tsv, "%s\t%s\t%s\t%s\n", d, cpath, rat1, evi1);
+                            fclose(tsv);
+                        }
                         fprintf(af, "学习:%s\t理由\t%s\n", d, rat1);
                         fprintf(af, "学习:%s\t证据\t%s（gcc 编译通过 + 教师测试 %d/%d 通过，候选 %s）\n",
                                 d, evi1, passed, ntests, cpath);

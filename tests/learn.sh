@@ -127,6 +127,23 @@ o=$(run '::act on
 printf '%s' "$o" | grep -qa '本地记住的解' && ok "teacher-free：命中记住的解" || bad "教师关了就不会" "$(printf '%s' "$o" | tail -3)"
 printf '%s' "$o" | grep -qa '测试全绿' && ok "teacher-free：产物测试全绿" || bad "teacher-free 产物不过" "$(printf '%s' "$o" | tail -3)"
 
+echo "== ⑨ §6.934 accept 硬闸门：缺理由/编译不过都不许进待灌区 =="
+mkdir -p "$W/_t/learn"
+printf '没有理由的题\t_t/learn/none.c\t\t（没验证）\n编译不过的题\t_t/learn/bad.c\t理由：先这样\t证据：编译过\n' > "$W/_t/learn/accepted.tsv"
+printf 'this is not C;\n' > "$W/_t/learn/bad.c"
+o=$(run '::code accept all')
+printf '%s' "$o" | grep -qa '缺理由' && ok "缺理由：拒绝" || bad "缺理由也接受" "$(printf '%s' "$o" | tail -2)"
+printf '%s' "$o" | grep -qa '拒绝：候选编译不过' && ok "编译不过：拒绝" || bad "编译不过也接受" "$(printf '%s' "$o" | tail -2)"
+[ -s "$W/_t/learn/graph.triples" ] && bad "拒绝却写了待灌区" "" || ok "两条都没落盘"
+
+echo "== ⑩ 三样齐才通过，并写进待灌区（仍要 ::ingest 才进图）=="
+printf '三样齐的题\t_t/learn/good.c\t理由：因为这样\t证据：教师测试 2/2\n' > "$W/_t/learn/accepted.tsv"
+printf '#include <stdio.h>\nint main(void){puts("ok");return 0;}' > "$W/_t/learn/good.c"
+o=$(run '::code accept 三样齐的题')
+printf '%s' "$o" | grep -qa '通过' && ok "三样齐：通过" || bad "三样齐也没过" "$(printf '%s' "$o" | tail -3)"
+[ -s "$W/_t/learn/graph.triples" ] && grep -qa '理由' "$W/_t/learn/graph.triples" && ok "待灌区写了理由" || bad "待灌区缺理由" ""
+grep -qa '重新编译通过' "$W/_t/learn/graph.triples" 2>/dev/null && ok "证据带重新编译" || bad "证据没带编译" ""
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL learn（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS learn（$pass 过 / 0 红）"
