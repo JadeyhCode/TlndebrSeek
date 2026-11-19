@@ -840,6 +840,7 @@ static const CmdDef CMDS[] = {
       "写-跑-看错-改 的机械闭环（降级版）：::code try <相对路径>｜::code build <目录>（多文件一次编）"
       "｜::code learn <描述>（自学：本地先做，不会才问教师；无理由/无证据/编译不过都不落盘）"
       "｜::code accept <描述|all>（审进待灌区：理由/证据/重编三样齐才过）"
+      "｜::code learn --py <描述>（Python 版自学：python3 语法检查 + 教师 TESTS）"
       "｜::code test <目录|文件.c>｜::code frag <关键词>（查图里的真实片段）｜::code strict on|off｜::code multi on|off｜::code 看痕。修法只有两类，最多改一次；改完还编不过会**还原**源码", CMD_CODE },
     { "feat", "<特征词> [特征词…]", 2, "基本",
       "**特征集合 → 概念**：把每个特征词的**入边来源**当一票，看哪个词被命中最多次\n"
@@ -6110,7 +6111,9 @@ int main(int argc, char **argv) {
                     /* §6.920 自学闭环 v1：本地先做；不会才问教师；**无理由/无证据/编译不过都不落盘**。 */
                     const char *d = arg + 5;
                     while (*d == ' ') d++;
-                    if (!*d) { printf("[用法] ::code learn <中文任务描述>\n"); continue; }
+                    int py = 0;
+                    if (!strncmp(d, "--py", 4)) { py = 1; d += 4; while (*d == ' ') d++; }
+                    if (!*d) { printf("[用法] ::code learn [--py] <中文任务描述>\n"); continue; }
                     char nb0[512] = {0};
                     int sr0 = code_synth(a->brain, d, nb0, sizeof nb0);
                     if (sr0 == 0) {
@@ -6144,7 +6147,7 @@ int main(int argc, char **argv) {
                     /* 解析三段 */
                     const char *code = NULL, *rat = NULL, *evi = NULL;
                     size_t codelen = 0;
-                    const char *f = strstr(ans, "```c");
+                    const char *f = py ? strstr(ans, "```python") : strstr(ans, "```c");
                     if (!f) f = strstr(ans, "```");
                     if (f) {
                         f = strchr(f, '\n');
@@ -6208,14 +6211,16 @@ int main(int argc, char **argv) {
                     if (!rat1[0]) { printf("[学习] 拒绝：**没有理由**（§6.919：无理由不落盘）。\n"); continue; }
                     if (!evi1[0]) { printf("[学习] 拒绝：**没有证据**（§6.919：无证据不落盘）。\n"); continue; }
                     char cpath[128], clog[160];
-                    snprintf(cpath, sizeof cpath, "_t/learn/cand_%ld.c", (long)getpid());
+                    if (py) { mkdir("_t", 0755); mkdir("_t/py", 0755); }
+                    snprintf(cpath, sizeof cpath, py ? "_t/py/cand_%ld.py" : "_t/learn/cand_%ld.c", (long)getpid());
                     snprintf(clog, sizeof clog, "_t/learn/cand_%ld.log", (long)getpid());
                     FILE *cf = fopen(cpath, "wb");
                     if (!cf) { printf("[学习] 写不了 %s\n", cpath); free(ans); continue; }
                     fwrite(code, 1, codelen, cf);
                     fclose(cf);
                     char ccmd[512];
-                    snprintf(ccmd, sizeof ccmd,
+                    if (py) snprintf(ccmd, sizeof ccmd, "python3 -m py_compile %s > %s 2>&1", cpath, clog);
+                    else snprintf(ccmd, sizeof ccmd,
                              "gcc -std=c11 -w -o %s.out %s > %s 2>&1", cpath, cpath, clog);
                     int crc = system(ccmd);
                     if (crc != 0) {
@@ -6235,7 +6240,8 @@ int main(int argc, char **argv) {
                         snprintf(opath, sizeof opath, "_t/learn/cand_%ld.out.txt", (long)getpid());
                         FILE *inf = fopen(ipath, "wb");
                         if (inf) { fprintf(inf, "%s\n", tin[ti]); fclose(inf); }
-                        snprintf(ocmd, sizeof ocmd,
+                        if (py) snprintf(ocmd, sizeof ocmd, "timeout 5 python3 %s < %s > %s 2>/dev/null", cpath, ipath, opath);
+                        else snprintf(ocmd, sizeof ocmd,
                                  "timeout 5 %s.out < %s > %s 2>/dev/null", cpath, ipath, opath);
                         { int trc = system(ocmd); (void)trc; }
                         char gotv[512] = {0};
@@ -6254,9 +6260,10 @@ int main(int argc, char **argv) {
                         break;
                     }
                     if (passed < ntests) { free(ans); continue; }
-                    FILE *af = fopen("_t/learn/accepted.triples", "ab");
+                    if (py) { mkdir("_t/py", 0755); }
+                    FILE *af = fopen(py ? "_t/py/accepted.triples" : "_t/learn/accepted.triples", "ab");
                     if (af) {
-                        FILE *tsv = fopen("_t/learn/accepted.tsv", "ab");
+                        FILE *tsv = fopen(py ? "_t/py/accepted.tsv" : "_t/learn/accepted.tsv", "ab");
                         if (tsv) {
                             char tenc[2048];
                             size_t te = 0;
@@ -6268,21 +6275,24 @@ int main(int argc, char **argv) {
                             fclose(tsv);
                         }
                         fprintf(af, "学习:%s\t理由\t%s\n", d, rat1);
-                        fprintf(af, "学习:%s\t证据\t%s（gcc 编译通过 + 教师测试 %d/%d 通过，候选 %s）\n",
-                                d, evi1, passed, ntests, cpath);
+                        fprintf(af, "学习:%s\t证据\t%s（%s + 教师测试 %d/%d 通过，候选 %s）\n",
+                                d, evi1, py ? "python3 语法检查通过" : "gcc 编译通过",
+                                passed, ntests, cpath);
                         fclose(af);
                     }
                     {   /* §6.923 记住：同一描述下次不叫教师也能做（teacher-free 的最小形态） */
                         mkdir("_t", 0755);
                         mkdir("_t/learn", 0755);
-                        FILE *rf = fopen("_t/learn/registry.tsv", "ab");
+                        FILE *rf = fopen(py ? "_t/py/registry.tsv" : "_t/learn/registry.tsv", "ab");
                         if (rf) { fprintf(rf, "%s\t%s\n", d, cpath); fclose(rf); }
                         curious_resolve(d);
                     }
-                    printf("[学习] 接受：编译过了，且有理由+证据。\n");
-                    printf("       候选：%s（.out 可运行）\n", cpath);
+                    printf(py ? "[学习] 接受：python3 语法检查过了，且有理由+证据。\n"
+                              : "[学习] 接受：编译过了，且有理由+证据。\n");
+                    printf(py ? "       候选：%s（python3 可运行）\n" : "       候选：%s（.out 可运行）\n", cpath);
                     printf("       理由：%s\n       证据：%s\n", rat1, evi1);
-                    printf("       落盘：::ingest _t/learn/accepted.triples（审核后再进主图）\n");
+                    printf(py ? "       落盘：_t/py/accepted.triples（Python 侧，暂不进 C 主图）\n"
+                              : "       落盘：::ingest _t/learn/accepted.triples（审核后再进主图）\n");
                     free(ans);
                     continue;
                 }
