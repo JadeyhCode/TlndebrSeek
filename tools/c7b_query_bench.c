@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 /* tools/c7b_query_bench.c — §6.931 `.c7b2` 分片查询延迟压测（名字→节点→事实）
  *
@@ -11,6 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef POSIX_FADV_DONTNEED
+#define POSIX_FADV_DONTNEED 4   /* Linux 常量；glibc 在 -std=c11 下可能不暴露 */
+#endif
 #include <time.h>
 #include "../ai.h"
 #include "../corpus7b.h"
@@ -92,6 +96,10 @@ static int bench_index(const char *idx, const char *dir, int total, int nq) {
                    name, (unsigned long long)h, shard, ok, opened, err);
         if (ok) hit++; else miss++;
         lat[i] = now_us() - q0;
+        /* §6.944 冷读：把该分片的页缓存丢掉，下一轮事实读取就真从介质来 */
+        if (getenv("AIP_COLD") && shard >= 0 && shard < 256 && cache[shard])
+            { int fr = posix_fadvise(fileno(cache[shard]->f), 0, 0, POSIX_FADV_DONTNEED);
+              if (fr && getenv("AIP_COLDDBG")) fprintf(stderr, "[cold] fadvise rc=%d\n", fr); }
     }
     qsort(lat, (size_t)nq, sizeof(double), cmp_double);
     double sum = 0;
@@ -180,7 +188,41 @@ static int bench_index_dir(const char *idxdir, const char *dir, int total, int n
     return 0;
 }
 
+/* §6.944b 只量“事实读取”：跳过名字线性扫描，直接按节点 id 读 facts；
+ * AIP_COLD=1 时每次读前丢掉页缓存 ⇒ 冷读延迟（HDD 上应到毫秒级）。 */
+static int bench_facts(const char *path, int nq) {
+    char err[256] = {0};
+    C7B *c = c7b_open(path, err, sizeof err);
+    if (!c) { fprintf(stderr, "打开失败: %s\n", err); return 1; }
+    double *lat = (double *)malloc((size_t)nq * sizeof(double));
+    if (!lat) { c7b_close(c); return 1; }
+    unsigned seed = 424242;
+    int hit = 0;
+    for (int i = 0; i < nq; ++i) {
+        seed = seed * 1103515245u + 12345u;
+        uint32_t id = seed % (c->n_words ? c->n_words : 1);
+        if (getenv("AIP_COLD")) (void)posix_fadvise(fileno(c->f), 0, 0, POSIX_FADV_DONTNEED);
+        C7B2Fact f[4];
+        double t0 = now_us();
+        int k = c7b2_facts(c, id, f, 4);
+        lat[i] = now_us() - t0;
+        if (k > 0) hit++;
+    }
+    qsort(lat, (size_t)nq, sizeof(double), cmp_double);
+    double sum = 0;
+    for (int i = 0; i < nq; ++i) sum += lat[i];
+    printf("事实读取: %s\n", path);
+    printf("节点 %u / 查询 %d（命中 %d / 空 %d）%s\n", c->n_words, nq, hit, nq - hit,
+           getenv("AIP_COLD") ? " · 每次丢页缓存" : " · 热缓存");
+    printf("延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
+           sum / nq / 1000.0, lat[nq / 2] / 1000.0,
+           lat[(int)((double)nq * 0.95)] / 1000.0, lat[nq - 1] / 1000.0);
+    free(lat); c7b_close(c);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 4 && !strcmp(argv[1], "--facts")) return bench_facts(argv[2], atoi(argv[3]));
     if (argc >= 6 && !strcmp(argv[1], "--index")) {
         int total = atoi(argv[4]);
         int nq = atoi(argv[5]);

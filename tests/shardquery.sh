@@ -34,6 +34,11 @@ p95=$(printf '%s' "$o" | sed -n 's/.*p95 \([0-9.]*\) ms.*/\1/p')
 [ -n "$p95" ] && python3 -c "import sys; sys.exit(0 if float('$p95') < 200 else 1)" \
     && ok "小分片 p95 < 200 ms" || bad "小分片 p95 超 200ms" "$p95"
 
+echo "== ③ §6.944 只读事实的冷/热读数：这条路径不经过名字扫描 =="
+o=$("$W/c7bq" --facts "$W"/s.000.c7b2 50 2>&1)
+printf '%s' "$o" | grep -q "命中 50 / 空 0" && ok "事实读取 50 次全命中" || bad "事实读取不对" "$(printf '%s' "$o" | tail -2)"
+printf '%s' "$o" | grep -q "p95" && ok "打出了 p95 读数" || bad "没打出 p95" "$(printf '%s' "$o" | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardquery（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardquery（$pass 过 / 0 红）"
