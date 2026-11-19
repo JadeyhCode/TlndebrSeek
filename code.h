@@ -1026,7 +1026,10 @@ static inline int code_gate_artifacts(AI *ai, Token *unit, const char *desc, cha
     if (missing && cap) missing[0] = 0;
     /* §6.940 只查图（原 W[] 表已删）；图里没登记就不拦 —— 数据负责，代码不再兜底 */
     if (missing && cap) missing[0] = 0;
-    return code_form_word_graph(ai, desc, kn, missing, cap);
+    int fb = code_form_word_graph(ai, desc, kn, missing, cap);
+    if (fb && getenv("AIP_CHAINDBG"))
+        fprintf(stderr, "[formgate] 缺形态：%s（命中单元 %s）\n", missing, unit->name ? unit->name : "?");
+    return fb;
 }
 static inline double code_desc_cover(AI *ai, Token *unit, const char *desc, char *missing, size_t cap) {
     if (!ai || !unit || !desc) return 1.0;

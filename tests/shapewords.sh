@@ -45,6 +45,16 @@ grep -qE 'static const char \*W\[\]' code.h && bad "W[] 还在代码里" "" || o
 o=$(printf '::rel 形态词:下标\n::quit\n' | "$BIN" --model "$M" 2>&1)
 printf '%s' "$o" | grep -qa '要形态' && ok "模型里有 形态词:下标→要形态" || bad "模型里没有" "$(printf '%s' "$o" | tail -2)"
 
+echo "== ⑥ §6.940 形态词闸门消融：有数据=1，无数据=0（同二进制）=="
+o=$(AIP_SELFTEST_FORM=1 "$BIN" --model "$M" 2>&1 | tail -1)
+printf '%s' "$o" | grep -qa 'formgate=1' && ok "有数据：formgate=1" || bad "有数据没拦住" "$o"
+if [ -f /tmp/nofw.bin ]; then
+    o2=$(AIP_SELFTEST_FORM=1 "$BIN" --model /tmp/nofw.bin 2>&1 | tail -1)
+    printf '%s' "$o2" | grep -qa 'formgate=0' && ok "无数据：formgate=0（消融成立）" || bad "无数据也拦住" "$o2"
+else
+    echo "  [NOTE] 没有 /tmp/nofw.bin；复现：AIP_CODE_SKIP_FORMWORDS=1 AIP_CODE_MODEL_OUT=/tmp/nofw.bin sh code/build_code_model.sh"
+fi
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shapewords（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shapewords（$pass 过 / 0 红）"

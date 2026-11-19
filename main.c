@@ -2368,6 +2368,16 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[加载失败 %s：格式不认识或内容损坏 —— 退到最小种子]\n", model_path);
         }
     }
+    /* §6.940 形态词闸门的自检入口：只为“行为级消融”提供可复现读数。
+     * AIP_SELFTEST_FORM=1 ⇒ 用当前模型对一个合成描述跑 code_gate_artifacts，打印条数后退出。 */
+    if (getenv("AIP_SELFTEST_FORM") && a && a->brain) {
+        Token *u = pool_find(a->brain->pool, "运算:数组和");
+        if (!u) u = pool_find(a->brain->pool, "任务:数组和");
+        char miss[256] = {0};
+        int n = u ? code_gate_artifacts(a->brain, u, "输出最大值的下标", miss, sizeof miss) : -1;
+        printf("formgate=%d missing=%s unit=%s\n", n, miss, u && u->name ? u->name : "（无）");
+        return 0;
+    }
     if (!corpus && !loaded) {
         ai_learn_text(a->brain, "我 是 我");
         ai_learn_text(a->brain, "我 在 这里");

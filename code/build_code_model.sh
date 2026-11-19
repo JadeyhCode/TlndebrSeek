@@ -34,6 +34,10 @@ printf '::ingest code/knowledge/skeletons.triples\n::ingest code/knowledge/compo
 for f in code/knowledge/opclass.triples code/knowledge/rewrite.triples code/knowledge/prim.triples code/knowledge/searched.triples; do
     [ -s "$f" ] && sed -i "1i ::ingest $f" _t/codebuild.in
 done
+# §6.940 消融用：AIP_CODE_SKIP_FORMWORDS=1 时不灌形态词（其它照旧）
+if [ "${AIP_CODE_SKIP_FORMWORDS:-0}" = "1" ]; then
+    sed -i '/formwords.triples/d' _t/codebuild.in
+fi
 # §6.825 反统一归纳出来的参数化概念（存在就一起灌）
 if [ -s code/knowledge/generalized.triples ]; then
     sed -i '1i ::ingest code/knowledge/generalized.triples' _t/codebuild.in
