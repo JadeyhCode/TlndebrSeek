@@ -207,6 +207,99 @@ static int bench_index_dir(const char *idxdir, const char *dir, int total, int n
     return 0;
 }
 
+/* §6.946 端到端冷读：桶（O_DIRECT）→ 冷开分片（fadvise）→ 名字扫描 → 事实；
+ * 每次查询都重新开分片，模拟“目标分片不在内存”的最坏路径。 */
+static uint64_t fnv1a64b(const char *s) {
+    uint64_t h = 1469598103934665603ull;
+    for (const unsigned char *p = (const unsigned char *)s; p && *p; ++p) { h ^= (uint64_t)*p; h *= 1099511628211ull; }
+    return h;
+}
+
+static int bench_e2e(const char *idxdir, const char *dir, int total, int nq) {
+    int nbuckets = 256, bits = 8;
+    char mp[1024];
+    snprintf(mp, sizeof mp, "%s/meta.txt", idxdir);
+    FILE *mf = fopen(mp, "rb");
+    if (mf) { char ln[128]; while (fgets(ln, sizeof ln, mf)) {
+        if (sscanf(ln, "buckets %d", &nbuckets) == 1) { }
+        else if (sscanf(ln, "bits %d", &bits) == 1) { } } fclose(mf); }
+    if (total <= 0) total = 100000;
+    double *tot = (double *)malloc((size_t)nq * sizeof(double));
+    double *bkt = (double *)malloc((size_t)nq * sizeof(double));
+    if (!tot || !bkt) return 1;
+    unsigned seed = 20251119u;
+    int hit = 0, miss = 0, opened = 0;
+    for (int i = 0; i < nq; ++i) {
+        seed = seed * 1103515245u + 12345u;
+        int id = (int)(seed % (unsigned)total);
+        char name[32];
+        snprintf(name, sizeof name, "N%d", id);
+        uint64_t h = fnv1a64b(name);
+        uint32_t b = (uint32_t)(h >> (64 - bits));
+        char bpath[1024];
+        snprintf(bpath, sizeof bpath, "%s/%05u.idx", idxdir, b);
+        double t0 = now_us();
+        int shard = -1;
+        int fd = open(bpath, O_RDONLY);
+        if (fd >= 0) {
+            off_t sz = lseek(fd, 0, SEEK_END);
+            lseek(fd, 0, SEEK_SET);
+            size_t alen = ((size_t)(sz > 0 ? sz : 1) + 4095u) & ~(size_t)4095u;
+            void *abuf = NULL;
+            if (posix_memalign(&abuf, 4096, alen) == 0) {
+                ssize_t r2 = pread(fd, abuf, alen, 0);
+                if (r2 > 9) {
+                    const char *q = (const char *)abuf + 5;
+                    uint32_t cnt = 0; memcpy(&cnt, q, 4);
+                    const IdxRec *rr = (const IdxRec *)(q + 4);
+                    uint32_t lo = 0, hi = cnt;
+                    while (lo < hi) { uint32_t mid = lo + (hi - lo) / 2;
+                        if (rr[mid].hash < h) lo = mid + 1; else hi = mid; }
+                    if (lo < cnt && rr[lo].hash == h) shard = (int)rr[lo].shard;
+                }
+                free(abuf);
+            }
+            close(fd);
+        }
+        double t_bucket = now_us() - t0;
+        int ok = 0;
+        C7B *c = NULL;
+        if (shard >= 0) {
+            char sp[1024];
+            snprintf(sp, sizeof sp, "%s/s.%03d.c7b2", dir, shard);
+            int sfd = open(sp, O_RDONLY);
+            if (sfd >= 0) { (void)posix_fadvise(sfd, 0, 0, POSIX_FADV_DONTNEED); close(sfd); }
+            char err[256] = {0};
+            c = c7b_open(sp, err, sizeof err);
+            if (c) {
+                opened++;
+                uint32_t nid = 0;
+                if (c7b2_find_node(c, name, &nid) == 0) {
+                    C7B2Fact fa[4];
+                    if (c7b2_facts(c, nid, fa, 4) >= 0) ok = 1;
+                }
+                c7b_close(c);
+            }
+        }
+        if (ok) hit++; else miss++;
+        tot[i] = now_us() - t0;
+        bkt[i] = t_bucket;
+    }
+    qsort(tot, (size_t)nq, sizeof(double), cmp_double);
+    qsort(bkt, (size_t)nq, sizeof(double), cmp_double);
+    double sum = 0, sb = 0;
+    for (int i = 0; i < nq; ++i) { sum += tot[i]; sb += bkt[i]; }
+    printf("端到端: %s + %s（%d 桶 / bits=%d）\n", idxdir, dir, nbuckets, bits);
+    printf("查询 %d 次（命中 %d / 未命中 %d；打开了 %d 次分片）\n", nq, hit, miss, opened);
+    printf("桶读: avg %.2f ms  p95 %.2f ms\n", sb / nq / 1000.0,
+           bkt[(int)((double)nq * 0.95)] / 1000.0);
+    printf("总延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
+           sum / nq / 1000.0, tot[nq / 2] / 1000.0,
+           tot[(int)((double)nq * 0.95)] / 1000.0, tot[nq - 1] / 1000.0);
+    free(tot); free(bkt);
+    return 0;
+}
+
 /* §6.945 只量“桶索引读取”：AIP_COLD=1 时每次读前丢页缓存，测冷读一个桶要多久 */
 static int bench_buckets(const char *idxdir, int nq) {
     int nbuckets = 256, bits = 8;
@@ -316,6 +409,7 @@ static int bench_facts(const char *path, int nq) {
 int main(int argc, char **argv) {
     if (argc >= 4 && !strcmp(argv[1], "--facts")) return bench_facts(argv[2], atoi(argv[3]));
     if (argc >= 4 && !strcmp(argv[1], "--bucket")) return bench_buckets(argv[2], atoi(argv[3]));
+    if (argc >= 6 && !strcmp(argv[1], "--e2e")) return bench_e2e(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
     if (argc >= 6 && !strcmp(argv[1], "--index")) {
         int total = atoi(argv[4]);
         int nq = atoi(argv[5]);

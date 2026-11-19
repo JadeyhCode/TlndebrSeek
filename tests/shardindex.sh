@@ -67,6 +67,11 @@ o=$(AIP_O_DIRECT=1 "$W/c7bq" --bucket "$W/idx4k" 20 2>&1)
 printf '%s' "$o" | grep -qa '读到 20 个桶' && ok "O_DIRECT 读到 20 个桶" || bad "O_DIRECT 没读到" "$(printf '%s' "$o" | tail -2)"
 printf '%s' "$o" | grep -qa 'p95' && ok "O_DIRECT 有 p95 读数" || bad "O_DIRECT 没 p95" "$(printf '%s' "$o" | tail -2)"
 
+echo "== ⑦ §6.946 端到端冷读通道：桶 → 冷开分片 → 名字 → 事实 =="
+o=$("$W/c7bq" --e2e "$W/idx4k" "$W/s" 100000 20 2>&1)
+printf '%s' "$o" | grep -qa '命中 20 / 未命中 0' && ok "端到端 20 次全命中" || bad "端到端没命中" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '总延迟' && ok "端到端打出总延迟" || bad "端到端没读数" "$(printf '%s' "$o" | tail -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardindex（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardindex（$pass 过 / 0 红）"
