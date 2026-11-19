@@ -72,6 +72,11 @@ o=$("$W/c7bq" --e2e "$W/idx4k" "$W/s" 100000 20 2>&1)
 printf '%s' "$o" | grep -qa '命中 20 / 未命中 0' && ok "端到端 20 次全命中" || bad "端到端没命中" "$(printf '%s' "$o" | tail -3)"
 printf '%s' "$o" | grep -qa '总延迟' && ok "端到端打出总延迟" || bad "端到端没读数" "$(printf '%s' "$o" | tail -3)"
 
+echo "== ⑧ §6.948 稳态（分片 keep 住）：只丢事实页 + 冷读桶 =="
+o=$("$W/c7bq" --e2e-hot "$W/idx4k" "$W/s" 100000 20 2>&1)
+printf '%s' "$o" | grep -qa '命中 20 / 未命中 0' && ok "稳态 20 次全命中" || bad "稳态没命中" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '总延迟' && ok "稳态打出总延迟" || bad "稳态没读数" "$(printf '%s' "$o" | tail -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardindex（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardindex（$pass 过 / 0 红）"
