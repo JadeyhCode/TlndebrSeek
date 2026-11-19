@@ -196,3 +196,7 @@ words = sys.stdin.read().split()\
 print(" ".join(sorted(words, key=len)))
 py模板:按长度排序	测试	ccc a bb=>a bb ccc
 py模板:按长度排序	测试	b aa=>b aa
+
+# §6.956b 安全修复：最大值模板不许吃“最大值下标”（下标是另一个量）
+py模板:最大值	排除	下标
+py模板:最大值	排除	索引
