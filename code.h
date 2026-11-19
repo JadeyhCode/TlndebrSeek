@@ -1983,17 +1983,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
          * 修的是“从大到小排序后输出第二个数”这种：数组由**输出模板**打印，不在算子语句里。 */
         if (pcode && (strstr(pcode, " ? 10 : 32") ||
                       strstr(pcode, "for (int i = 0; i < n; i++) printf"))) {
-            /* §6.939b 第一道闸门的词表暂留代码（口径特殊，见硬编码登记）；其余四张已下沉 */
-            static const char *ws[] = {"第二个数", "第三个数", "第一个数", "第四个数", "第五个数",
-                                       "第二大的数", "第二小的数", "第三大的数", "第三小的数",
-                                       "中间的那个数", "求和", "之和", "总和", "最大值", "最小值",
-                                       "平均", "极差", "方差", NULL};
-            static const char *wa[] = {"每行", "每列", "逐行", "序列", "降序", "升序",
-                                       "排序后输出", "输出这些", "倒序", "列和", "每一列",
-                                       "排列后输出", "从小到大排序", "从大到小排序", NULL};
-            int ws_want = 0, wa_want = 0;
-            for (int q = 0; ws[q]; ++q) if (strstr(desc, ws[q])) { ws_want = 1; break; }
-            for (int q = 0; wa[q]; ++q) if (strstr(desc, wa[q])) { wa_want = 1; break; }
+            /* §6.942 第一道闸门也查图（首闸/首闸数组标记），不再有 ws/wa 表 */
+            int ws_want = code_shape_word_graph(ai, desc, "首闸");
+            int wa_want = code_shape_word_graph(ai, desc, "首闸数组");
             if (ws_want && !wa_want) {
                 if (getenv("AIP_CHAINDBG"))
                     fprintf(stderr, "[gate] 输出是数组但描述要标量 ⇒ 让位\n");

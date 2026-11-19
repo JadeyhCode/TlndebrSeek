@@ -2368,6 +2368,13 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[加载失败 %s：格式不认识或内容损坏 —— 退到最小种子]\n", model_path);
         }
     }
+    /* §6.942 首闸自检（消融用）：固定描述里“首闸/首闸数组”是否命中图数据 */
+    if (getenv("AIP_SELFTEST_SHAPE") && a && a->brain) {
+        int f = code_shape_word_graph(a->brain, "从大到小排序后输出第二个数", "首闸");
+        int r = code_shape_word_graph(a->brain, "从大到小排序后输出第二个数", "首闸数组");
+        printf("shape_first=%d shape_arr=%d\n", f, r);
+        return 0;
+    }
     /* §6.941 停用词自检入口（消融用）：固定几个词，数几个被判停用 */
     if (getenv("AIP_SELFTEST_STOP") && a && a->brain) {
         const char *words[] = {"输出", "读入", "第", "最大值"};

@@ -31,11 +31,11 @@ echo "== ④ 真消融：同一二进制，有数据 vs 无数据行为不同 ==
 if [ -f /tmp/noshape.bin ]; then
     a=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大到小排序后输出第二个数\n::quit\n' \
         | AIP_CHAINDBG=1 "$BIN" --model /tmp/noshape.bin 2>&1)
-    printf '%s' "$a" | grep -qa '优先标量' && bad "无数据模型也命中了" "" || ok "无数据：不走优先标量闸门"
+    printf '%s' "$a" | grep -qaE '优先标量词命中|输出是数组但描述要标量' && bad "无数据模型也命中了" "" || ok "无数据：不走优先标量闸门"
     printf '%s' "$a" | grep -qa '写出来了' && ok "无数据：落回数组链（行为已知）" || ok "无数据：另有路径"
     b=$(printf '::act on\n::code synth 读入一行整数（标准输入），从大到小排序后输出第二个数\n::quit\n' \
         | AIP_CHAINDBG=1 "$BIN" --model "$M" 2>&1)
-    printf '%s' "$b" | grep -qa '优先标量词命中' && ok "有数据：优先标量闸门生效（让位）" || bad "有数据也没让位" "$(printf '%s' "$b" | grep -a gate | head -1)"
+    printf '%s' "$b" | grep -qaE '优先标量词命中|输出是数组但描述要标量' && ok "有数据：形状闸门生效（让位）" || bad "有数据也没让位" "$(printf '%s' "$b" | grep -a gate | head -1)"
 else
     echo "  [NOTE] 没有 /tmp/noshape.bin 基准模型，跳过消融（不假冒）"
 fi
@@ -64,6 +64,17 @@ if [ -f /tmp/nostop.bin ]; then
     printf '%s' "$o2" | grep -qa 'stop2=0' && ok "无数据：stop2=0（消融成立）" || bad "无数据读数不对" "$o2"
 else
     echo "  [NOTE] 没有 /tmp/nostop.bin；复现：AIP_CODE_SKIP_STOPWORDS=1 AIP_CODE_MODEL_OUT=/tmp/nostop.bin sh code/build_code_model.sh"
+fi
+
+echo "== ⑧ §6.942 首闸也下沉：ws/wa 表没了，读数随数据变 =="
+grep -qE 'static const char \*ws\[\]|static const char \*wa\[\]' code.h && bad "ws/wa 还在代码里" "" || ok "ws/wa 已删"
+o=$(AIP_SELFTEST_SHAPE=1 "$BIN" --model "$M" 2>&1 | tail -1)
+printf '%s' "$o" | grep -qa 'shape_first=1 shape_arr=1' && ok "有数据：首闸/数组都命中" || bad "有数据读数不对" "$o"
+if [ -f /tmp/noshape.bin ]; then
+    o2=$(AIP_SELFTEST_SHAPE=1 "$BIN" --model /tmp/noshape.bin 2>&1 | tail -1)
+    printf '%s' "$o2" | grep -qa 'shape_first=0 shape_arr=0' && ok "无数据：都不命中（消融成立）" || bad "无数据读数不对" "$o2"
+else
+    echo "  [NOTE] 没有 /tmp/noshape.bin；复现：AIP_CODE_SKIP_SHAPEWORDS=1 AIP_CODE_MODEL_OUT=/tmp/noshape.bin sh code/build_code_model.sh"
 fi
 
 echo ""
