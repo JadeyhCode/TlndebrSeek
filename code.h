@@ -1138,6 +1138,44 @@ static inline int code_py_template(AI *ai, const char *desc,
     return 1;
 }
 
+/* §6.959 双结果闸门（数据驱动）：描述要“商与余/和与积/最大与最小”这类**两个结果**时，
+ * 单值链不许硬答（宁可拒绝也不打错一个数）。 */
+static int code_desc_two_results(AI *ai, const char *desc, const char **which) {
+    if (!ai || !ai->pool || !desc) return 0;
+    uint8_t rid = rel_id_of(ai, "触发", 0);
+    uint8_t ridc = rel_id_of(ai, "条件", 0);
+    uint8_t ride = rel_id_of(ai, "排除", 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t dc = (ridc >= REL_DYN_BASE) ? (uint8_t)(ridc - REL_DYN_BASE + 1) : 0;
+    uint8_t de = (ride >= REL_DYN_BASE) ? (uint8_t)(ride - REL_DYN_BASE + 1) : 0;
+    static const char PFX[] = "双结果:";
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage) continue;
+        if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        int hit = 0, cond_ok = 0, ncond = 0, excluded = 0;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (!e->main || !e->main->name) continue;
+            if (e->dyn == d) hit = 1;
+            if (dc && e->dyn == dc) { ncond++; if (strstr(desc, e->main->name)) cond_ok = 1; }
+            if (de && e->dyn == de && strstr(desc, e->main->name)) excluded = 1;
+        }
+        if (ncond == 0) cond_ok = 1;
+        if (excluded) continue;
+        const char *word = t->name + sizeof PFX - 1;
+        if (getenv("AIP_CHAINDBG"))
+            fprintf(stderr, "[two] %s hit=%d cond=%d ncond=%d has=%d\n", word, hit, cond_ok, ncond,
+                    strstr(desc, word) ? 1 : 0);
+        if (hit && cond_ok && strstr(desc, word)) {
+            if (which) *which = word;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_param, char *note, size_t cap) {
     if (!ai || !ai->pool || !desc || !desc[0]) return -1;
     uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
@@ -1488,6 +1526,13 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         fprintf(stderr, "\n");
     }
     if (n < min_ops) return -1;
+    {
+        const char *two = NULL;
+        if (code_desc_two_results(ai, desc, &two)) {
+            if (note && cap) snprintf(note, cap, "题目要两个结果（%s），单值链不硬答 ⇒ 拒绝", two ? two : "双结果");
+            return -1;
+        }
+    }
     /* §6.714 关键词互相包含时只留更长的那个（"每个数的平方和" 不能再算一次"平方"） */
     {
         int keep = 0;
@@ -2838,6 +2883,13 @@ static inline int code_chain_has_bool(const AI *ai, const char *note) {
 static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
     if (note && cap) note[0] = 0;
     if (!ai || !ai->pool || !desc || !desc[0]) return -2;
+    {
+        const char *two = NULL;
+        if (code_desc_two_results(ai, desc, &two)) {
+            if (note && cap) snprintf(note, cap, "题目要两个结果（%s），本地没有可靠的双结果实现 ⇒ 拒绝", two ? two : "双结果");
+            return -1;
+        }
+    }
     uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
     uint8_t rid_sk = rel_id_of(ai, "骨架", 0);
     uint8_t rid_cd = rel_id_of(ai, "代码", 0);
