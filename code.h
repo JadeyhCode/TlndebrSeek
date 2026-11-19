@@ -1076,6 +1076,57 @@ static inline double code_desc_cover(AI *ai, Token *unit, const char *desc, char
     if (total < 3) return 1.0;          /* 认识的词太少，不判 */
     return (double)hit / (double)total;
 }
+/* §6.952 Python 本地模板：`py模板:X --[关键词]--> …`、`--[代码]--> 多行`、`--[测试]--> IN=>OUT`。
+ * 先本地匹配模板；匹配不到才问教师。模板必须自带 ≥2 条测试，跑不过就不算会。 */
+static inline int code_py_template(AI *ai, const char *desc,
+                            char *body, size_t bcap, char *tests, size_t tcap,
+                            char *name, size_t ncap) {
+    if (!ai || !ai->pool || !desc || !body || !tests) return 0;
+    body[0] = tests[0] = 0;
+    if (name && ncap) name[0] = 0;
+    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
+    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+    uint8_t rid_ts = rel_id_of(ai, "测试", 0);
+    if (rid_kw < REL_DYN_BASE || rid_cd < REL_DYN_BASE || rid_ts < REL_DYN_BASE) return 0;
+    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
+    uint8_t d_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
+    uint8_t d_ts = (uint8_t)(rid_ts - REL_DYN_BASE + 1);
+    static const char PFX[] = "py模板:";
+    Token *best = NULL;
+    size_t best_pos = (size_t)-1, best_len = 0;
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage) continue;
+        if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (!e->main || !e->main->name || e->dyn != d_kw) continue;
+            size_t ml = 0;
+            const char *hit = code_kw_find(desc, e->main->name, &ml);
+            if (!hit) continue;
+            size_t p = (size_t)(hit - desc);
+            if (p < best_pos || (p == best_pos && ml > best_len)) {
+                best = t; best_pos = p; best_len = ml;
+            }
+        }
+    }
+    if (!best) return 0;
+    int nts = 0;
+    for (size_t j = 0; j < best->count; ++j) {
+        const AssocEntry *e = &token_assocs_ro(best)[j];
+        if (!e->main || !e->main->name) continue;
+        if (e->dyn == d_cd && !body[0]) snprintf(body, bcap, "%s", e->main->name);
+        else if (e->dyn == d_ts && e->main->name) {
+            size_t bl = strlen(tests);
+            snprintf(tests + bl, tcap - bl, "%s%s", bl ? ";" : "", e->main->name);
+            nts++;
+        }
+    }
+    if (!body[0] || nts < 2) return 0;
+    if (name && ncap) snprintf(name, ncap, "%s", best->name + sizeof PFX - 1);
+    return 1;
+}
+
 static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_param, char *note, size_t cap) {
     if (!ai || !ai->pool || !desc || !desc[0]) return -1;
     uint8_t rid_kw = rel_id_of(ai, "关键词", 0);

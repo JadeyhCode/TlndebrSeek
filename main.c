@@ -6186,6 +6186,73 @@ int main(int argc, char **argv) {
                         }
                         if (replayed) continue;
                     }
+                    /* §6.952 先本地 Python 模板：自带 ≥2 条测试，跑过才算会；跑不过才问教师 */
+                    if (py) {
+                        char body[4096] = {0}, tbuf[1024] = {0}, nm[128] = {0};
+                        if (code_py_template(a->brain, d, body, sizeof body, tbuf, sizeof tbuf,
+                                             nm, sizeof nm)) {
+                            char cpath[128], clog[160];
+                            mkdir("_t", 0755); mkdir("_t/py", 0755);
+                            snprintf(cpath, sizeof cpath, "_t/py/cand_%ld.py", (long)getpid());
+                            snprintf(clog, sizeof clog, "_t/py/cand_%ld.log", (long)getpid());
+                            FILE *cf = fopen(cpath, "wb");
+                            if (cf) { fwrite(body, 1, strlen(body), cf); fclose(cf); }
+                            if (!cf) { printf("[学习] 写不了 %s\n", cpath); }
+                            else {
+                                char ccmd[512];
+                                snprintf(ccmd, sizeof ccmd, "python3 -m py_compile %s > %s 2>&1", cpath, clog);
+                                int crc = system(ccmd);
+                                if (crc != 0) printf("[学习] 模板语法没过（%s），不落盘。\n", cpath);
+                                else {
+                                    int tn = 0, bad = 0;
+                                    char *sv = NULL;
+                                    for (char *one = strtok_r(tbuf, ";", &sv); one;
+                                         one = strtok_r(NULL, ";", &sv)) {
+                                        char *ar = strstr(one, "=>");
+                                        if (!ar) continue;
+                                        *ar = 0;
+                                        const char *inp = one, *exp = ar + 2;
+                                        tn++;
+                                        char ip[160], op[160], ocmd[700];
+                                        snprintf(ip, sizeof ip, "_t/py/t_%ld.in", (long)getpid());
+                                        snprintf(op, sizeof op, "_t/py/t_%ld.out", (long)getpid());
+                                        FILE *inf = fopen(ip, "wb");
+                                        if (inf) { fprintf(inf, "%s\n", inp); fclose(inf); }
+                                        snprintf(ocmd, sizeof ocmd,
+                                                 "timeout 5 python3 %s < %s > %s 2>/dev/null", cpath, ip, op);
+                                        { int trc = system(ocmd); (void)trc; }
+                                        char gotv[512] = {0};
+                                        FILE *of = fopen(op, "rb");
+                                        if (of) { size_t n2 = fread(gotv, 1, sizeof gotv - 1, of); gotv[n2] = 0; fclose(of); }
+                                        char a1[512] = {0}, b1[512] = {0};
+                                        size_t an2 = 0, bn2 = 0;
+                                        for (const char *q2 = gotv; *q2 && an2 + 1 < sizeof a1; ++q2)
+                                            if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') a1[an2++] = *q2;
+                                        for (const char *q2 = exp; *q2 && bn2 + 1 < sizeof b1; ++q2)
+                                            if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') b1[bn2++] = *q2;
+                                        if (strcmp(a1, b1) != 0) { bad = 1; break; }
+                                    }
+                                    if (tn < 2 || bad) printf("[学习] 模板自测没过（%d 条），转问教师。\n", tn);
+                                    else {
+                                        FILE *af = fopen("_t/py/accepted.triples", "ab");
+                                        if (af) {
+                                            fprintf(af, "学习:%s\t理由\t本地模板「%s」的测试全过，先本地后教师。\n", d, nm);
+                                            fprintf(af, "学习:%s\t证据\tpython3 语法检查 + 模板自带 %d 条测试全过（%s）\n", d, tn, cpath);
+                                            fprintf(af, "学习:%s\t知识来源\t学来的（本地模板+验证）\n", d);
+                                            fclose(af);
+                                        }
+                                        FILE *tsv = fopen("_t/py/accepted.tsv", "ab");
+                                        if (tsv) { fprintf(tsv, "%s\t%s\t本地模板\t模板自测 %d/%d\t%s\n", d, cpath, tn, tn, tbuf); fclose(tsv); }
+                                        FILE *rf = fopen("_t/py/registry.tsv", "ab");
+                                        if (rf) { fprintf(rf, "%s\t%s\n", d, cpath); fclose(rf); }
+                                        printf("[学习] 本地模板接受：%s（%d 条测试全过，没问教师）\n", nm, tn);
+                                        printf("       候选：%s\n", cpath);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ToolCfg lc; tool_load(&lc);
                     if (!lc.on || !lc.url[0]) {
                         printf("[学习] 本地不会，且**不能瞎写**：外部教师没开/没配（::tool on + ::tool set 后重试）。\n");

@@ -1,0 +1,55 @@
+# §6.952 Python 本地模板（先本地、不会才问教师）：代码用行尾 \ 续行，测试 IN=>OUT
+py模板:求和	关键词	输出它们的和
+py模板:求和	关键词	求和
+py模板:求和	代码	import sys\
+data = sys.stdin.read().split()\
+print(sum(int(x) for x in data) if data else 0)
+py模板:求和	测试	1 2 3 4=>10
+py模板:求和	测试	4 5=>9
+
+py模板:最大值	关键词	输出最大值
+py模板:最大值	关键词	最大值
+py模板:最大值	代码	import sys\
+data = sys.stdin.read().split()\
+print(max(int(x) for x in data) if data else 0)
+py模板:最大值	测试	3 9 2=>9
+py模板:最大值	测试	-1 -5=>-1
+
+py模板:字符串长度	关键词	字符串的长度
+py模板:字符串长度	代码	import sys\
+print(len(sys.stdin.readline().strip()))
+py模板:字符串长度	测试	abcd=>4
+py模板:字符串长度	测试	xy=>2
+
+py模板:偶数	关键词	是不是偶数
+py模板:偶数	代码	import sys\
+n = int(sys.stdin.read().strip())\
+print("yes" if n % 2 == 0 else "no")
+py模板:偶数	测试	4=>yes
+py模板:偶数	测试	3=>no
+
+py模板:升序排序	关键词	升序排序后输出
+py模板:升序排序	代码	import sys\
+data = [int(x) for x in sys.stdin.read().split()]\
+print(" ".join(str(x) for x in sorted(data)))
+py模板:升序排序	测试	5 1 4=>1 4 5
+py模板:升序排序	测试	2 2=>2 2
+
+py模板:翻转单词	关键词	翻转单词顺序
+py模板:翻转单词	代码	import sys\
+print(" ".join(reversed(sys.stdin.read().split())))
+py模板:翻转单词	测试	hello world=>world hello
+py模板:翻转单词	测试	a b c=>c b a
+
+py模板:最大公约数	关键词	最大公约数
+py模板:最大公约数	代码	import sys, math\
+a, b = (int(x) for x in sys.stdin.read().split()[:2])\
+print(math.gcd(a, b))
+py模板:最大公约数	测试	12 18=>6
+py模板:最大公约数	测试	7 5=>1
+
+py模板:字母计数	关键词	字母 a 出现的次数
+py模板:字母计数	代码	import sys\
+print(sys.stdin.read().lower().count('a'))
+py模板:字母计数	测试	banana=>3
+py模板:字母计数	测试	aAa=>3

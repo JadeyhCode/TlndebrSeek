@@ -80,6 +80,16 @@ o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn --py 
 printf '%s' "$o" | grep -qa '语法\|编译没过' && ok "语法错：拒绝" || bad "语法错也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
+echo "== ④ §6.952 本地模板：没教师也能做（自带测试验过） =="
+o=$(run "::act on\n::code learn --py 把一行数字用空格分开后输出它们的和")
+printf '%s' "$o" | grep -qa '本地模板接受' && ok "求和：本地模板接受" || bad "本地模板没接受" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '\[学习\] 问教师' && bad "本地模板还问教师" "" || ok "本地模板没问教师"
+c2=$(ls -t "$W"/_t/py/cand_*.py 2>/dev/null | head -1)
+if [ -n "$c2" ]; then
+    got=$(printf '1 2 3 4\n' | python3 "$c2" 2>/dev/null)
+    [ "$got" = "10" ] && ok "模板实跑对（10）" || bad "模板实跑不对" "got=$got"
+else bad "没有模板候选" ""; fi
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL py（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS py（$pass 过 / 0 红）"
