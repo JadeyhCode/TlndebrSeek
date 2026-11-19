@@ -961,15 +961,30 @@ static inline double code_cover_ratio(const char *desc, Token *unit, uint8_t d_k
  * 三条都拼出了“能跑但语义错”的程序 —— 这比拒绝更糟。
  * 判据：把描述里的 2 字词（去掉停用词）逐个拿到**命中单元的知识文本**里找
  * （关键词 + 用途 + 目标代码）；覆盖率低于阈值就拒绝。知识文本是数据，不是硬编码。 */
-static int code_is_stop2(const char *g) {
-    static const char *S[] = {"一个","程序","读入","输出","标准","输入","命令","行参","参数","整数","字符","数组",
-                               "数字","每个","所有","然后","并且","给定","要求","计算","打印","结果","这些",
-                               "其中","它们","时候","里面","之后","之前","是否","判断","多少","个数","一共",
-                               "请写","用给","给一","如下","以下","并且","或者","以及","例如","比如", NULL};
-    for (int i = 0; S[i]; ++i) if (!strncmp(g, S[i], 6)) return 1;
+/* §6.941 停用词查图：`停用词:X --[停用]--> 1`；图里没有就不算停用（数据负责）。 */
+static int code_stop2_graph(AI *ai, const char *g) {
+    if (!ai || !ai->pool || !g) return 0;
+    uint8_t rid = rel_id_of(ai, "停用", 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    static const char PFX[] = "停用词:";
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage) continue;
+        if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        int hit = 0;
+        for (size_t j = 0; j < t->count && !hit; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->dyn == d) hit = 1;
+        }
+        if (hit && !strncmp(g, t->name + sizeof PFX - 1, 6)) return 1;
+    }
     return 0;
 }
 
+static int code_is_stop2(AI *ai, const char *g) {
+    return code_stop2_graph(ai, g);
+}
 /* 词是否在整张图里出现过（任意 token 名包含它）—— 用来区分“图里认识但命中单元没实现”的词，
  * 和“图里根本不认识的生词”（后者不判，免得把新描述一律拒掉）。 */
 static inline int code_word_known(AI *ai, const char *g) {
@@ -1049,7 +1064,7 @@ static inline double code_desc_cover(AI *ai, Token *unit, const char *desc, char
         if (((unsigned char)desc[i] < 0x80) || ((unsigned char)desc[i + 3] < 0x80)) continue;
         char g[7];
         memcpy(g, desc + i, 6); g[6] = 0;
-        if (code_is_stop2(g)) continue;
+        if (code_is_stop2(ai, g)) continue;
         if (!code_word_known(ai, g)) continue;      /* 图里没这个词 ⇒ 不判 */
         total++;
         if (strstr(kn, g)) { hit++; continue; }

@@ -55,6 +55,17 @@ else
     echo "  [NOTE] 没有 /tmp/nofw.bin；复现：AIP_CODE_SKIP_FORMWORDS=1 AIP_CODE_MODEL_OUT=/tmp/nofw.bin sh code/build_code_model.sh"
 fi
 
+echo "== ⑦ §6.941 停用词 S[] 下沉：表删了，自检读数随数据变 =="
+grep -qE 'static const char \*S\[\]' code.h && bad "S[] 还在代码里" "" || ok "S[] 已删"
+o=$(AIP_SELFTEST_STOP=1 "$BIN" --model "$M" 2>&1 | tail -1)
+printf '%s' "$o" | grep -qa 'stop2=2' && ok "有数据：stop2=2" || bad "有数据读数不对" "$o"
+if [ -f /tmp/nostop.bin ]; then
+    o2=$(AIP_SELFTEST_STOP=1 "$BIN" --model /tmp/nostop.bin 2>&1 | tail -1)
+    printf '%s' "$o2" | grep -qa 'stop2=0' && ok "无数据：stop2=0（消融成立）" || bad "无数据读数不对" "$o2"
+else
+    echo "  [NOTE] 没有 /tmp/nostop.bin；复现：AIP_CODE_SKIP_STOPWORDS=1 AIP_CODE_MODEL_OUT=/tmp/nostop.bin sh code/build_code_model.sh"
+fi
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shapewords（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shapewords（$pass 过 / 0 红）"

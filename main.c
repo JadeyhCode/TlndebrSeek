@@ -2368,6 +2368,14 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[加载失败 %s：格式不认识或内容损坏 —— 退到最小种子]\n", model_path);
         }
     }
+    /* §6.941 停用词自检入口（消融用）：固定几个词，数几个被判停用 */
+    if (getenv("AIP_SELFTEST_STOP") && a && a->brain) {
+        const char *words[] = {"输出", "读入", "第", "最大值"};
+        int n = 0;
+        for (int i = 0; i < 4; ++i) if (code_is_stop2(a->brain, words[i])) n++;
+        printf("stop2=%d\n", n);
+        return 0;
+    }
     /* §6.940 形态词闸门的自检入口：只为“行为级消融”提供可复现读数。
      * AIP_SELFTEST_FORM=1 ⇒ 用当前模型对一个合成描述跑 code_gate_artifacts，打印条数后退出。 */
     if (getenv("AIP_SELFTEST_FORM") && a && a->brain) {
