@@ -6115,7 +6115,7 @@ int main(int argc, char **argv) {
                     if (!strncmp(d, "--py", 4)) { py = 1; d += 4; while (*d == ' ') d++; }
                     if (!*d) { printf("[用法] ::code learn [--py] <中文任务描述>\n"); continue; }
                     char nb0[512] = {0};
-                    int sr0 = code_synth(a->brain, d, nb0, sizeof nb0);
+                    int sr0 = py ? -1 : code_synth(a->brain, d, nb0, sizeof nb0);
                     if (sr0 == 0) {
                         printf("[学习] 本地已经会了（合成+自测通过），不需要教师：%s\n", d);
                         continue;
@@ -6123,6 +6123,68 @@ int main(int argc, char **argv) {
                     if (strstr(nb0, "写文件失败") && strstr(nb0, "链：")) {
                         printf("[学习] 本地其实会，但写入门关着（先 ::act on 再重试）；本轮不落盘。\n");
                         continue;
+                    }
+                    /* §6.951 Python teacher-free 回放：同一描述以前学过，就重跑存的 TESTS，
+                     * 全过直接复用，不再打扰教师；不过就当作“学过的失效”，不落盘。 */
+                    if (py) {
+                        int replayed = 0;
+                        FILE *af = fopen("_t/py/accepted.tsv", "rb");
+                        if (af) {
+                            char line[4096];
+                            while (fgets(line, sizeof line, af)) {
+                                char *t1 = strchr(line, '\t');
+                                if (!t1) continue;
+                                *t1 = 0;
+                                if (strcmp(line, d) != 0) continue;
+                                char *cand = t1 + 1;
+                                char *t2 = strchr(cand, '\t');
+                                if (!t2) continue;
+                                *t2 = 0;
+                                char *rest = t2 + 1;
+                                char *t4 = NULL;
+                                for (int k = 0; k < 2 && rest; ++k) { t4 = strchr(rest, '\t'); if (!t4) break; rest = t4 + 1; }
+                                if (!t4) continue;
+                                char *tests = rest;
+                                char *nl = strchr(tests, '\n');
+                                if (nl) *nl = 0;
+                                int tn = 0, bad = 0;
+                                char *sv = NULL;
+                                for (char *one = strtok_r(tests, ";", &sv); one;
+                                     one = strtok_r(NULL, ";", &sv)) {
+                                    char *ar = strstr(one, "=>");
+                                    if (!ar) continue;
+                                    *ar = 0;
+                                    const char *inp = one, *exp = ar + 2;
+                                    tn++;
+                                    char ip[160], op[160], cmd2[700];
+                                    snprintf(ip, sizeof ip, "_t/py/replay_%ld.in", (long)getpid());
+                                    snprintf(op, sizeof op, "_t/py/replay_%ld.out", (long)getpid());
+                                    FILE *inf = fopen(ip, "wb");
+                                    if (inf) { fprintf(inf, "%s\n", inp); fclose(inf); }
+                                    snprintf(cmd2, sizeof cmd2, "timeout 5 python3 %s < %s > %s 2>/dev/null", cand, ip, op);
+                                    { int trc2 = system(cmd2); (void)trc2; }
+                                    char gotv[512] = {0};
+                                    FILE *of2 = fopen(op, "rb");
+                                    if (of2) { size_t n2 = fread(gotv, 1, sizeof gotv - 1, of2); gotv[n2] = 0; fclose(of2); }
+                                    char a1[512] = {0}, b1[512] = {0};
+                                    size_t an2 = 0, bn2 = 0;
+                                    for (const char *q2 = gotv; *q2 && an2 + 1 < sizeof a1; ++q2)
+                                        if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') a1[an2++] = *q2;
+                                    for (const char *q2 = exp; *q2 && bn2 + 1 < sizeof b1; ++q2)
+                                        if (*q2 != ' ' && *q2 != '\t' && *q2 != '\n' && *q2 != '\r') b1[bn2++] = *q2;
+                                    if (strcmp(a1, b1) != 0) { bad = 1; break; }
+                                }
+                                if (tn == 0) { printf("[学习] Python 回放：记录里没有可用测试，拒绝复用。\n"); }
+                                else if (bad) { printf("[学习] Python 回放：存着的测试重跑没过，拒绝复用（%s）。\n", cand); }
+                                else { printf("[学习] Python 回放通过（teacher-free）：%d 条测试全过，复用 %s\n", tn, cand); }
+                                fclose(af);
+                                af = NULL;
+                                replayed = 1;
+                                break;
+                            }
+                            if (af) fclose(af);
+                        }
+                        if (replayed) continue;
                     }
                     ToolCfg lc; tool_load(&lc);
                     if (!lc.on || !lc.url[0]) {

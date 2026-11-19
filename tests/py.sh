@@ -58,6 +58,11 @@ if [ -n "$cand" ]; then
 else bad "没候选可跑" ""; fi
 stop_server
 
+echo "== ②b teacher-free 回放：同一描述不再叫教师，重跑存的测试 =="
+o=$(run "::code learn --py $task")
+printf '%s' "$o" | grep -qa '回放通过' && ok "回放通过：不叫教师" || bad "没有回放" "$(printf '%s' "$o" | tail -3)"
+printf '%s' "$o" | grep -qa '问教师' && bad "回放还去问教师" "" || ok "确实没问教师"
+
 echo "== ③ 教师给的 Python 语法错：拒绝，不落盘 =="
 start_server '### CODE
 ```python
@@ -71,7 +76,7 @@ IN: 1 => OUT: 1
 IN: 2 => OUT: 2
 ### EVIDENCE
 没验证。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn --py $task")
+o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn --py 解析日志行并输出告警数量（Python）")
 printf '%s' "$o" | grep -qa '语法\|编译没过' && ok "语法错：拒绝" || bad "语法错也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
