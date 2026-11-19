@@ -36,7 +36,15 @@ static int cmp_rec(const void *a, const void *b) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "用法: %s <分片目录> <输出.idx>\n", argv[0]); return 2; }
+    if (argc < 3) { fprintf(stderr, "用法: %s <分片目录> <输出目录> [--buckets N]\n", argv[0]); return 2; }
+    int nbuckets = 256;
+    for (int ai = 3; ai + 1 < argc; ++ai)
+        if (!strcmp(argv[ai], "--buckets")) { nbuckets = atoi(argv[ai + 1]); break; }
+    if (nbuckets < 16) nbuckets = 16;
+    if (nbuckets > 65536) nbuckets = 65536;
+    int bits = 1;
+    while ((1 << bits) < nbuckets) bits++;          /* 向上取整到 2 的幂 */
+    nbuckets = 1 << bits;
     const char *dir = argv[1], *out = argv[2];
     DIR *dp = opendir(dir);
     if (!dp) { fprintf(stderr, "打不开目录 %s\n", dir); return 1; }
@@ -87,23 +95,24 @@ int main(int argc, char **argv) {
     /* §6.933 分桶：按哈希高 8 位切成 256 个桶，每个桶单独一个文件。
      * 这样查询只读 1/256 的索引（2.5B 的 3–8 GB 索引不必整份进内存）。 */
     mkdir(out, 0755);
-    size_t per_bucket[256] = {0};
-    for (size_t i = 0; i < n; ++i) per_bucket[rec[i].hash >> 56]++;
-    size_t off[256];
+    size_t *per_bucket = (size_t *)calloc((size_t)nbuckets, sizeof(size_t));
+    size_t *off = (size_t *)calloc((size_t)nbuckets, sizeof(size_t));
+    size_t *fill = (size_t *)calloc((size_t)nbuckets, sizeof(size_t));
+    if (!per_bucket || !off || !fill) { free(rec); return 1; }
+    for (size_t i = 0; i < n; ++i) per_bucket[rec[i].hash >> (64 - bits)]++;
     size_t acc = 0;
-    for (int b = 0; b < 256; ++b) { off[b] = acc; acc += per_bucket[b]; }
+    for (int b = 0; b < nbuckets; ++b) { off[b] = acc; acc += per_bucket[b]; }
     C7BIRec *bucketed = (C7BIRec *)malloc((n ? n : 1) * sizeof *bucketed);
     if (!bucketed) { free(rec); return 1; }
-    size_t fill[256] = {0};
     for (size_t i = 0; i < n; ++i) {
-        uint32_t b = (uint32_t)(rec[i].hash >> 56);
+        uint32_t b = (uint32_t)(rec[i].hash >> (64 - bits));
         bucketed[off[b] + fill[b]++] = rec[i];
     }
     int nb = 0;
-    for (int b = 0; b < 256; ++b) {
+    for (int b = 0; b < nbuckets; ++b) {
         if (!per_bucket[b]) continue;
         char path[1024];
-        snprintf(path, sizeof path, "%s/%03d.idx", out, b);
+        snprintf(path, sizeof path, "%s/%05d.idx", out, b);
         FILE *f = fopen(path, "wb");
         if (!f) { fprintf(stderr, "写不开 %s\n", path); free(rec); free(bucketed); return 1; }
         fwrite("C7BK1", 1, 5, f);
@@ -113,8 +122,15 @@ int main(int argc, char **argv) {
         fclose(f);
         nb++;
     }
-    printf("分片 %d 个 / 节点 %zu 个 ⇒ 目录 %s（%d 个桶，约 %.1f B/节点）\n",
-           nshard, n, out, nb, n ? (double)(9u + n * sizeof *rec) / (double)n : 0.0);
+    {
+        char mp[1024];
+        snprintf(mp, sizeof mp, "%s/meta.txt", out);
+        FILE *mf = fopen(mp, "wb");
+        if (mf) { fprintf(mf, "buckets %d\nbits %d\n", nbuckets, bits); fclose(mf); }
+    }
+    printf("分片 %d 个 / 节点 %zu 个 ⇒ 目录 %s（%d 个桶 / bits=%d，约 %.1f B/节点）\n",
+           nshard, n, out, nb, bits, n ? (double)(9u + n * sizeof *rec) / (double)n : 0.0);
+    free(per_bucket); free(off); free(fill);
     free(rec); free(bucketed);
     return 0;
 }

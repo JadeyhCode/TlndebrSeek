@@ -115,10 +115,25 @@ static int bench_index(const char *idx, const char *dir, int total, int nq) {
 
 /* 桶索引查询：hash 高 8 位选桶 → 读该桶 → 二分 */
 static int bench_index_dir(const char *idxdir, const char *dir, int total, int nq) {
-    IdxRec *bucket[256];
-    uint32_t bcount[256];
-    memset(bucket, 0, sizeof bucket);
-    memset(bcount, 0, sizeof bcount);
+    int nbuckets = 256, bits = 8;
+    {
+        char mp[1024];
+        snprintf(mp, sizeof mp, "%s/meta.txt", idxdir);
+        FILE *mf = fopen(mp, "rb");
+        if (mf) {
+            char ln[128];
+            while (fgets(ln, sizeof ln, mf)) {
+                if (sscanf(ln, "buckets %d", &nbuckets) == 1) { }
+                else if (sscanf(ln, "bits %d", &bits) == 1) { }
+            }
+            fclose(mf);
+        }
+    }
+    if (nbuckets < 16) nbuckets = 16;
+    if (nbuckets > 65536) nbuckets = 65536;
+    IdxRec **bucket = (IdxRec **)calloc((size_t)nbuckets, sizeof *bucket);
+    uint32_t *bcount = (uint32_t *)calloc((size_t)nbuckets, sizeof *bcount);
+    if (!bucket || !bcount) return 1;
     double *lat = (double *)malloc((size_t)nq * sizeof(double));
     if (!lat) return 1;
     C7B *cache[256]; memset(cache, 0, sizeof cache);
@@ -133,10 +148,10 @@ static int bench_index_dir(const char *idxdir, const char *dir, int total, int n
         snprintf(name, sizeof name, "N%d", id);
         double q0 = now_us();
         uint64_t h = fnv1a64(name);
-        uint32_t b = (uint32_t)(h >> 56);
+        uint32_t b = (uint32_t)(h >> (64 - bits));
         if (!bucket[b]) {
             char path[1024];
-            snprintf(path, sizeof path, "%s/%03u.idx", idxdir, b);
+            snprintf(path, sizeof path, "%s/%05u.idx", idxdir, b);
             FILE *bf = fopen(path, "rb");
             if (bf) {
                 char mg[6] = {0};
@@ -183,7 +198,67 @@ static int bench_index_dir(const char *idxdir, const char *dir, int total, int n
     printf("查询: %d 次（命中 %d / 未命中 %d，总节点 %d）\n", nq, hit, miss, total);
     printf("延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
            sum / nq / 1000.0, lat[nq / 2] / 1000.0, lat[(int)((double)nq * 0.95)] / 1000.0, lat[nq - 1] / 1000.0);
-    for (int i = 0; i < 256; ++i) { if (cache[i]) c7b_close(cache[i]); free(bucket[i]); }
+    for (int i = 0; i < 256; ++i) if (cache[i]) c7b_close(cache[i]);
+    for (int i = 0; i < nbuckets; ++i) free(bucket[i]);
+    free(bucket); free(bcount);
+    free(lat);
+    return 0;
+}
+
+/* §6.945 只量“桶索引读取”：AIP_COLD=1 时每次读前丢页缓存，测冷读一个桶要多久 */
+static int bench_buckets(const char *idxdir, int nq) {
+    int nbuckets = 256, bits = 8;
+    char mp[1024];
+    snprintf(mp, sizeof mp, "%s/meta.txt", idxdir);
+    FILE *mf = fopen(mp, "rb");
+    if (mf) {
+        char ln[128];
+        while (fgets(ln, sizeof ln, mf)) {
+            if (sscanf(ln, "buckets %d", &nbuckets) == 1) { }
+            else if (sscanf(ln, "bits %d", &bits) == 1) { }
+        }
+        fclose(mf);
+    }
+    (void)bits;
+    if (nbuckets < 16) nbuckets = 256;
+    double *lat = (double *)malloc((size_t)nq * sizeof(double));
+    if (!lat) return 1;
+    unsigned seed = 777;
+    int found = 0;
+    for (int i = 0; i < nq; ++i) {
+        uint32_t b = 0;
+        char path[1024];
+        for (int tries = 0; tries < 64; ++tries) {
+            seed = seed * 1103515245u + 12345u;
+            b = seed % (unsigned)nbuckets;
+            snprintf(path, sizeof path, "%s/%05u.idx", idxdir, b);
+            FILE *t = fopen(path, "rb");
+            if (t) { fclose(t); break; }
+        }
+        FILE *bf = fopen(path, "rb");
+        if (!bf) { lat[i] = 0; continue; }
+        if (getenv("AIP_COLD")) (void)posix_fadvise(fileno(bf), 0, 0, POSIX_FADV_DONTNEED);
+        fseek(bf, 0, SEEK_END);
+        long sz = ftell(bf);
+        fseek(bf, 0, SEEK_SET);
+        char *buf = (char *)malloc(sz > 0 ? (size_t)sz : 1);
+        double t0 = now_us();
+        size_t rd = 0;
+        if (buf) rd = fread(buf, 1, (size_t)sz, bf);
+        lat[i] = now_us() - t0;
+        if (rd > 0) found++;
+        free(buf);
+        fclose(bf);
+    }
+    qsort(lat, (size_t)nq, sizeof(double), cmp_double);
+    double sum = 0;
+    for (int i = 0; i < nq; ++i) sum += lat[i];
+    printf("桶索引: %s（%d 桶）%s\n", idxdir, nbuckets,
+           getenv("AIP_COLD") ? " · 每次丢页缓存" : " · 热缓存");
+    printf("读取 %d 次（读到 %d 个桶）\n", nq, found);
+    printf("延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
+           sum / nq / 1000.0, lat[nq / 2] / 1000.0,
+           lat[(int)((double)nq * 0.95)] / 1000.0, lat[nq - 1] / 1000.0);
     free(lat);
     return 0;
 }
@@ -223,6 +298,7 @@ static int bench_facts(const char *path, int nq) {
 
 int main(int argc, char **argv) {
     if (argc >= 4 && !strcmp(argv[1], "--facts")) return bench_facts(argv[2], atoi(argv[3]));
+    if (argc >= 4 && !strcmp(argv[1], "--bucket")) return bench_buckets(argv[2], atoi(argv[3]));
     if (argc >= 6 && !strcmp(argv[1], "--index")) {
         int total = atoi(argv[4]);
         int nq = atoi(argv[5]);

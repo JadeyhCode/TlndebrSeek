@@ -53,6 +53,15 @@ printf '%s' "$o" | grep -q '桶索引' && ok "走的是桶索引路径" || bad "
 p95=$(printf '%s' "$o" | sed -n 's/.*p95 \([0-9.]*\) ms.*/\1/p')
 [ -n "$p95" ] && python3 -c "import sys; sys.exit(0 if float('$p95') < 200 else 1)" && ok "桶索引 p95 = $p95 ms" || bad "桶索引 p95 超 200ms" "$p95"
 
+echo "== ⑤ §6.945 桶数可调：4096 桶 + meta.txt，压测器跟着走 =="
+"$W/c7b_index" "$W/s" "$W/idx4k" --buckets 4096 > "$W/idx4k.log" 2>&1
+[ -f "$W/idx4k/meta.txt" ] && ok "meta.txt 写出来了" || bad "缺 meta.txt" "$(cat "$W/idx4k.log")"
+grep -qa 'buckets 4096' "$W/idx4k/meta.txt" && ok "meta 记了 4096 桶" || bad "meta 桶数不对" "$(cat "$W/idx4k/meta.txt" 2>/dev/null)"
+n4=$(ls "$W/idx4k"/*.idx 2>/dev/null | wc -l)
+[ "$n4" -gt 256 ] && ok "实际桶文件 $n4 个（>256）" || bad "桶文件没变多" "$n4"
+o=$("$W/c7bq" --bucket "$W/idx4k" 20 2>&1)
+printf '%s' "$o" | grep -qa '4096 桶' && ok "压测器读到 4096 桶" || bad "压测器没读 meta" "$(printf '%s' "$o" | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardindex（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardindex（$pass 过 / 0 红）"
