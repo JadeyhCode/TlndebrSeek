@@ -27,7 +27,7 @@ start_server() {
 stop_server() { kill "$SRV" 2>/dev/null; }
 trap 'stop_server' EXIT
 run() { ( cd "$W" && printf '%b\n::quit\n' "$1" | ./build_aip --model model.bin 2>&1 ); }
-task='把一段 CSV 行按逗号切分后输出字段个数（Python）'
+task='把一段用分号分隔的文本逐字段反转后输出（Python）'
 
 echo "== ① 教师没开：不在本地瞎写 Python =="
 o=$(run "::act on\n::code learn --py $task")

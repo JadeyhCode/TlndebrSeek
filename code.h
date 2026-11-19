@@ -1087,10 +1087,12 @@ static inline int code_py_template(AI *ai, const char *desc,
     uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
     uint8_t rid_cd = rel_id_of(ai, "代码", 0);
     uint8_t rid_ts = rel_id_of(ai, "测试", 0);
+    uint8_t rid_ex = rel_id_of(ai, "排除", 0);
     if (rid_kw < REL_DYN_BASE || rid_cd < REL_DYN_BASE || rid_ts < REL_DYN_BASE) return 0;
     uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
     uint8_t d_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
     uint8_t d_ts = (uint8_t)(rid_ts - REL_DYN_BASE + 1);
+    uint8_t d_ex = (rid_ex >= REL_DYN_BASE) ? (uint8_t)(rid_ex - REL_DYN_BASE + 1) : 0;
     static const char PFX[] = "py模板:";
     Token *best = NULL;
     size_t best_pos = (size_t)-1, best_len = 0;
@@ -1098,6 +1100,15 @@ static inline int code_py_template(AI *ai, const char *desc,
         Token *t = ai->pool->tokens[i];
         if (!t || !t->name || t->is_garbage) continue;
         if (strncmp(t->name, PFX, sizeof PFX - 1)) continue;
+        int excluded = 0;
+        for (size_t j = 0; d_ex && j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->main->name && e->dyn == d_ex && strstr(desc, e->main->name)) { excluded = 1; break; }
+        }
+        if (excluded) {
+            if (getenv("AIP_CHAINDBG")) fprintf(stderr, "[pyt] 排除 %s\n", t->name);
+            continue;
+        }
         for (size_t j = 0; j < t->count; ++j) {
             const AssocEntry *e = &token_assocs_ro(t)[j];
             if (!e->main || !e->main->name || e->dyn != d_kw) continue;
