@@ -62,13 +62,22 @@ TRANSFER = [
 
 def run_group(name, tasks, rng):
     cnt = dict(pass_=0, refuse=0, wrong=0)
+    fam = {}
     print("== %s ==" % name)
     for t in tasks:
         got, _ = B.judge(t, rng)
         cnt["pass_" if got == "pass" else got] += 1
-        print("  [%s] %s" % (got.upper(), t["name"]))
+        sh = t.get("shape", "?")
+        d = fam.setdefault(sh, dict(pass_=0, refuse=0, wrong=0, n=0))
+        d["pass_" if got == "pass" else got] += 1
+        d["n"] += 1
+        print("  [%s] %-12s %s" % (got.upper(), sh, t["name"]))
     print("=> pass %d / refuse %d / wrong %d（共 %d）" %
           (cnt["pass_"], cnt["refuse"], cnt["wrong"], len(tasks)))
+    for sh in sorted(fam):
+        d = fam[sh]
+        print("   族 %-7s pass %d / refuse %d / wrong %d（共 %d）" %
+              (sh, d["pass_"], d["refuse"], d["wrong"], d["n"]))
     return cnt
 
 

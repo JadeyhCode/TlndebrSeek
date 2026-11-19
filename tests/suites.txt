@@ -199,6 +199,7 @@ multivar|sh tests/multivar.sh
 py|sh tests/py.sh
 harvest|sh tests/harvest.sh
 double|sh tests/double.sh
+familysplit|sh tests/familysplit.sh
 shardindex|sh tests/shardindex.sh
 rewrite|sh tests/rewrite.sh
 learn|sh tests/learn.sh
