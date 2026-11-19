@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #ifndef POSIX_FADV_DONTNEED
 #define POSIX_FADV_DONTNEED 4   /* Linux 常量；glibc 在 -std=c11 下可能不暴露 */
 #endif
@@ -241,13 +243,28 @@ static int bench_buckets(const char *idxdir, int nq) {
         fseek(bf, 0, SEEK_END);
         long sz = ftell(bf);
         fseek(bf, 0, SEEK_SET);
-        char *buf = (char *)malloc(sz > 0 ? (size_t)sz : 1);
         double t0 = now_us();
         size_t rd = 0;
-        if (buf) rd = fread(buf, 1, (size_t)sz, bf);
+        if (getenv("AIP_O_DIRECT")) {
+            /* §6.945b O_DIRECT：真正绕开页缓存（fadvise 对小文件无效） */
+            int fd = open(path, O_RDONLY | O_DIRECT);
+            if (fd >= 0) {
+                size_t alen = ((size_t)(sz > 0 ? sz : 1) + 4095u) & ~(size_t)4095u;
+                void *abuf = NULL;
+                if (posix_memalign(&abuf, 4096, alen) == 0) {
+                    ssize_t r2 = pread(fd, abuf, alen, 0);
+                    rd = r2 > 0 ? (size_t)r2 : 0;
+                    free(abuf);
+                }
+                close(fd);
+            }
+        } else {
+            char *buf = (char *)malloc(sz > 0 ? (size_t)sz : 1);
+            if (buf) rd = fread(buf, 1, (size_t)sz, bf);
+            free(buf);
+        }
         lat[i] = now_us() - t0;
         if (rd > 0) found++;
-        free(buf);
         fclose(bf);
     }
     qsort(lat, (size_t)nq, sizeof(double), cmp_double);

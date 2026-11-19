@@ -62,6 +62,11 @@ n4=$(ls "$W/idx4k"/*.idx 2>/dev/null | wc -l)
 o=$("$W/c7bq" --bucket "$W/idx4k" 20 2>&1)
 printf '%s' "$o" | grep -qa '4096 桶' && ok "压测器读到 4096 桶" || bad "压测器没读 meta" "$(printf '%s' "$o" | tail -2)"
 
+echo "== ⑥ §6.945b O_DIRECT 冷读桶：绕开页缓存 =="
+o=$(AIP_O_DIRECT=1 "$W/c7bq" --bucket "$W/idx4k" 20 2>&1)
+printf '%s' "$o" | grep -qa '读到 20 个桶' && ok "O_DIRECT 读到 20 个桶" || bad "O_DIRECT 没读到" "$(printf '%s' "$o" | tail -2)"
+printf '%s' "$o" | grep -qa 'p95' && ok "O_DIRECT 有 p95 读数" || bad "O_DIRECT 没 p95" "$(printf '%s' "$o" | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL shardindex（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS shardindex（$pass 过 / 0 红）"
