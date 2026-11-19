@@ -1535,6 +1535,54 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             int tnpv = npv[j]; npv[j] = npv[j - 1]; npv[j - 1] = tnpv;
         }
     }
+    /* §6.943 多变量链的最小依赖排序：运算 --[需要]--> 变量，另一个运算 --[产出]--> 同名变量。
+     * 数据里声明了“需要 y”的算子，必须排到“产出 y”的算子之后；其余算子的相对顺序不动。
+     * 这是“行数 × 最长行”这类两步题的**结构性**支持（不靠复合关键词硬凑）。 */
+    {
+        uint8_t rid_need = rel_id_of(ai, "链需要", 0);
+        uint8_t rid_prod = rel_id_of(ai, "链产出", 0);
+        if (rid_need >= REL_DYN_BASE && rid_prod >= REL_DYN_BASE) {
+            uint8_t d_need = (uint8_t)(rid_need - REL_DYN_BASE + 1);
+            uint8_t d_prod = (uint8_t)(rid_prod - REL_DYN_BASE + 1);
+            for (int i = 0; i < n; ++i) {
+                for (size_t j = 0; j < ops[i]->count; ++j) {
+                    const AssocEntry *e = &token_assocs_ro(ops[i])[j];
+                    if (!e->main || !e->main->name || e->dyn != d_need) continue;
+                    const char *v = e->main->name;
+                    size_t vl = strlen(v);
+                    if (vl > 6 && strcmp(v + vl - 6, "需要") == 0) vl -= 6;  /* “y需要” ⇒ 变量 y */
+                    int prod = -1;
+                    for (int k = 0; k < n; ++k) {
+                        if (k == i) continue;
+                        for (size_t q = 0; q < ops[k]->count; ++q) {
+                            const AssocEntry *pe = &token_assocs_ro(ops[k])[q];
+                            if (pe->main && pe->main->name && pe->dyn == d_prod) {
+                                const char *pv = pe->main->name;
+                                size_t pl = strlen(pv);
+                                if (pl > 6 && strcmp(pv + pl - 6, "产出") == 0) pl -= 6;
+                                if (pl == vl && strncmp(pv, v, vl) == 0) { prod = k; break; }
+                            }
+                        }
+                        if (prod >= 0) break;
+                    }
+                    if (prod <= i) continue;          /* 已经在前面（或没有产出者） */
+                    if (getenv("AIP_CHAINDBG"))
+                        fprintf(stderr, "[chain] 依赖 %s 需要 %s ⇒ 把 %s 提前\n",
+                                ops[i]->name, v, ops[prod]->name);
+                    /* 把产出者移到 i 前面，保持其余顺序（稳定插入） */
+                    Token *to = ops[prod]; ops[prod] = ops[i]; ops[i] = to;
+                    const char *ts = stmts[prod]; stmts[prod] = stmts[i]; stmts[i] = ts;
+                    size_t tp = pos[prod]; pos[prod] = pos[i]; pos[i] = tp;
+                    size_t tl = mlen[prod]; mlen[prod] = mlen[i]; mlen[i] = tl;
+                    char tb[2][16];
+                    memcpy(tb, pbufs[prod], sizeof tb);
+                    memcpy(pbufs[prod], pbufs[i], sizeof tb);
+                    memcpy(pbufs[i], tb, sizeof tb);
+                    int tn = npv[prod]; npv[prod] = npv[i]; npv[i] = tn;
+                }
+            }
+        }
+    }
     /* §6.870/§6.881 生成侧形状兼容：相邻算子要求 前一个的**输出形状** == 后一个的**输入形状**；
      * 不兼容就把后一个**剔除**（不是整条链作废，也不是砍掉尾巴）。
      * 典型：`矩阵对角线和(输出整数) → 数组元素和(输入数组)` 这种混链一定编不过。

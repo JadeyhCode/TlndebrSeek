@@ -195,6 +195,7 @@ shard|sh tests/shard.sh
 shardquery|sh tests/shardquery.sh
 hardcode|sh tests/hardcode.sh
 shapewords|sh tests/shapewords.sh
+multivar|sh tests/multivar.sh
 shardindex|sh tests/shardindex.sh
 rewrite|sh tests/rewrite.sh
 learn|sh tests/learn.sh

@@ -5119,7 +5119,7 @@ int main(int argc, char **argv) {
                     else if (!strcmp(rn, "原因")) label = "原因";
                     else if (!strcmp(rn, "意图")) label = "意图";
                     else if (!strcmp(rn, "做法")) label = "做法";
-                    else if (!strcmp(rn, "来源")) label = "来源";
+                    else if (!strcmp(rn, "知识来源")) label = "来源";
                     if (!label) continue;
                     printf("  [%s] %s\n", label, e->main->name ? e->main->name : "?");
                     shown++;
@@ -6094,7 +6094,7 @@ int main(int argc, char **argv) {
                         if (g) {
                             fprintf(g, "学习:%s\t理由\t%s\n", line, rat);
                             fprintf(g, "学习:%s\t证据\t%s（重新编译通过）\n", line, evi);
-                            fprintf(g, "学习:%s\t来源\t学来的（教师+验证）\n", line);
+                            fprintf(g, "学习:%s\t知识来源\t学来的（教师+验证）\n", line);
                         }
                         printf("[接受] 通过：%s（理由/证据/编译三样齐）\n", line);
                         okn++;
