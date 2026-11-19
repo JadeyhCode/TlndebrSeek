@@ -21,6 +21,17 @@
 #include "../ai.h"
 #include "../corpus7b.h"
 
+/* §6.949 当前进程常驻内存（MB）：看“开一个分片 + 查 200 次”到底占多少 */
+static double rss_mb(void) {
+    FILE *f = fopen("/proc/self/statm", "rb");
+    if (!f) return -1;
+    long pages = 0, res = 0;
+    if (fscanf(f, "%ld %ld", &pages, &res) != 2) res = 0;
+    fclose(f);
+    long pg = sysconf(_SC_PAGESIZE);
+    return (double)res * (double)pg / (1024.0 * 1024.0);
+}
+
 static int cmp_double(const void *a, const void *b) {
     double x = *(const double *)a, y = *(const double *)b;
     return (x > y) - (x < y);
@@ -289,6 +300,7 @@ static int bench_e2e_hot(const char *idxdir, const char *dir, int total, int nq)
     printf("总延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
            sum / nq / 1000.0, tot[nq / 2] / 1000.0,
            tot[(int)((double)nq * 0.95)] / 1000.0, tot[nq - 1] / 1000.0);
+    printf("RSS: %.1f MB（%d 个分片常驻）\n", rss_mb(), opened);
     for (int i = 0; i < 512; ++i) if (cache[i]) c7b_close(cache[i]);
     free(tot); free(bkt);
     return 0;
@@ -390,6 +402,7 @@ static int bench_e2e(const char *idxdir, const char *dir, int total, int nq) {
     printf("总延迟: avg %.2f ms  p50 %.2f ms  p95 %.2f ms  max %.2f ms\n",
            sum / nq / 1000.0, tot[nq / 2] / 1000.0,
            tot[(int)((double)nq * 0.95)] / 1000.0, tot[nq - 1] / 1000.0);
+    printf("RSS: %.1f MB（%d 次冷开）\n", rss_mb(), opened);
     free(tot); free(bkt);
     return 0;
 }
