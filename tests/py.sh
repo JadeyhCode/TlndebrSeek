@@ -90,6 +90,12 @@ if [ -n "$c2" ]; then
     [ "$got" = "10" ] && ok "模板实跑对（10）" || bad "模板实跑不对" "got=$got"
 else bad "没有模板候选" ""; fi
 
+echo "== ⑤ §6.954 同义关键词：换说法也能命中原模板 =="
+o=$(run "::act on\n::code learn --py 读入若干个数，算出加起来是多少")
+printf '%s' "$o" | grep -qa '本地模板接受' && ok "换说法（加起来）：模板接受" || bad "换说法没命中" "$(printf '%s' "$o" | tail -3)"
+o=$(run "::act on\n::code learn --py 这段文本一共有多少个字符")
+printf '%s' "$o" | grep -qa '本地模板接受' && ok "换说法（多少个字符）：模板接受" || bad "换说法没命中（字符）" "$(printf '%s' "$o" | tail -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL py（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS py（$pass 过 / 0 红）"
