@@ -15,6 +15,7 @@
 #define AIP_CORPUS7B_H
 
 #include <stdio.h>
+#include <sys/mman.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -61,6 +62,9 @@ typedef struct {
     uint32_t n_props;
     uint64_t names_off, names_len, props_off, segs_off;
     char    *names;          /* 名字池（节点名 + 属性名） */
+    void    *names_map;      /* §6.947 mmap 的名字池（惰性页装入；NULL = malloc 版） */
+    size_t   names_map_len;
+    int      names_mmap;
     size_t   n_lookups;      /* 验收数字：查了几次 */
     size_t   n_reads;        /* 验收数字：读了几段 */
     size_t   n_bytes;        /* 验收数字：读回来多少字节 */
@@ -84,7 +88,9 @@ static inline void c7b_close(C7B *c) {
     if (!c) return;
     if (c->f) fclose(c->f);
     if (c->tmp_path[0]) remove(c->tmp_path);       /* .gz 解出来的临时文件，关掉就删 */
-    free(c->iid); free(c->ioff); free(c->icnt); free(c->map); free(c->names);
+    free(c->iid); free(c->ioff); free(c->icnt); free(c->map);
+    if (c->names_mmap && c->names_map) munmap(c->names_map, c->names_map_len);
+    else free(c->names);
     free(c);
 }
 
@@ -160,14 +166,27 @@ static inline C7B *c7b_open(const char *path, char *err, size_t cap) {
         c2->f = f; c2->ver = 2; c2->n_words = n_nodes2; c2->n_props = n_props2; c2->n_seg = nseg2;
         c2->n_edges = ne2; c2->names_off = names_off2; c2->names_len = names_len2;
         c2->props_off = props_off2; c2->segs_off = segs_off2; c2->size = (uint64_t)sz2;
-        c2->names = (char *)malloc((size_t)names_len2 + 1);
-        if (!c2->names) { if (err && cap) snprintf(err, cap, "内存不够（名字池）"); fclose(f); free(c2); return NULL; }
-        if (fseek(f, (long)names_off2, SEEK_SET) != 0 ||
-            fread(c2->names, 1, (size_t)names_len2, f) != names_len2) {
-            if (err && cap) snprintf(err, cap, "名字池读不全");
-            fclose(f); free(c2->names); free(c2); return NULL;
+        /* §6.947 名字池改为 mmap：open 不再整段读 16 MB，只映射；真正别到哪页才从盘上取。
+         * 冷开分片的最大成本（顺序读名字池）就没了；查询按 (分片,节点 id) 直接读事实。 */
+        {
+            size_t pg = 4096;
+            uint64_t astart = names_off2 & ~(uint64_t)(pg - 1);
+            size_t maplen = (size_t)(names_off2 - astart + names_len2 + 1);
+            void *nb = mmap(NULL, maplen, PROT_READ, MAP_PRIVATE, fileno(f), (off_t)astart);
+            if (nb != MAP_FAILED) {
+                c2->names_map = nb; c2->names_map_len = maplen; c2->names_mmap = 1;
+                c2->names = (char *)nb + (names_off2 - astart);
+            } else {
+                c2->names = (char *)malloc((size_t)names_len2 + 1);
+                if (!c2->names) { if (err && cap) snprintf(err, cap, "内存不够（名字池）"); fclose(f); free(c2); return NULL; }
+                if (fseek(f, (long)names_off2, SEEK_SET) != 0 ||
+                    fread(c2->names, 1, (size_t)names_len2, f) != names_len2) {
+                    if (err && cap) snprintf(err, cap, "名字池读不全");
+                    fclose(f); free(c2->names); free(c2); return NULL;
+                }
+                c2->names[names_len2] = 0;
+            }
         }
-        c2->names[names_len2] = 0;
         snprintf(c2->path, sizeof c2->path, "%s", path);
         return c2;
     }

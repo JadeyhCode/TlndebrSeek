@@ -26,7 +26,7 @@ static uint64_t fnv1a(const char *s) {
     return h;
 }
 
-typedef struct { uint64_t hash; uint32_t shard; } C7BIRec;
+typedef struct { uint64_t hash; uint32_t shard; uint32_t node; } C7BIRec;
 
 static int cmp_rec(const void *a, const void *b) {
     const C7BIRec *x = (const C7BIRec *)a, *y = (const C7BIRec *)b;
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
             size_t take = l < sizeof name - 1 ? l : sizeof name - 1;
             memcpy(name, c->names + o, take); name[take] = 0;
             if (n == cap) { cap *= 2; C7BIRec *nr = (C7BIRec *)realloc(rec, cap * sizeof *rec); if (!nr) { free(rec); return 1; } rec = nr; }
-            rec[n].hash = fnv1a(name); rec[n].shard = (uint32_t)shard_id[s]; n++;
+            rec[n].hash = fnv1a(name); rec[n].shard = (uint32_t)shard_id[s]; rec[n].node = i; n++;
         }
         c7b_close(c);
     }

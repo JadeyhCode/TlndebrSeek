@@ -38,7 +38,7 @@ static uint64_t fnv1a64(const char *s) {
     return h;
 }
 
-typedef struct { uint64_t hash; uint32_t shard; } IdxRec;
+typedef struct { uint64_t hash; uint32_t shard; uint32_t node; } IdxRec;
 
 /* §6.932 带全局路由：--index <idx> <分片目录> <总节点数> <查询数> */
 static int bench_index_dir(const char *idxdir, const char *dir, int total, int nq);
@@ -240,6 +240,7 @@ static int bench_e2e(const char *idxdir, const char *dir, int total, int nq) {
         snprintf(bpath, sizeof bpath, "%s/%05u.idx", idxdir, b);
         double t0 = now_us();
         int shard = -1;
+        uint32_t nodeid = 0;
         int fd = open(bpath, O_RDONLY);
         if (fd >= 0) {
             off_t sz = lseek(fd, 0, SEEK_END);
@@ -256,6 +257,7 @@ static int bench_e2e(const char *idxdir, const char *dir, int total, int nq) {
                     while (lo < hi) { uint32_t mid = lo + (hi - lo) / 2;
                         if (rr[mid].hash < h) lo = mid + 1; else hi = mid; }
                     if (lo < cnt && rr[lo].hash == h) shard = (int)rr[lo].shard;
+                    if (shard >= 0) nodeid = rr[lo].node;
                 }
                 free(abuf);
             }
@@ -273,10 +275,15 @@ static int bench_e2e(const char *idxdir, const char *dir, int total, int nq) {
             c = c7b_open(sp, err, sizeof err);
             if (c) {
                 opened++;
-                uint32_t nid = 0;
-                if (c7b2_find_node(c, name, &nid) == 0) {
+                if (nodeid) {
                     C7B2Fact fa[4];
-                    if (c7b2_facts(c, nid, fa, 4) >= 0) ok = 1;
+                    if (c7b2_facts(c, nodeid, fa, 4) >= 0) ok = 1;
+                } else {
+                    uint32_t nid = 0;
+                    if (c7b2_find_node(c, name, &nid) == 0) {
+                        C7B2Fact fa[4];
+                        if (c7b2_facts(c, nid, fa, 4) >= 0) ok = 1;
+                    }
                 }
                 c7b_close(c);
             }
