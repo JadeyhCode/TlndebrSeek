@@ -1125,6 +1125,7 @@ typedef struct {
     int    assoc_slot_off;
     int    coin_off;                /* 0 = 允许现场造词（默认） */
     int    seg_off;                 /* 0 = 允许换切分（拆解/合并）找帧（默认） */
+    int    seg_sliding;             /* §6.966 0 = 旧的最长匹配；1 = 滑动联想（默认） */
     int    relay_off;               /* 0 = 允许中转词容错（和/跟 互认）（默认） */
     int    fall_off;                /* 0 = 允许降级答复（默认） */
     int    rel_off;                 /* 0 = 允许关系层（推理 + 现场学知识）（默认） */
@@ -1951,6 +1952,8 @@ static inline AI *ai_new(void) {
     ai->assoc_slot_off = 0;         /* 结构化帧默认允许读关联链产物（见 frame.h Gate B） */
     ai->coin_off = 0;               /* 默认允许现场造词（见 frame.h fr_coin） */
     ai->seg_off = 0;                /* 默认允许换切分找帧（见 frame.h fr_generate） */
+    ai->seg_sliding = 0;            /* §6.966 默认仍是旧的最长匹配；::seg sliding on 或 AIP_SEG=1 开 */
+    { const char *g = getenv("AIP_SEG"); if (g && g[0] == '1') ai->seg_sliding = 1; }
     ai->verify_writes = 0;          /* §6.248 默认关（反向测量：AIP_VERIFYWRITES=1 或 ::verifywrites on）*/
     { const char *vw = getenv("AIP_VERIFYWRITES"); if (vw && vw[0] == '1') ai->verify_writes = 1; }
     ai->relay_off = 0;              /* 默认允许中转词容错（见 frame.h FR_RELAY） */
@@ -2212,9 +2215,11 @@ static inline size_t ai_match_word(const AI *ai, const unsigned char *p, size_t 
     return best;
 }
 
+static inline char **ai_tokenize_sliding(AI *ai, const char *text, size_t *out_n);
 static inline char **ai_tokenize(AI *ai, const char *text, size_t *out_n) {
     *out_n = 0;
     if (!text) return NULL;
+    if (ai && ai->seg_sliding) return ai_tokenize_sliding(ai, text, out_n);
     size_t cap = 16, n = 0;
     char **words = (char **)malloc(cap * sizeof *words);
     if (!words) return NULL;
@@ -5775,3 +5780,6 @@ static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, uint8_t rid, int 
 /* 思维循环（议程 + 分步 + 跨轮未解问题 + 元认知）。
  * 排在最后：它要用 rel.h 的求解器、derive.h 的验证器、micro.h 的意图队列。 */
 #include "think.h"
+
+/* §6.966 滑动切分实现（必须放在 ai_tokenize 之后；TUs 通过 agent.h 拿到定义） */
+#include "sseg.h"

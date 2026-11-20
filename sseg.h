@@ -65,13 +65,31 @@ static inline int sseg_candidates(AI *ai, const char *text, SsegCand *cs, int ca
     return n;
 }
 
+typedef struct { float word, deg, edge, ch, ch_edge; } SsegParams;
+static inline const SsegParams *sseg_params(void) {
+    static SsegParams p;
+    static int init = 0;
+    if (!init) {
+        p.word = 1.20f; p.deg = 0.35f; p.edge = 0.60f; p.ch = 0.50f; p.ch_edge = 0.15f;
+        const char *e;
+        if ((e = getenv("AIP_SSEG_WORD")))  p.word = (float)atof(e);
+        if ((e = getenv("AIP_SSEG_DEG")))   p.deg = (float)atof(e);
+        if ((e = getenv("AIP_SSEG_EDGE")))  p.edge = (float)atof(e);
+        if ((e = getenv("AIP_SSEG_CH")))    p.ch = (float)atof(e);
+        if ((e = getenv("AIP_SSEG_CHEDGE"))) p.ch_edge = (float)atof(e);
+        init = 1;
+    }
+    return &p;
+}
+
 static inline float sseg_score(const SsegCand *c, const SsegCand *prev) {
-    float s = 0.45f;                                 /* 单字：只是字 */
+    const SsegParams *P = sseg_params();
+    float s = 0.45f;                                 /* 无图节点的单字 */
     int one = (c->end - c->start == 1);
     if (c->tok)
-        s = one ? 0.50f : 1.20f + 0.35f * logf(1.0f + (float)c->tok->count);
+        s = one ? P->ch : P->word + P->deg * logf(1.0f + (float)c->tok->count);
     if (prev && prev->tok && c->tok && sseg_edge(prev->tok, c->tok))
-        s += one ? 0.15f : 0.60f;                    /* 词与词相连才算强证据 */
+        s += one ? P->ch_edge : P->edge;
     return s;
 }
 
@@ -135,15 +153,6 @@ static inline void sseg_run(AI *ai, const char *text) {
     if (m == 0) { printf("[切分] 没有可用候选\n"); return; }
     printf("[最优] ");
     sseg_print_path(cs, path, m, sseg_path_score(cs, path, m));
-    /* 次优：禁掉最优里第一个多字词，再看会切到哪 */
-    int ban = -1;
-    for (int i = 0; i < m; ++i)
-        if (cs[path[i]].end - cs[path[i]].start > 1) { ban = path[i]; break; }
-    if (ban >= 0) {
-        int p2[SSEG_MAX_CH + 2];
-        int m2 = sseg_dp(ai, cs, n, nch, ban, p2, SSEG_MAX_CH);
-        if (m2 > 0) { printf("[次优] "); sseg_print_path(cs, p2, m2, sseg_path_score(cs, p2, m2)); }
-    }
     /* 词义激活：选中词的图上联想，按“与上下文其它选中词有没有边”排序 */
     for (int i = 0; i < m; ++i) {
         SsegCand *c = &cs[path[i]];
@@ -183,7 +192,108 @@ static inline void sseg_run(AI *ai, const char *text) {
             seen[ns++] = e->main;
         }
         printf("\n");
+        /* §6.967 词性/类别：只读图里的关系名（词性/词类），代码不点任何具体词 */
+        for (size_t k = 0; k < t->count; ++k) {
+            const AssocEntry *e = &token_assocs_ro(t)[k];
+            if (!e->main || !e->main->name || !e->dyn) continue;
+            const char *rn = rel_name_of(ai, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+            if (rn && (strstr(rn, "词性") || strstr(rn, "词类")))
+                printf("[词性] %s：%s\n", c->name, e->main->name);
+        }
     }
+    /* k-best：依次禁掉已选里的多字词，再跑，最多再给 2 条 */
+    int banned[4], nb = 0;
+    for (int i = 0; i < m && nb < 2; ++i)
+        if (cs[path[i]].end - cs[path[i]].start > 1) banned[nb++] = path[i];
+    for (int pass = 0; pass < nb; ++pass) {
+        int p3[SSEG_MAX_CH + 2];
+        int m3 = sseg_dp(ai, cs, n, nch, banned[pass], p3, SSEG_MAX_CH);
+        if (m3 > 0) { printf("[候选%d] ", pass + 2); sseg_print_path(cs, p3, m3, sseg_path_score(cs, p3, m3)); }
+    }
+}
+
+/* §6.966 把滑动切分接到 ai_tokenize：CJK 段走候选格，ASCII/原语段保持旧行为。
+ * 返回 malloc 出来的词数组（调用方 ai_free_words 释放）。 */
+static inline char **ai_tokenize_sliding(AI *ai, const char *text, size_t *out_n) {
+    *out_n = 0;
+    if (!text) return NULL;
+    size_t cap = 16, n = 0;
+    char **words = (char **)malloc(cap * sizeof *words);
+    if (!words) return NULL;
+    const unsigned char *p = (const unsigned char *)text;
+    while (*p) {
+        if (*p == '[') {
+            const char *close = strchr((const char *)p, ']');
+            if (close && close > (const char *)p + 1) {
+                size_t len = (size_t)(close - (const char *)p) + 1;
+                if (n == cap) { cap *= 2; words = (char **)realloc(words, cap * sizeof *words); }
+                char *w = (char *)malloc(len + 1);
+                if (!w) break;
+                memcpy(w, p, len); w[len] = 0;
+                words[n++] = w;
+                p = (const unsigned char *)close + 1;
+                continue;
+            }
+        }
+        if (isspace(*p) || (*p < 128 && ispunct(*p))) { p++; continue; }
+        if (*p < 128) {
+            const unsigned char *s = p;
+            while (*p && *p < 128 && !isspace(*p) && !ispunct(*p)) p++;
+            size_t len = (size_t)(p - s);
+            if (len == 0) { p++; continue; }
+            if (n == cap) { cap *= 2; words = (char **)realloc(words, cap * sizeof *words); }
+            char *w = (char *)malloc(len + 1);
+            if (!w) break;
+            memcpy(w, s, len); w[len] = 0;
+            words[n++] = w;
+            continue;
+        }
+        /* CJK 段：截到 ASCII 边界/空白/结束 */
+        const unsigned char *s = p;
+        while (*p && *p >= 0x80 && !isspace(*p)) p++;
+        size_t len = (size_t)(p - s);
+        char *run = (char *)malloc(len + 1);
+        if (!run) break;
+        memcpy(run, s, len); run[len] = 0;
+        int nch_run = 0;
+        { int tmp[SSEG_MAX_CH + 1]; nch_run = sseg_char_offsets(run, tmp, SSEG_MAX_CH); }
+        if (nch_run <= 1 || nch_run > SSEG_MAX_CH - 2) {
+            /* 太短/太长：退回旧的最长匹配（不改语义） */
+            int save = ai->seg_sliding;
+            ai->seg_sliding = 0;
+            size_t sn = 0;
+            char **sub = ai_tokenize(ai, run, &sn);
+            ai->seg_sliding = save;
+            for (size_t i = 0; i < sn; ++i) {
+                if (n == cap) { cap *= 2; words = (char **)realloc(words, cap * sizeof *words); }
+                words[n++] = sub[i];
+            }
+            free(sub);
+        } else {
+            SsegCand cs[SSEG_MAX_CAND];
+            int off[SSEG_MAX_CH + 1];
+            int nch = 0;
+            int cn = sseg_candidates(ai, run, cs, SSEG_MAX_CAND, off, &nch);
+            int path[SSEG_MAX_CH + 2];
+            int m = sseg_dp(ai, cs, cn, nch, -1, path, SSEG_MAX_CH);
+            if (m == 0) {
+                if (n == cap) { cap *= 2; words = (char **)realloc(words, cap * sizeof *words); }
+                words[n++] = run;
+                run = NULL;
+            } else {
+                for (int i = 0; i < m; ++i) {
+                    if (n == cap) { cap *= 2; words = (char **)realloc(words, cap * sizeof *words); }
+                    char *w = (char *)malloc(strlen(cs[path[i]].name) + 1);
+                    if (!w) break;
+                    strcpy(w, cs[path[i]].name);
+                    words[n++] = w;
+                }
+            }
+        }
+        free(run);
+    }
+    *out_n = n;
+    return words;
 }
 
 #endif

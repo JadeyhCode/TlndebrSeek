@@ -4573,8 +4573,12 @@ int main(int argc, char **argv) {
                 if (arg && *arg) {
                     if (strcmp(arg, "on") == 0) a->brain->seg_off = 0;
                     else if (strcmp(arg, "off") == 0) a->brain->seg_off = 1;
-                    else { printf("[用法] ::seg on|off\n"); continue; }
+                    else if (strcmp(arg, "sliding") == 0) a->brain->seg_sliding = 1;
+                    else if (strcmp(arg, "greedy") == 0) a->brain->seg_sliding = 0;
+                    else { printf("[用法] ::seg on|off|sliding|greedy\n"); continue; }
                 }
+                printf("[分词 = %s]（AIP_SEG=1 / ::seg sliding 开；greedy 是旧的最长匹配）\n",
+                       a->brain->seg_sliding ? "滑动联想" : "最长匹配");
                 printf("[换切分找帧 = %s]（拆解 %zu 次 / 合并 %zu 次）\n",
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
