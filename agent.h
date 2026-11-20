@@ -10023,9 +10023,71 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         }
     }
     char **words = ai->char_stream ? ai_char_tokenize(ai, input_eff, &n)
-                                   : ai_tokenize(ai, input_eff, &n);
+                                   : (ai->seg_sliding ? ai_tokenize_sliding(ai, input_eff, &n)
+                                                      : ai_tokenize(ai, input_eff, &n));
+    if (getenv("AIP_SEGDBG") && words) {
+        fprintf(stderr, "[tok]");
+        for (size_t i = 0; i < n; ++i) fprintf(stderr, " [%s]", words[i]);
+        fprintf(stderr, "\n");
+    }
     /* §6.375 副词填充（真的/其实/确实/实际上/到底/究竟）：删掉再走后面所有判据 */
     if (words && n > 0) (void)aip_strip_fillers(words, &n);
+    /* §6.967 滑动切分的兜底：图里还没有这个词（比如刚开的新脑）时，滑分会把
+     * 「窗户」拆成字，三词关系解析就失败。这时**换回最长匹配**再解析一次：
+     * 只在这句确实解析不出关系时回退，不是全局开关。 */
+    if (ai->seg_sliding && !ai->char_stream && words && n >= 3) {
+        /* §6.967 冷启动兜底：滑动只认图里的词；图里还没有的词，旧分词器还能用
+         * 内置词表拼出来。**只在这句能拼得更少（更长）时**采用旧切分；
+         * 一旦这些词进了图，滑动会自己命中，就不再回退。 */
+        ai->seg_sliding = 0;
+        size_t gn = 0;
+        char **g = ai_tokenize(ai, input_eff, &gn);
+        ai->seg_sliding = 1;
+        if (g && gn > 0 && gn < n) {
+            ai_free_words(words, n);
+            words = g; n = gn;
+            if (n > 0) (void)aip_strip_fillers(words, &n);
+        } else {
+            ai_free_words(g, gn);
+        }
+        /* 全切成单字 = 图里一个词都没有（新脑/冷启动）：直接换最长匹配试试，
+         * 它还能用上内置词表；这不是“词表依赖”，而是冷启动兜底。 */
+        int any_word = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (words[i] && strlen(words[i]) > cjk_char_len((const unsigned char *)words[i])) { any_word = 1; break; }
+        }
+        if (!any_word) {
+            ai->seg_sliding = 0;
+            size_t gn = 0;
+            char **g = ai_tokenize(ai, input_eff, &gn);
+            ai->seg_sliding = 1;
+            if (g && gn > 0 && gn < n) {
+                ai_free_words(words, n);
+                words = g; n = gn;
+                if (n > 0) (void)aip_strip_fillers(words, &n);
+            } else {
+                ai_free_words(g, gn);
+            }
+        }
+        char fb[64];
+        const char *fa = NULL, *fr = NULL, *fob = NULL;
+        uint8_t frid = 0;
+        int fneg = 0, fq = 0;
+        if (!rel_parse(ai, words, n, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+            ai->seg_sliding = 0;
+            size_t gn = 0;
+            char **g = ai_tokenize(ai, input_eff, &gn);
+            ai->seg_sliding = 1;
+            if (g && gn > 0 &&
+                rel_parse(ai, g, gn, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+                ai_free_words(words, n);
+                words = g; n = gn;
+                if (n > 0) (void)aip_strip_fillers(words, &n);
+            } else {
+                ai_free_words(g, gn);
+            }
+        }
+    }
     /* 第 4 步 · 手法层：先认「这不是字面」，再走学习/答复（命中就不写关系事实/共现） */
     if (words && n > 0) {
         int rhet = agent_rhetoric_step(ai, words, n, out, out_cap);

@@ -1952,8 +1952,8 @@ static inline AI *ai_new(void) {
     ai->assoc_slot_off = 0;         /* 结构化帧默认允许读关联链产物（见 frame.h Gate B） */
     ai->coin_off = 0;               /* 默认允许现场造词（见 frame.h fr_coin） */
     ai->seg_off = 0;                /* 默认允许换切分找帧（见 frame.h fr_generate） */
-    ai->seg_sliding = 0;            /* §6.966 默认仍是旧的最长匹配；::seg sliding on 或 AIP_SEG=1 开 */
-    { const char *g = getenv("AIP_SEG"); if (g && g[0] == '1') ai->seg_sliding = 1; }
+    ai->seg_sliding = 1;            /* §6.967 对话输入默认滑动切分；AIP_SEG=0 回最长匹配（训练/IO 不受影响） */
+    { const char *g = getenv("AIP_SEG"); if (g && g[0] == '0') ai->seg_sliding = 0; }
     ai->verify_writes = 0;          /* §6.248 默认关（反向测量：AIP_VERIFYWRITES=1 或 ::verifywrites on）*/
     { const char *vw = getenv("AIP_VERIFYWRITES"); if (vw && vw[0] == '1') ai->verify_writes = 1; }
     ai->relay_off = 0;              /* 默认允许中转词容错（见 frame.h FR_RELAY） */
@@ -2219,7 +2219,6 @@ static inline char **ai_tokenize_sliding(AI *ai, const char *text, size_t *out_n
 static inline char **ai_tokenize(AI *ai, const char *text, size_t *out_n) {
     *out_n = 0;
     if (!text) return NULL;
-    if (ai && ai->seg_sliding) return ai_tokenize_sliding(ai, text, out_n);
     size_t cap = 16, n = 0;
     char **words = (char **)malloc(cap * sizeof *words);
     if (!words) return NULL;
