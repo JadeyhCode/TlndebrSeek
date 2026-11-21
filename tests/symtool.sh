@@ -52,6 +52,22 @@ echo "== ⑨ 关门后写回退 =="
 o=$(run '::sym write on\n::sym write off\n::sym edge add 戊兽 属于 己兽')
 printf '%s' "$o" | grep -qa '只读模式' && ok "关门后又拒写" || bad "关门没拦住" "$(printf '%s' "$o" | grep -a '符号' | head -3)"
 
+echo "== ⑩ 撤销：加边/删边/改边/删符号 =="
+o=$(run '::sym write on\n::sym edge add 甲 属于 乙\n::sym undo\n::sym links 甲')
+printf '%s' "$o" | grep -qa '加边已回滚' && ok "撤销加边" || bad "撤销加边没生效" "$(printf '%s' "$o" | grep -a '撤销' | head -2)"
+printf '%s' "$o" | grep -qa '出边 0' && ok "撤销后出边 0" || bad "撤销后还有边" "$(printf '%s' "$o" | grep -a '出边' | head -2)"
+o=$(run '::sym write on\n::sym edge add 甲 属于 乙\n::sym edge del 甲 属于 乙\n::sym undo\n::sym links 甲')
+printf '%s' "$o" | grep -qa '删边已加回' && ok "撤销删边" || bad "撤销删边没生效" "$(printf '%s' "$o" | grep -a '撤销' | head -2)"
+o=$(run '::sym write on\n::sym edge add 甲 属于 乙\n::sym edge mod 甲 属于 乙 有\n::sym undo\n::sym links 甲')
+printf '%s' "$o" | grep -qa '改边已还原' && ok "撤销改边" || bad "撤销改边没生效" "$(printf '%s' "$o" | grep -a '撤销' | head -2)"
+printf '%s' "$o" | grep -qa '属于 -> 乙' && ok "改边撤销后回到 属于" || bad "关系没还原" "$(printf '%s' "$o" | grep -a -- '->' | head -2)"
+o=$(run '::sym write on\n::sym add 符号丙\n::sym del 符号丙\n::sym undo\n::sym links 符号丙')
+printf '%s' "$o" | grep -qa '符号删除已回滚' && ok "撤销删符号" || bad "撤销删符号没生效" "$(printf '%s' "$o" | grep -a '撤销' | head -2)"
+
+echo "== ⑪ active 有「最近触碰」 =="
+o=$(run '::sym active 3')
+printf '%s' "$o" | grep -qa '最近触碰' && ok "active 列最近触碰" || bad "active 没有最近触碰" "$(printf '%s' "$o" | grep -a '活跃' | head -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL symtool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS symtool（$pass 过 / 0 红）"

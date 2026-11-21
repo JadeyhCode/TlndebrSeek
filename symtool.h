@@ -64,10 +64,46 @@ static inline void sym_cmd_active(AI *ai, int lim) {
     size_t shown = 0;
     for (size_t i = 0; i < ai->focus_n && (int)shown < lim; ++i) {
         Token *t = ai->focus_ring[i];
-        if (!t || t->is_garbage) continue;
-        printf("  id=%u  %s  权重 %.2f  度 %zu  %s\n", t->id,
-               t->name ? t->name : "?", ai->focus_weight[i], t->count, sym_state(t));
+        if (!t || t->is_garbage || !t->name) continue;
+        printf("  id=%u  %s  权重 %.2f  度 %zu  触碰 %llu  %s\n", t->id,
+               t->name, ai->focus_weight[i], t->count,
+               (unsigned long long)t->last_touch_tick, sym_state(t));
         shown++;
+    }
+    /* §6.989 「当前激活」不能只看焦点环（刚启动是空的）：再按 last_touch_tick 取全池最近触碰 */
+    printf("[最近触碰] 全池按 last_touch_tick 取前 %d（不含上面已列的）：\n", lim);
+    uint32_t best[64];
+    size_t nb = 0;
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage || !t->name || t->last_touch_tick == 0) continue;
+        if (nb < 64) {
+            best[nb++] = t->id;
+        } else {
+            size_t worst = 0;
+            for (size_t k = 1; k < nb; ++k)
+                if (ai->pool->tokens[best[k]]->last_touch_tick < ai->pool->tokens[best[worst]]->last_touch_tick) worst = k;
+            if (t->last_touch_tick > ai->pool->tokens[best[worst]]->last_touch_tick) best[worst] = t->id;
+        }
+    }
+    size_t shown2 = 0;
+    while ((int)shown2 < lim) {
+        size_t bi = 0;
+        int found = 0;
+        for (size_t k = 0; k < nb; ++k) {
+            if (!best[k]) continue;
+            if (!found || ai->pool->tokens[best[k]]->last_touch_tick >
+                          ai->pool->tokens[best[bi]]->last_touch_tick) { bi = k; found = 1; }
+        }
+        if (!found) break;
+        Token *t = ai->pool->tokens[best[bi]];
+        best[bi] = 0;
+        int dup = 0;
+        for (size_t i = 0; i < ai->focus_n; ++i) if (ai->focus_ring[i] == t) { dup = 1; break; }
+        if (dup) continue;
+        printf("  id=%u  %s  度 %zu  触碰 %llu  %s\n", t->id, t->name, t->count,
+               (unsigned long long)t->last_touch_tick, sym_state(t));
+        shown2++;
     }
     printf("[活跃符号] 池子共 %zu 个符号（焦点环 %zu 个）\n",
            ai->pool ? ai->pool->count : 0, ai->focus_n);
@@ -156,6 +192,67 @@ static inline void sym_after_write(AI *ai, const char *what) {
     printf("[符号] 已写入：%s；不变式 %s\n", what, ok ? "干净（最小检查：边目标非空）" : "**有问题**（跑 ::verifywrites / ::whyfor 查）");
 }
 
+/* §6.989 撤销日志（进程内，最多 32 条）：只覆盖**边级操作 + 符号删除**。
+ * rename/merge 搬边不可逆（会打印“不可撤销”），避免半吊子回滚。 */
+#define SYM_UNDO_MAX 32
+typedef struct {
+    int kind;        /* 1=加边 2=删边 3=改边 4=删符号 */
+    Token *a, *b, *sym;
+    uint8_t rid, old_rid;
+    int neg;
+} SymUndo;
+static SymUndo g_sym_undo[SYM_UNDO_MAX];
+static int g_sym_undo_n = 0;
+
+static inline void sym_undo_push(int kind, Token *a, Token *b, uint8_t rid, uint8_t old_rid, int neg, Token *sym) {
+    if (g_sym_undo_n == SYM_UNDO_MAX) {
+        memmove(&g_sym_undo[0], &g_sym_undo[1], sizeof g_sym_undo[0] * (SYM_UNDO_MAX - 1));
+        g_sym_undo_n--;
+    }
+    SymUndo *u = &g_sym_undo[g_sym_undo_n++];
+    u->kind = kind; u->a = a; u->b = b; u->rid = rid; u->old_rid = old_rid; u->neg = neg; u->sym = sym;
+}
+
+static inline int sym_drop_edge(Token *a, Token *b, uint8_t rid) {
+    if (!a || !b) return 0;
+    for (size_t i = 0; i < a->count; ++i) {
+        AssocEntry *e = &token_assocs(a)[i];
+        if (e->main != b) continue;
+        if (rid) {
+            /* 只删关系匹配的那条 */
+            int rneg = 0;
+            uint8_t have = sym_assoc_rid(NULL, e, &rneg);
+            if (have != rid) continue;
+        }
+        token_remove_assoc(a, b);
+        return 1;
+    }
+    return 0;
+}
+
+static inline void sym_cmd_undo(AI *ai, int times) {
+    if (!sym_write_gate()) return;
+    if (times <= 0) times = 1;
+    for (int t = 0; t < times && g_sym_undo_n > 0; ++t) {
+        SymUndo u = g_sym_undo[--g_sym_undo_n];
+        if (u.kind == 1) {                 /* 加边 ⇒ 删掉 */
+            sym_drop_edge(u.a, u.b, u.rid);
+            printf("[撤销] 加边已回滚：%s %s %s\n", u.a->name, rel_name_of(ai, u.rid), u.b->name);
+        } else if (u.kind == 2) {          /* 删边 ⇒ 加回 */
+            ai_write_rel(ai, u.a, u.b, u.rid, u.neg, AI_WSRC_RELATION);
+            printf("[撤销] 删边已加回：%s %s %s\n", u.a->name, rel_name_of(ai, u.rid), u.b->name);
+        } else if (u.kind == 3) {          /* 改边 ⇒ 删新的、加旧的 */
+            sym_drop_edge(u.a, u.b, u.rid);
+            ai_write_rel(ai, u.a, u.b, u.old_rid, 0, AI_WSRC_RELATION);
+            printf("[撤销] 改边已还原：%s %s %s\n", u.a->name, rel_name_of(ai, u.old_rid), u.b->name);
+        } else if (u.kind == 4) {          /* 删符号 ⇒ 清垃圾 */
+            if (u.sym) { u.sym->is_garbage = 0; u.sym->mem_state = MEM_ACTIVE; }
+            printf("[撤销] 符号删除已回滚：%s\n", u.sym && u.sym->name ? u.sym->name : "?");
+        }
+        if (ai->n_rel_learned > 0) ai->n_rel_learned--;
+    }
+    printf("[撤销] 剩余可撤销 %d 条\n", g_sym_undo_n);
+}
 /* 主入口：::sym <子命令…> */
 static inline void sym_cmd(AI *ai, const char *arg) {
     if (!ai || !ai->pool) { printf("[符号] 没有图\n"); return; }
@@ -175,6 +272,11 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         char *name = strtok_r(NULL, " \t", &save);
         if (!name) { printf("[用法] ::sym links <名字>\n"); return; }
         sym_cmd_links(ai, name);
+        return;
+    }
+    if (!strcmp(sub, "undo")) {
+        char *n = strtok_r(NULL, " \t", &save);
+        sym_cmd_undo(ai, n ? atoi(n) : 1);
         return;
     }
     if (!strcmp(sub, "write")) {
@@ -201,6 +303,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         Token *t = sym_find(ai, name);
         if (!t) { printf("[符号] 图里没有「%s」\n", name); return; }
         t->is_garbage = 1;
+        sym_undo_push(4, NULL, NULL, 0, 0, 0, t);
         sym_after_write(ai, "符号标垃圾（不物理删；GC/存盘会收）");
         return;
     }
@@ -236,6 +339,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         if (!strcmp(op, "add")) {
             if (ai_write_rel(ai, A, B, rid, 0, AI_WSRC_RELATION) != 0) { printf("[符号] 写不进\n"); return; }
             agent_teach_mark(ai, A, rid, B, 0);
+            sym_undo_push(1, A, B, rid, 0, 0, NULL);
             char what[160];
             snprintf(what, sizeof what, "%s %s %s", a, rel_name_of(ai, rid), b);
             sym_after_write(ai, what);
@@ -248,7 +352,10 @@ static inline void sym_cmd(AI *ai, const char *arg) {
                 if (e->main != B) continue;
                 int neg = 0;
                 if (sym_assoc_rid(ai, e, &neg) != rid) continue;
+                int rneg = 0;
+                (void)sym_assoc_rid(NULL, e, &rneg);
                 token_remove_assoc(A, B);
+                sym_undo_push(2, A, B, rid, 0, rneg, NULL);
                 removed = 1;
                 break;
             }
@@ -267,6 +374,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
                 int neg = 0;
                 if (sym_assoc_rid(ai, e, &neg) != rid) continue;
                 token_remove_assoc(A, B);
+                sym_undo_push(3, A, B, nrid, rid, 0, NULL);
                 break;
             }
             if (ai_write_rel(ai, A, B, nrid, 0, AI_WSRC_RELATION) != 0) { printf("[符号] 新关系写不进\n"); return; }
