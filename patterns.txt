@@ -1218,3 +1218,8 @@
 [syn] jump=跳
 # ---- 英文关系符号 → 核心关系（一行一条；**关系身份是数据**，english.h 只留语法变形）----
 [alias] en=can=会,is=属于,are=属于,eat=吃,eats=吃,have=有,has=有,like=喜欢,likes=喜欢,need=需要,needs=需要,fear=怕,fears=怕
+
+# §6.975 语法归一用的**词类**（只做词形层，不参与语义）
+[class] num=一,二,三,四,五,六,七,八,九,十,两,几,半
+[class] quant=只,个,条,张,头,匹,本,杯,碗,棵,朵,座,辆,架,台,件,把,位,名
+[class] defword=一种,一类,一款

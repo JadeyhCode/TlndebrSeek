@@ -25,6 +25,12 @@ o=$(run '谁 属于 动物')
 printf '%s' "$o" | grep -qa '猫' && ok "列举有猫" || bad "没有成员" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
 printf '%s' "$o" | grep -qa '只列前几个' && ok "截断有提示" || bad "没有截断提示" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
 
+echo "== ④ 语法归一：量词短语 / 「的 一种」问法 =="
+o=$(run '三只 猫 属于 动物 吗')
+printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "量词短语剥掉后照答" || bad "量词没归一等" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+o=$(run '猫 是 动物 的 一种 吗')
+printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "定义问法归一到属于" || bad "定义问法没归一" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL longtext（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS longtext（$pass 过 / 0 红）"

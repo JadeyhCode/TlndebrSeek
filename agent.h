@@ -826,6 +826,24 @@ static inline int aip_bucket_idx(const char *kind) {
     return -1;
 }
 
+/* §6.975 词类表查询：`[class] 名=词,词,…`（返回 1 = 命中） */
+static inline int aip_class_has(const char *cls, const char *word) {
+    if (!cls || !word || !*word) return 0;
+    for (size_t i = 0; i < g_class_n; ++i) {
+        if (strcmp(g_class_name[i], cls) != 0) continue;
+        const char *p = g_class_words[i];
+        size_t wl = strlen(word);
+        while (*p) {
+            while (*p == ' ' || *p == ',') p++;
+            const char *q = p;
+            while (*q && *q != ',') q++;
+            if ((size_t)(q - p) == wl && !strncmp(p, word, wl)) return 1;
+            p = q;
+        }
+    }
+    return 0;
+}
+
 static inline AipPat *aip_pat_bucket(const char *kind, size_t *n) {
     if (!strcmp(kind, "lead"))    return g_lead;
     if (!strcmp(kind, "slot"))    return g_slot;
@@ -2340,6 +2358,33 @@ static inline size_t agent_list_items(char *buf, size_t cap, size_t o, Token *co
         o += (size_t)snprintf(buf + o, cap - o, "%s", tail);
     }
     return o;
+}
+
+/* §6.975 词形归一：量词短语 + 定义句问法（不改语义，只把问法换成关系层认得的形状）
+ *   ① `三只 猫 属于 动物 吗` ⇒ 去掉数量词（只数/量词都在 [class] 数据里）；
+ *   ② `猫 是 动物 的 一种 吗` ⇒ `猫 是 动物 吗`（去掉「的 + 一种」，defword 来自数据）。
+ * 返回 1 = 改过（words/n 原地更新）。 */
+static inline int agent_norm_quant_def(char **words, size_t *pn) {
+    size_t n = *pn;
+    if (!words || n < 3) return 0;
+    /* ① 数词 + 量词 + 名词：至少还剩 3 个词才有意义 */
+    if (n >= 5 && aip_class_has("num", words[0]) && aip_class_has("quant", words[1])) {
+        for (size_t i = 2; i + 1 < n; ++i) words[i - 2] = words[i];
+        n -= 2;
+        *pn = n;
+        return 1;
+    }
+    /* ② … 的 <defword> 吗 */
+    if (n >= 5 && words[n - 1] && (!strcmp(words[n - 1], "吗") || !strcmp(words[n - 1], "呢")) &&
+        words[n - 2] && aip_class_has("defword", words[n - 2]) &&
+        words[n - 3] && !strcmp(words[n - 3], "的")) {
+        words[n - 3] = words[n - 2];
+        words[n - 2] = words[n - 1];
+        n -= 1;
+        *pn = n;
+        return 1;
+    }
+    return 0;
 }
 
 static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, float *out_conf) {
@@ -9865,16 +9910,56 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
      * 用栈上的缓冲拼，不动 `input`（历史记录仍记用户原话）。 */
     char decl_in[256];
     const char *input_eff = input;
-    /* §6.639 **语言包**：装了外语包 ⇒ 先把输入逐词翻译 + 按词序重排，再走中文流水线。
-     * 翻不出一个词就原样走中文（不硬翻、不猜）。 */
-    char lang_buf[512];
-    if (g_lang_n && lang_translate(input, lang_buf, sizeof lang_buf)) input_eff = lang_buf;
-    g_input_corrected = 0;
-    /* §6.589 用户最自然的更正说法：「不 对 ， 猫 属于 猫科」/「错了，…」。
-     * 以前整句进流水线：首句「不 对」只有 2 个词，`agent_learn_multi` 见短句直接 return NULL
-     * （宁可整句不学）⇒ 后面那句白说（实测回「这个我 不 太 懂」，知识也没进图）。
-     * 这里**只剥掉更正记号**、留下后面的陈述句照常学；记号本身的语义由"后说的观测盖过先说的"承担。
-     * 只在**后面还有内容**时剥（`不 对` 单独一句仍走原来的"改口"路）。 */
+    /* §6.975b 词形归一（字符串级）：量词短语 / 「的 一种」问法 ⇒ 先改写，后面所有路径都受益 */
+    {
+        char sp[512];
+        size_t so = 0;
+        for (const char *q = input_eff; q && *q && so + 1 < sizeof sp; ++q)
+            if (*q != ' ' && *q != '\t') sp[so++] = *q;
+        sp[so] = 0;
+        char nb[512];
+        int changed = 0;
+        const char *s = sp;
+        size_t l1 = s[0] ? aip_u8len(s) : 0;
+        size_t l2 = (l1 && s[l1]) ? aip_u8len(s + l1) : 0;
+        if (l1 && l2 && l1 < 8 && l2 < 8) {
+            char n1[8] = {0}, q1[8] = {0};
+            memcpy(n1, s, l1); memcpy(q1, s + l1, l2);
+            if (aip_class_has("num", n1) && aip_class_has("quant", q1)) {
+                s += l1 + l2;
+                changed = 1;
+            }
+        }
+        size_t sl = strlen(s);
+        if (sl >= 12 && (!strcmp(s + sl - 3, "吗") || !strcmp(s + sl - 3, "呢"))) {
+            size_t cut = sl - 3;
+            for (size_t i = 0; i < g_class_n; ++i) {
+                if (strcmp(g_class_name[i], "defword") != 0) continue;
+                const char *p = g_class_words[i];
+                int hit = 0;
+                while (*p) {
+                    while (*p == ' ' || *p == ',') p++;
+                    const char *e = p; while (*e && *e != ',') e++;
+                    size_t wl = (size_t)(e - p);
+                    if (wl && cut >= wl + 3 && !strncmp(s + cut - wl, p, wl) &&
+                        !strncmp(s + cut - wl - 3, "的", 3)) {
+                        size_t pre = cut - wl - 3;
+                        memcpy(nb, s, pre);
+                        memcpy(nb + pre, s + cut, 3);
+                        nb[pre + 3] = 0;
+                        s = nb; changed = 1; hit = 1;
+                        break;
+                    }
+                    p = e;
+                }
+                if (hit) break;
+            }
+        }
+        if (changed && s[0]) {
+            input_eff = s;
+            if (getenv("AIP_SEGDBG")) fprintf(stderr, "[qnorm] => %s\n", s);
+        }
+    }
     if (input_eff) {
         static const char *corr_pre[] = {
             "不 对 ，", "不对，", "不 对", "不对",
@@ -10183,6 +10268,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     }
     /* §6.375 副词填充（真的/其实/确实/实际上/到底/究竟）：删掉再走后面所有判据 */
     if (words && n > 0) (void)aip_strip_fillers(words, &n);
+    if (words && n > 0) (void)agent_norm_quant_def(words, &n);
     /* §6.967 滑动切分的兜底：图里还没有这个词（比如刚开的新脑）时，滑分会把
      * 「窗户」拆成字，三词关系解析就失败。这时**换回最长匹配**再解析一次：
      * 只在这句确实解析不出关系时回退，不是全局开关。 */
