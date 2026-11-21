@@ -814,7 +814,7 @@ static inline int aip_verd_hit(int gi, const char *s) {
 /* §6.393 **词类**（`[class] 名=词,词,…`）：答复行的关键词可以用 `@名` 引用一整类词，
  * 这样"往类里加一个同义词"不用改答复行 —— 这是"加新说法只改数据"的下一步。
  * 匹配语义：`@名` 命中 = 类里**任意一个词**出现在输入里（子串，和 `组内 a|b` 一致）。*/
-#define AIP_CLASS_MAX 32
+#define AIP_CLASS_MAX 48
 #define AIP_CLASS_NAME_LEN 32
 #define AIP_CLASS_WORDS_LEN 256
 static char g_class_name[AIP_CLASS_MAX][AIP_CLASS_NAME_LEN];

@@ -119,6 +119,21 @@ int main(void) {
         remove("_paperprobe.bin");
     }
 
+    printf("== §6.986 并列句拆分（数据连词 conjword） ==\n");
+    {
+        const char *t1 = "猫 和 狗 都 属于 动物。";
+        PaperClaim cs[8];
+        size_t n1 = paper_extract(a, t1, cs, 8);
+        ok(n1 == 2, "「猫 和 狗 都 属于 动物」⇒ 2 条");
+        ok(n1 == 2 && !strcmp(cs[0].a, "猫") && !strcmp(cs[0].r, "属于") &&
+           !strcmp(cs[0].b, "动物"), "第一条是 猫 属于 动物");
+        ok(n1 == 2 && !strcmp(cs[1].a, "狗"), "第二条主语是 狗");
+        const char *t2 = "牛 吃 草 和 树叶。";
+        size_t n2 = paper_extract(a, t2, cs, 8);
+        ok(n2 == 2, "「牛 吃 草 和 树叶」⇒ 2 条");
+        ok(n2 == 2 && !strcmp(cs[0].b, "草") && !strcmp(cs[1].b, "树叶"), "宾语侧拆成 草 / 树叶");
+    }
+
     ai_free(a);
     printf("\n通过 %d / 失败 %d\n", passes, fails);
     return fails ? 1 : 0;

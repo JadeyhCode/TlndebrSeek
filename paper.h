@@ -554,6 +554,72 @@ static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, const 
 }
 
 /* 扫一段文本：按句号/问号/换行切句，逐句抽断言。返回抽到的条数（<= cap）。 */
+/* §6.986 并列句拆分：`猫 和 狗 都 属于 动物` ⇒ 两条；`牛 吃 草 和 树叶` ⇒ 两条。
+ * 连词来自数据 `[class] conjword`；只在**单句抽取失败**后试，不抢正常路径。 */
+static inline size_t paper_conj_claims(AI *ai, const char *cl, PaperClaim *out, size_t cap) {
+    if (!ai || !cl || !out || cap == 0) return 0;
+    size_t n = 0;
+    char **w = ai_tokenize(ai, cl, &n);
+    if (!w || n < 4) { ai_free_words(w, n); return 0; }
+    size_t ri = (size_t)-1, ci = (size_t)-1;
+    for (size_t i = 1; i + 1 < n; ++i) {
+        if (ri == (size_t)-1 && rel_id_of(ai, w[i], 0)) ri = i;
+        else if (ci == (size_t)-1 && aip_class_has("conjword", w[i])) ci = i;
+    }
+    if (ri == (size_t)-1 || ci == (size_t)-1 || ci == ri || ci + 1 >= n) { ai_free_words(w, n); return 0; }
+    char parts[2][64] = {{0}}, fixed[160] = {0};
+    size_t np = 0;
+    if (ci < ri) {
+        /* 主语侧：连词前是一部分，连词后到关系词前是另一部分；固定部分是关系词之后 */
+        for (size_t i = 0; i < ci; ++i) {
+            if (!strcmp(w[i], "都") || !strcmp(w[i], "也")) continue;
+            if (parts[0][0]) strncat(parts[0], " ", sizeof parts[0] - strlen(parts[0]) - 1);
+            strncat(parts[0], w[i], sizeof parts[0] - strlen(parts[0]) - 1);
+        }
+        for (size_t i = ci + 1; i < ri; ++i) {
+            if (!strcmp(w[i], "都") || !strcmp(w[i], "也")) continue;
+            if (parts[1][0]) strncat(parts[1], " ", sizeof parts[1] - strlen(parts[1]) - 1);
+            strncat(parts[1], w[i], sizeof parts[1] - strlen(parts[1]) - 1);
+        }
+        for (size_t i = ri; i < n; ++i) {
+            if (fixed[0]) strncat(fixed, " ", sizeof fixed - strlen(fixed) - 1);
+            strncat(fixed, w[i], sizeof fixed - strlen(fixed) - 1);
+        }
+        np = 2;
+    } else {
+        /* 宾语侧：关系词前是固定部分，关系词后按连词拆两段 */
+        for (size_t i = 0; i <= ri; ++i) {
+            if (fixed[0]) strncat(fixed, " ", sizeof fixed - strlen(fixed) - 1);
+            strncat(fixed, w[i], sizeof fixed - strlen(fixed) - 1);
+        }
+        for (size_t i = ri + 1; i < ci; ++i) {
+            if (parts[0][0]) strncat(parts[0], " ", sizeof parts[0] - strlen(parts[0]) - 1);
+            strncat(parts[0], w[i], sizeof parts[0] - strlen(parts[0]) - 1);
+        }
+        for (size_t i = ci + 1; i < n; ++i) {
+            if (parts[1][0]) strncat(parts[1], " ", sizeof parts[1] - strlen(parts[1]) - 1);
+            strncat(parts[1], w[i], sizeof parts[1] - strlen(parts[1]) - 1);
+        }
+        np = 2;
+    }
+    size_t got = 0;
+    for (size_t k = 0; k < np && k < 2; ++k) {
+        if (!parts[k][0]) continue;
+        char s[256];
+        if (ci < ri) snprintf(s, sizeof s, "%s %s", parts[k], fixed);
+        else         snprintf(s, sizeof s, "%s %s", fixed, parts[k]);
+        PaperClaim cc;
+        if (paper_sentence_claim(ai, s, strlen(s), NULL, &cc)) {
+            int dup = 0;
+            for (size_t i = 0; i < got; ++i)
+                if (!strcmp(out[i].a, cc.a) && !strcmp(out[i].r, cc.r) && !strcmp(out[i].b, cc.b)) { dup = 1; break; }
+            if (!dup && got < cap) out[got++] = cc;
+        }
+    }
+    ai_free_words(w, n);
+    return got;
+}
+
 /* §6.980 长句：逗号/分号/顿号也当**分句符**；句内出现「它/他/她…」时指代上一分句的主语。
  * 以前整句只按 。！？ 切，复合长句一条都抽不到（实测 3 句 0 条）。 */
 static inline int paper_pronoun(const char *a) {
@@ -652,8 +718,19 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
         char cl[256];
         paper_prep_clause(ai, st, len, cl, sizeof cl, prev_subj);
         if (getenv("AIP_PAPERDBG")) fprintf(stderr, "[paper] cl=%.60s prev=%.20s\n", cl, prev_subj);
-        if (strlen(cl) >= 5 && strlen(cl) <= 200 &&
-            paper_sentence_claim(ai, cl, strlen(cl), prev_subj, &c)) {
+        int got_claim = (strlen(cl) >= 5 && strlen(cl) <= 200 &&
+                         paper_sentence_claim(ai, cl, strlen(cl), prev_subj, &c));
+        if (!got_claim) {
+            PaperClaim cc[4];
+            size_t nc = paper_conj_claims(ai, cl, cc, 4);
+            for (size_t q = 0; q < nc; ++q) {
+                int dup2 = 0;
+                for (size_t i = 0; i < got; ++i)
+                    if (!strcmp(out[i].a, cc[q].a) && !strcmp(out[i].r, cc[q].r) && !strcmp(out[i].b, cc[q].b)) { dup2 = 1; break; }
+                if (!dup2 && got < cap) { out[got++] = cc[q]; c = cc[q]; got_claim = 1; }
+            }
+        }
+        if (got_claim) {
             /* 指代：主语是「它/他…」⇒ 换成上一分句的主语 */
             if (paper_pronoun(c.a) && prev_subj[0]) snprintf(c.a, sizeof c.a, "%s", prev_subj);
             int dup = 0;
