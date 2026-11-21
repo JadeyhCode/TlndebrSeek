@@ -9847,7 +9847,8 @@ static inline size_t agent_repair_rel_typo(AI *ai, char **words, size_t n) {
             const char *rn = AI_RELS[k].name;
             size_t rl = strlen(rn);
             if (rl != 6 || strlen(pair) != 6) continue;
-            if (strncmp(pair, rn, 3) != 0 && strncmp(pair + 3, rn + 3, 3) != 0) continue;
+            /* 只认**首字相同**（属鱼/属干/属与）；只共享末字的（关+于⇒属于）是误纠，放过 */
+            if (strncmp(pair, rn, 3) != 0) continue;
             char *nn = (char *)malloc(rl + 1);
             if (!nn) return n;
             memcpy(nn, rn, rl + 1);
@@ -11224,6 +11225,43 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                 if (!ai->last_der.has_claim)
                     der_source(&ai->last_der, "不确定（关系已知但没有记录）");
             } else {
+            /* §6.984 澄清优先于干巴巴拒答：主/宾都认识、中间关系词不认识 ⇒ 反问是哪一种关系。
+             * 只认窄形状（问题尾 吗/呢、≤6 个词），不猜关系本身。 */
+            int clarified = 0;
+            const char *nodata = getenv("AIP_NODATA");
+            int shape_ablate = (nodata && strstr(nodata, "shape")) ? 1 : 0;
+            if (ai->rel_nat && !shape_ablate && words && n >= 4 && n <= 6 && words[n - 1] &&
+                (!strcmp(words[n - 1], "吗") || !strcmp(words[n - 1], "呢"))) {
+                Token *ca = pool_find(ai->pool, words[0]);
+                Token *cb = pool_find(ai->pool, words[n - 2]);
+                int unknown_rel = 0, has_known_rel = 0;
+                for (size_t i = 1; i + 2 < n; ++i) {
+                    if (!words[i]) continue;
+                    if (rel_id_of(ai, words[i], 0) != 0) has_known_rel = 1;
+                    else unknown_rel = 1;
+                }
+                /* 中间已经有认识的关系词 ⇒ 失败不是“关系词不认识”，别澄清（防多字主语被拆时误触）*/
+                if (has_known_rel) unknown_rel = 0;
+                if (ca && cb && ca != cb && unknown_rel) {
+                    const char *t = ai_say_tpl("澄清.关系");
+                    const char *const a2[2] = { words[0], words[n - 2] };
+                    char cl[320];
+                    der_filln(cl, sizeof cl,
+                              t ? t : "你 是 想 问 「$1 和 $2 的 什么 关系」 吗 ？",
+                              a2, 2);
+                    resp = (char *)malloc(strlen(cl) + 1);
+                    if (resp) { memcpy(resp, cl, strlen(cl) + 1); clarified = 1; }
+                    if (clarified) {
+                        g_last_src = AI_SRC_FALLBACK;
+                        conf = 0.25f;
+                        cot_push(ai, COT_ADMIT, 0, 25, "听不准关系词：先反问澄清",
+                                 "主宾都认识，关系词不在关系表");
+                        ai->n_cot++;
+                        if (!ai->last_der.has_claim) der_source(&ai->last_der, "澄清（关系词不认识）");
+                    }
+                }
+            }
+            if (!clarified) {
             /* §6.537 说法池来自数据（`[refuse]`）；池空（消融）时退一句最小的诚实说法 */
             size_t nref = ai_refuse_count();
             const char *rf = nref ? ai_refuse_at(ai->n_refusals++) : "我 不 知道";
@@ -11240,6 +11278,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                 ai->n_cot++;
                 if (!ai->last_der.has_claim)
                     der_source(&ai->last_der, "拒答（覆盖率与词命中比都不够）");
+            }
             }
             }
         } else {
