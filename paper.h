@@ -431,8 +431,9 @@ static inline void paper_rewrite_yiwei(AI *ai, const char *in, char *out, size_t
 
 /* 从句子 [s, s+len) 里抽一条断言：**段数 3–6**、中间择一个关系词、两边各拼成主语/宾语（各 ≤2 段）。
  * 判据全在 `paper_segments` 的结果上做（切分与抽取分开，便于单测）。 */
-static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, PaperClaim *out) {
+static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, const char *prev_subj, PaperClaim *out) {
     if (!ai || !s || len == 0 || !out) return 0;
+    (void)prev_subj;   /* 指代在 paper_extract 里按分句替换（这里只负责单句抽取） */
     /* §6.757 先把句子里的"说法"换成规范词（分词器不认识 栖息于/依赖 这类词，实测抽不到） */
     char norm[512];
     if (len < sizeof norm) {
@@ -518,7 +519,12 @@ static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, PaperC
     int ri = -1;
     for (int i = (int)sn - 2; i >= 1; --i) {
         if (!rel_id_of(ai, paper_canon_rel_ai(ai, seg[i]), 0)) continue;
-        if ((size_t)i <= 2 && (sn - (size_t)i - 1) <= 2) { ri = i; break; }
+        size_t rlen = sn - (size_t)i - 1;
+        int ok_right = (rlen <= 2);
+        if (!ok_right && rlen <= 4 && (size_t)i + 2 < sn &&
+            aip_class_has("num", seg[i + 1]) && aip_class_has("quant", seg[i + 2]))
+            ok_right = 1;                      /* §6.980c 数量短语宾语 */
+        if ((size_t)i <= 2 && ok_right) { ri = i; break; }
     }
     if (ri < 1) return 0;
     char a[64] = {0}, b[64] = {0};
@@ -528,7 +534,12 @@ static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, PaperC
         if (ao + l + 1 >= sizeof a) return 0;
         memcpy(a + ao, seg[i], l); ao += l;
     }
-    for (size_t i = (size_t)ri + 1; i < sn; ++i) {
+    size_t bstart = (size_t)ri + 1;
+    /* §6.980c 数量短语宾语：`牛 有 四 条 腿` ⇒ 宾语从「腿」开始（去掉数词+量词） */
+    if (sn - bstart > 2 && bstart + 1 < sn &&
+        aip_class_has("num", seg[bstart]) && aip_class_has("quant", seg[bstart + 1]))
+        bstart += 2;
+    for (size_t i = bstart; i < sn; ++i) {
         size_t l = strlen(seg[i]);
         if (bo + l + 1 >= sizeof b) return 0;
         memcpy(b + bo, seg[i], l); bo += l;
@@ -543,24 +554,94 @@ static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, PaperC
 }
 
 /* 扫一段文本：按句号/问号/换行切句，逐句抽断言。返回抽到的条数（<= cap）。 */
+/* §6.980 长句：逗号/分号/顿号也当**分句符**；句内出现「它/他/她…」时指代上一分句的主语。
+ * 以前整句只按 。！？ 切，复合长句一条都抽不到（实测 3 句 0 条）。 */
+static inline int paper_pronoun(const char *a) {
+    static const char *pro[] = { "它们", "他们", "她们", "它", "他", "她", "这", "那", "其", NULL };
+    if (!a || !a[0]) return 0;
+    for (size_t i = 0; pro[i]; ++i) {
+        size_t l = strlen(pro[i]);
+        if (!strncmp(a, pro[i], l) && (a[l] == 0 || a[l] == ' ' || a[l] == '\t')) return 1;
+    }
+    return 0;
+}
+
+/* §6.980b 分句预处理：去句首连词；指代换主语；承前省略（动词开头）补上一分句主语。 */
+static inline void paper_prep_clause(AI *ai, const char *raw, size_t len, char *out, size_t cap,
+                                     const char *prev_subj) {
+    char t[256];
+    if (len >= sizeof t) len = sizeof t - 1;
+    memcpy(t, raw, len); t[len] = 0;
+    const char *s = t;
+    static const char *conj[] = { "而且", "并且", "但是", "所以", "因此", "同时", "另外",
+                                  "其中", "然后", "也", "还", "又", "但", "并", "而", NULL };
+    for (int round = 0; round < 3; ++round) {
+        while (*s == ' ' || *s == '\t') s++;
+        int cut = 0;
+        for (size_t i = 0; conj[i]; ++i) {
+            size_t l = strlen(conj[i]);
+            if (!strncmp(s, conj[i], l)) { s += l; cut = 1; break; }
+        }
+        if (!cut) break;
+    }
+    while (*s == ' ' || *s == '\t') s++;
+    /* 指代主语：它/他/她… ⇒ 上一分句主语 */
+    if (paper_pronoun(s) && prev_subj && prev_subj[0]) {
+        /* 去掉代词这几个字节，再拼上一主语 */
+        size_t pl = 0;
+        static const char *pro[] = { "它们", "他们", "她们", "它", "他", "她", NULL };
+        for (size_t i = 0; pro[i]; ++i) if (!strncmp(s, pro[i], strlen(pro[i]))) { pl = strlen(pro[i]); break; }
+        size_t o = 0;
+        const char *q = prev_subj;
+        while (*q && o + 1 < cap) out[o++] = *q++;
+        q = s + pl;
+        while (*q && o + 1 < cap) out[o++] = *q++;
+        out[o] = 0;
+        return;
+    }
+    /* 承前省略：动词开头 ⇒ 补主语 */
+    if (prev_subj && prev_subj[0]) {
+        size_t wn = 0;
+        char **w = ai_tokenize(ai, s, &wn);
+        if (w && wn > 0 && rel_id_of(ai, w[0], 0) != 0) {
+            size_t o = 0;
+            const char *q = prev_subj;
+            while (*q && o + 1 < cap) out[o++] = *q++;
+            if (o + 1 < cap) out[o++] = ' ';
+            q = s;
+            while (*q && o + 1 < cap) out[o++] = *q++;
+            out[o] = 0;
+        } else {
+            size_t o = 0;
+            while (*s && o + 1 < cap) out[o++] = *s++;
+            out[o] = 0;
+        }
+        ai_free_words(w, wn);
+        return;
+    }
+    snprintf(out, cap, "%s", s);
+}
+
 static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, size_t cap) {
     if (!ai || !text || !out || cap == 0) return 0;
     size_t got = 0;
+    char prev_subj[40] = {0};
     const char *p = text;
     while (*p && got < cap) {
         const char *st = p;
-        /* 分句符：ASCII `! ? \n` + UTF-8 的 `。！？`（E3 80 82 / EF BC 81 / EF BC 9F） */
+        /* 分句符：ASCII `! ? , ; \n` + UTF-8 的 `。！？，；、` */
         while (*p) {
             unsigned char c = (unsigned char)*p;
-            if (c == '\n' || c == '!' || c == '?') break;
-            if (c == 0xE3 && (unsigned char)p[1] == 0x80 && (unsigned char)p[2] == 0x82) break;
+            if (c == '\n' || c == '!' || c == '?' || c == ',' || c == ';') break;
+            if (c == 0xE3 && (unsigned char)p[1] == 0x80 &&
+                ((unsigned char)p[2] == 0x82 || (unsigned char)p[2] == 0x81)) break;
             if (c == 0xEF && (unsigned char)p[1] == 0xBC &&
-                ((unsigned char)p[2] == 0x81 || (unsigned char)p[2] == 0x9F)) break;
+                ((unsigned char)p[2] == 0x81 || (unsigned char)p[2] == 0x9F ||
+                 (unsigned char)p[2] == 0x8C || (unsigned char)p[2] == 0x9B)) break;
             p++;
         }
         size_t len = (size_t)(p - st);
-        /* 跳过分句符：中文标点是**三字节**，只 `p++` 会留下两个残字节，
-         * 下一句开头就会多出 `??` 前缀（实测：`企鹅|会|游泳` 变成 `��企鹅|会|游泳`）。 */
+        /* 跳过分句符：中文标点可能是三字节 */
         if (*p) {
             unsigned char c = (unsigned char)*p;
             if (c == 0xE3 && (unsigned char)p[1] == 0x80) p += 3;
@@ -568,14 +649,22 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
             else p += 1;
         }
         PaperClaim c;
-        if (len >= 5 && len <= 200 && paper_sentence_claim(ai, st, len, &c)) {
-            /* 去重（同一句里只保留一次） */
+        char cl[256];
+        paper_prep_clause(ai, st, len, cl, sizeof cl, prev_subj);
+        if (getenv("AIP_PAPERDBG")) fprintf(stderr, "[paper] cl=%.60s prev=%.20s\n", cl, prev_subj);
+        if (strlen(cl) >= 5 && strlen(cl) <= 200 &&
+            paper_sentence_claim(ai, cl, strlen(cl), prev_subj, &c)) {
+            /* 指代：主语是「它/他…」⇒ 换成上一分句的主语 */
+            if (paper_pronoun(c.a) && prev_subj[0]) snprintf(c.a, sizeof c.a, "%s", prev_subj);
             int dup = 0;
             for (size_t i = 0; i < got; ++i)
                 if (!strcmp(out[i].a, c.a) && !strcmp(out[i].r, c.r) && !strcmp(out[i].b, c.b)) {
                     dup = 1; break;
                 }
-            if (!dup) out[got++] = c;
+            if (!dup) {
+                out[got++] = c;
+                if (!paper_pronoun(c.a)) snprintf(prev_subj, sizeof prev_subj, "%s", c.a);
+            }
         }
     }
     return got;

@@ -47,26 +47,26 @@ int main(void) {
         ok(paper_segments(t, strlen(t), seg, 8) == 4, "paper_segments：4 段（切分单独成函数）");
         ok(!strcmp(seg[2], "在") && !strcmp(seg[3], "南极"), "段内容对（第 3/4 段）");
         PaperClaim c;
-        ok(paper_sentence_claim(a, t, strlen(t), &c) == 1, "**四段句**也抽得出来（§6.651 放宽）");
+        ok(paper_sentence_claim(a, t, strlen(t), NULL, &c) == 1, "**四段句**也抽得出来（§6.651 放宽）");
         ok(!strcmp(c.a, "企鹅住") && !strcmp(c.r, "在") && !strcmp(c.b, "南极"),
            "四段句拼成 企鹅住|在|南极");
         const char *bad = "南极 的 企鹅 属于 鸟类";
-        ok(paper_sentence_claim(a, bad, strlen(bad), &c) == 0, "主语里有虚词（的）⇒ 不抽");
+        ok(paper_sentence_claim(a, bad, strlen(bad), NULL, &c) == 0, "主语里有虚词（的）⇒ 不抽");
         const char *longer = "企鹅 属于 鸟类 而且 会 游泳";
-        ok(paper_sentence_claim(a, longer, strlen(longer), &c) == 0, "主/宾超过 2 段 ⇒ 不抽");
+        ok(paper_sentence_claim(a, longer, strlen(longer), NULL, &c) == 0, "主/宾超过 2 段 ⇒ 不抽");
     }
     /* §6.674 **没有空格的句子**（真论文形状）：分词后按关系词拼回主/宾 */
     {
         PaperClaim c2;
         const char *ns = "企鹅属于鸟类";
-        ok(paper_sentence_claim(a, ns, strlen(ns), &c2) == 1, "无空格句也能抽（企鹅属于鸟类）");
+        ok(paper_sentence_claim(a, ns, strlen(ns), NULL, &c2) == 1, "无空格句也能抽（企鹅属于鸟类）");
         ok(!strcmp(c2.a, "企鹅") && !strcmp(c2.r, "属于") && !strcmp(c2.b, "鸟类"),
            "无空格句拼成 企鹅|属于|鸟类");
         const char *ns2 = "猫属于动物，狗属于宠物";
-        ok(paper_sentence_claim(a, ns2, strlen(ns2), &c2) == 1 && !strcmp(c2.b, "动物"),
+        ok(paper_sentence_claim(a, ns2, strlen(ns2), NULL, &c2) == 1 && !strcmp(c2.b, "动物"),
            "复合句只取**第一段**（猫属于动物）");
         const char *ns3 = "今天天气很好没有关系词";
-        ok(paper_sentence_claim(a, ns3, strlen(ns3), &c2) == 0, "没有关系词 ⇒ 不抽");
+        ok(paper_sentence_claim(a, ns3, strlen(ns3), NULL, &c2) == 0, "没有关系词 ⇒ 不抽");
     }
     /* 全部进待证，且**不写事实边** */
     size_t made = paper_to_claims(a, cs, n);
