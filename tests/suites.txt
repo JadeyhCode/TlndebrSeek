@@ -203,6 +203,7 @@ sseg|sh tests/sseg.sh
 reseg|sh tests/reseg.sh
 leadwords|sh tests/leadwords.sh
 longtext|sh tests/longtext.sh
+kbcats|sh tests/kbcats.sh
 familysplit|sh tests/familysplit.sh
 matrixfile|sh tests/matrixfile.sh
 shardindex|sh tests/shardindex.sh
