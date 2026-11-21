@@ -274,16 +274,17 @@ echo "== ⑪ agent_step 的早退都走 agent_say（§6.404）=="
 #   §6.636 新增"待证（`听说 …`）在 reply 桶之前先接"的早退出口 ⇒ 14；
 #   §6.668 新增"谓词实例出处（`你 怎么 知道 祖先(甲,乙)`，原始串里认括号）"的早退出口 ⇒ 15；
 #   第 4 步 手法层（教学/命中都不走字面学习）在 agent_step 里加了一个早退出口 ⇒ 16；
-#   第 5 步 格式层（教/取消格式直接答复）在 agent_step 里再加一个早退出口 ⇒ 17）
+#   第 5 步 格式层（教/取消格式直接答复）在 agent_step 里再加一个早退出口 ⇒ 17；
+#   §6.970b 显式教属性句（`我教你，南极 很 冷`）真进图后的早退出口 ⇒ 18）
 # （3 条已定性：空闲主动说话 / 空闲沉默 / 主出口 —— 见 agent.h 的注释）。
 # 数字变了就 FAIL：新增早退要么改走 agent_say，要么把理由写进注释并**同步改这里的期望**。
 if [ -f agent.h ]; then
     n_say=$(grep -c 'agent_say(ai, out)' agent.h || true)
     n_raw=$(grep -c 'return strlen(out);' agent.h || true)
-    if [ "$n_say" = "17" ] && [ "$n_raw" = "3" ]; then
-        say OK "早退出口核对：agent_say 17 处 / 裸 return 3 处（与注释一致）"
+    if [ "$n_say" = "18" ] && [ "$n_raw" = "3" ]; then
+        say OK "早退出口核对：agent_say 18 处 / 裸 return 3 处（与注释一致）"
     else
-        say FAIL "早退出口变了：agent_say=$n_say（期望 17）/ 裸 return=$n_raw（期望 3）—— 新早退请走 agent_say，或改注释并同步这里"
+        say FAIL "早退出口变了：agent_say=$n_say（期望 18）/ 裸 return=$n_raw（期望 3）—— 新早退请走 agent_say，或改注释并同步这里"
         bad=1
     fi
 else

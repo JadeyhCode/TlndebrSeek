@@ -26,6 +26,16 @@ printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "难道：剥掉后
 o=$(run '你 以 为 猫 属 于 什 么')
 printf '%s' "$o" | grep -qa '猫' && ok "你以为：当引导语" || bad "你以为坏了" "$(printf '%s' "$o" | grep -a 'AI >' | tail -1)"
 
+echo "== ④ §6.970b 显式教属性句「X 很 Y」 =="
+o=$(run '我教你，南极 很 冷\n南极 很 冷 吗\n南极 冷 吗')
+printf '%s' "$o" | grep -qa '记下 了' && ok "属性句：记下" || bad "属性句没学" "$(printf '%s' "$o" | grep -a 'AI >' | head -2)"
+n=$(printf '%s' "$o" | grep -ac '对 ， 南极 很 冷') || true
+[ "${n:-0}" -ge 2 ] && ok "两种问法都答对（$n）" || bad "属性问法不全对" "$(printf '%s' "$o" | grep -a 'AI >' | tail -2)"
+
+echo "== ⑤ 普通陈述「今天 很 热」不被属性教学抢走 =="
+o=$(run '今天 很 热')
+printf '%s' "$o" | grep -qa '记下 了 ： 今天' && bad "普通聊天被当成教学" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)" || ok "普通陈述仍走聊天"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL leadwords（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS leadwords（$pass 过 / 0 红）"

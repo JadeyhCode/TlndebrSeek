@@ -5035,9 +5035,21 @@ static inline int agent_learn_kinship_raw(AI *ai, const char *input, char *out, 
 /* §6.623 **属性问句**：`X 很 冷 吗` —— 教过 `X --[属性]--> 冷` 就答对，没教过就照实说。
  * 只认"程度词 + 形容词"这一个形状（`南极 很 冷 吗` / `南极 挺 冷 吗`）；别的一律返回 0（不抢别的路）。 */
 static inline int agent_attr_question(AI *ai, char *const *words, size_t n, char *out, size_t cap) {
-    if (!ai || !words || !out || cap == 0 || n < 4) return 0;
+    if (!ai || !words || !out || cap == 0 || n < 3) return 0;
     const char *tail = words[n - 1];
     if (!tail || (strcmp(tail, "吗") != 0 && strcmp(tail, "呢") != 0)) return 0;
+    /* §6.970b `X Y 吗`（不带程度词）：教过 X --[属性]--> Y 就答对 */
+    if (n == 3) {
+        Token *A = pool_find(ai->pool, words[0]), *Y = pool_find(ai->pool, words[1]);
+        uint8_t arid = rel_id_of(ai, "属性", 0);
+        if (arid && A && Y && rel_direct(A, arid, Y)) {
+            const char *t = ai_say_tpl("关系.属性对");
+            const char *const a[2] = { words[0], words[1] };
+            der_filln(out, cap, t ? t : "对 ， $1 很 $2", a, 2);
+            return 1;
+        }
+        return 0;
+    }
     static const char *deg[] = { "很", "挺", "太", "非常", "特别", "真", "好", NULL };
     size_t di = n;   /* 程度词位置 */
     for (size_t i = 1; i + 2 < n; ++i) {
@@ -9912,6 +9924,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             }
         }
     }
+    int teach_lead = 0;
     {   /* §6.263 「教你 / 告诉你 / 教我」这种**引导语**先剥掉（不做这步，后面的学习链
          * 拿到的是 `教/你/…`，要么出词串要么学不进）。只在句首、且剥完还有内容时才剥。 */
         const char *q = input_eff;
@@ -9955,8 +9968,14 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             }
             if (!consumed || consumed >= lw_n) { ai_free_words(lw, lw_n); break; }
             if (getenv("AIP_PATDBG"))
-                fprintf(stderr, "[strip] layer=%d words=%zu q=%.40s\n", layer, consumed, q);
+                fprintf(stderr, "[strip] layer=%d words=%zu pat=%s q=%.40s\n", layer, consumed,
+                        (lead_i != (size_t)-1 && g_lead[lead_i].w) ? g_lead[lead_i].w :
+                        (gi != (size_t)-1 && g_shell[gi].w) ? g_shell[gi].w : "?", q);
             if (lead_i != (size_t)-1 && g_lead_q[lead_i]) was_rhet = 1;
+            if (lead_i != (size_t)-1 && g_lead[lead_i].w &&
+                (strstr(g_lead[lead_i].w, "教") || strstr(g_lead[lead_i].w, "记"))) teach_lead = 1;
+            if (gi != (size_t)-1 && g_shell[gi].w &&
+                (strstr(g_shell[gi].w, "教") || strstr(g_shell[gi].w, "记"))) teach_lead = 1;
             aip_join_words(lw + consumed, lw_n - consumed, decl_in, sizeof decl_in);
             ai_free_words(lw, lw_n);
             if (!decl_in[0]) break;
@@ -9977,6 +9996,53 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             snprintf(decl_in, sizeof decl_in, "%s", rhet_tmp);
             input_eff = decl_in;
         }
+    }
+    /* §6.970b 显式教学（我教你/记住…）之后的属性句 `X 很 Y`：真正进图（§6.623 的属性最小通路）。
+     * 普通陈述 `今天 很 热` 不抢（仍走聊天帧）。 */
+    if (teach_lead && !ai->ask_pending && input_eff) {
+        size_t wn = 0;
+        char **ww = ai_tokenize(ai, input_eff, &wn);
+        /* 去掉纯标点词（分词器把中文标点也当一个字） */
+        static const char *deg[] = { "很", "挺", "太", "非常", "特别", "真", "好", NULL };
+        size_t di = (size_t)-1;
+        for (size_t i = 0; i < wn && ww; ++i) {
+            if (!ww[i] || !ww[i][0]) continue;
+            char tmp[64];
+            if (aip_strip_punct_chars(ww[i], tmp, sizeof tmp) == strlen(ww[i])) continue;
+            for (size_t k = 0; deg[k]; ++k) if (!strcmp(ww[i], deg[k])) { di = i; break; }
+            if (di != (size_t)-1) break;
+        }
+        if (di != (size_t)-1 && di >= 1 && di + 1 < wn) {
+            char subj[64] = {0}, adj[64] = {0};
+            char cl[64];
+            for (size_t i = 0; i < di; ++i) {
+                aip_strip_punct_chars(ww[i], cl, sizeof cl);
+                if (!cl[0]) continue;
+                if (strlen(subj) + strlen(cl) + 1 >= sizeof subj) break;
+                strcat(subj, cl);
+            }
+            for (size_t i = di + 1; i < wn; ++i) {
+                aip_strip_punct_chars(ww[i], cl, sizeof cl);
+                if (!cl[0]) continue;
+                if (strlen(adj) + strlen(cl) + 1 >= sizeof adj) break;
+                strcat(adj, cl);
+            }
+            Token *A = pool_token_intern(ai->pool, subj);
+            Token *Y = pool_token_intern(ai->pool, adj);
+            uint8_t arid = rel_id_of(ai, "属性", 1);
+            if (subj[0] && adj[0] && A && Y && A != Y && arid &&
+                ai_write_rel(ai, A, Y, arid, 0, AI_WSRC_RELATION) == 0) {
+                agent_teach_mark(ai, A, arid, Y, 0);
+                ai->n_rel_learned++;
+                aip_note_fact(ai, subj, "属性", adj);
+                const char *t = ai_say_tpl("学习.属性");
+                const char *const a[2] = { subj, adj };
+                der_filln(out, out_cap, t ? t : "记下 了 ： $1 很 $2（属性）", a, 2);
+                ai_free_words(ww, wn);
+                return agent_say(ai, out);
+            }
+        }
+        ai_free_words(ww, wn);
     }
     /* §6.448 **剥掉引导语后，再查一次数据答复行**。
      * `[reply]` 桶原来只对**原文**匹配（它在剥引导语之前），于是
