@@ -2352,6 +2352,54 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
      * ⚠ `nw` 必须声明在**函数作用域**：写进块里再 `words = nw` 会留下悬垂指针（实测崩）。 */
     char *nw[5]; size_t nn = 0;
     if (agent_norm_name_q(words, n, nw, &nn)) { words = nw; n = nn; }
+    /* §6.973 `X 有 什么` 的义项歧义：既可能问**成员**（谁属于 X），也可能问**属性**（X 有什么）。
+     * 两边图里都有时**都答**（不猜），并在文案里标明“两种问法都答”。 */
+    if (n == 3 && words[0] && words[1] && words[2] &&
+        rel_id_of(ai, words[1], 0) == REL_HAS && agent_open_slot_word(words[2])) {
+        Token *x = pool_find(ai->pool, words[0]);
+        if (x) {
+            uint32_t mem[512]; size_t nm = 0;
+            for (uint32_t ent = x->rev_head; ent && nm < (sizeof mem / sizeof mem[0]);
+                 ent = ai->pool->rev_next[ent - 1]) {
+                uint32_t meta = ai->pool->rev_meta[ent - 1];
+                if ((uint8_t)(meta & 0x7FFFu) != REL_IS_A) continue;
+                if ((meta & 0x8000u) != 0) continue;
+                uint32_t sid = ai->pool->rev_src[ent - 1];
+                if (sid < ai->pool->count) mem[nm++] = sid;
+            }
+            for (size_t i = 1; i < nm; ++i) {
+                uint32_t v = mem[i]; size_t j = i;
+                while (j > 0 && mem[j - 1] > v) { mem[j] = mem[j - 1]; --j; }
+                mem[j] = v;
+            }
+            char ms[160] = {0}, ps[160] = {0};
+            size_t mn = 0, pn = 0;
+            for (size_t i = 0; i < nm && mn < 4; ++i) {
+                Token *t = ai->pool->tokens[mem[i]];
+                if (!t || t->is_garbage || !t->name || t->name[0] == '[') continue;
+                snprintf(ms + strlen(ms), sizeof ms - strlen(ms), "%s%s", mn ? " 、 " : "", t->name);
+                mn++;
+            }
+            for (size_t i = 0; i < x->count && pn < 4; ++i) {
+                const AssocEntry *e = &token_assocs_ro(x)[i];
+                if (!e->main || !e->main->name || e->main == x) continue;
+                if (!rel_direct(x, REL_HAS, e->main)) continue;
+                if (strstr(ps, e->main->name)) continue;
+                snprintf(ps + strlen(ps), sizeof ps - strlen(ps), "%s%s", pn ? " 、 " : "", e->main->name);
+                pn++;
+            }
+            if (mn && pn) {
+                const char *t = ai_say_tpl("列表.两种");
+                const char *const a[2] = { ms, ps };
+                char buf[400];
+                der_filln(buf, sizeof buf, t ? t : "成员 ：$1 ｜ 属性 ：$2（两种 问法 都 答）", a, 2);
+                if (out_conf) *out_conf = 0.75f;
+                char *r = (char *)malloc(strlen(buf) + 1);
+                if (r) memcpy(r, buf, strlen(buf) + 1);
+                return r;
+            }
+        }
+    }
     /* §6.215 `A 在 哪` = `A 在 什么`（问**地点**）。关系层只认「什么」这一种占位词，
      * 实测 `我 在 家里` 学得进、`我 在 什么` 答得出，但 **`我 在 哪` 掉兜底**。
      * ⚠ 只对**地点关系（在）**开这个口子：`开猫 属于 哪` 这种"哪 + 别的关系"仍然不接 ——
@@ -2589,7 +2637,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
             cand[j] = v;
         }
         size_t scanned = 0;
-        for (size_t ci = 0; ci < ncd && hits < 4; ++ci) {
+        for (size_t ci = 0; ci < ncd && hits < 6; ++ci) {
             if (ci && cand[ci] == cand[ci - 1]) continue;   /* 同一条边可能被重复追加 */
             Token *t = ai->pool->tokens[cand[ci]];
             if (!t || t->is_garbage || !t->name || t->name[0] == '[') continue;
@@ -2605,7 +2653,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
         if (hits == 0) {
             const char *t = ai_say_tpl("列表.没记过");
             snprintf(buf + off, sizeof buf - off, "%s", t ? t : "图里 没 记 过（不 编）");
-        } else if (hits >= 4) {
+        } else if (hits >= 6) {
             const char *t = ai_say_tpl("列表.等");
             snprintf(buf + off, sizeof buf - off, " %s", t ? t : "等（只列前几个）");
         }
