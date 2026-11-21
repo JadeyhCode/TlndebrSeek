@@ -204,6 +204,7 @@ reseg|sh tests/reseg.sh
 leadwords|sh tests/leadwords.sh
 longtext|sh tests/longtext.sh
 kbcats|sh tests/kbcats.sh
+paperblind|python3 tools/paper_blind.py
 familysplit|sh tests/familysplit.sh
 matrixfile|sh tests/matrixfile.sh
 shardindex|sh tests/shardindex.sh
