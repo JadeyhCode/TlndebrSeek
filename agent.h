@@ -2708,6 +2708,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
             cand[j] = v;
         }
         size_t scanned = 0;
+        uint32_t last_listed = 0;
         for (size_t ci = 0; ci < ncd && hits < 6; ++ci) {
             if (ci && cand[ci] == cand[ci - 1]) continue;   /* 同一条边可能被重复追加 */
             Token *t = ai->pool->tokens[cand[ci]];
@@ -2719,6 +2720,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
             if (cat && rel_direct(t, REL_IS_A, cat) == 0) continue;   /* §6.151 类别过滤 */
             off += (size_t)snprintf(buf + off, sizeof buf - off, "%s%s",
                                     hits ? " 、 " : "", t->name);
+            last_listed = t->id;
             hits++;
         }
         if (hits == 0) {
@@ -2727,6 +2729,16 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
         } else if (hits >= 6) {
             const char *t = ai_say_tpl("列表.等");
             snprintf(buf + off, sizeof buf - off, " %s", t ? t : "等（只列前几个）");
+        }
+        /* §6.987 列表还有后续：记住 (b, 关系, 最后列出的 id)，「还有呢」接着列 */
+        if (hits >= 6) {
+            ai->enum_pending = 1;
+            snprintf(ai->enum_b, sizeof ai->enum_b, "%s", bdisp);
+            ai->enum_rid = rid;
+            ai->enum_neg = oq_neg;
+            ai->enum_after = last_listed;
+        } else {
+            ai->enum_pending = 0;
         }
         ai->n_scan_tokens += scanned;          /* §6.150：全图扫描记账（§6.126/§6.128 的规矩）*/
         if (out_conf) *out_conf = hits ? 0.8f : 0.4f;
@@ -9890,6 +9902,73 @@ static inline int agent_clarify_reply(AI *ai, const char *input, char *out, size
     return 1;
 }
 
+/* §6.987 「还有呢 / 还有哪些 / 其他的呢」：接着上一次“属于 X 的有…”往后列。
+ * 状态：enum_b（宾语）、enum_rid、enum_neg、enum_after（最后列出的 token id）。 */
+static inline int agent_more_reply(AI *ai, char *const *words, size_t n, char *out, size_t cap) {
+    if (!ai || !ai->enum_pending || !out || cap == 0) return 0;
+    if (!words || n == 0 || n > 6) { ai->enum_pending = 0; return 0; }
+    static const char *okw[] = { "还有", "呢", "还有哪些", "哪些", "吗", "其他", "别的",
+                                 "再", "来", "几个", "其他呢", "还有吗", "再列", "列出",
+                                 "更多", "接着", "列", "接", "着", "还", "有",
+                                 "再", "来", "一", "些", "点", "个", NULL };
+    for (size_t i = 0; i < n; ++i) {
+        int ok = 0;
+        for (size_t k = 0; okw[k]; ++k) if (!strcmp(words[i], okw[k])) { ok = 1; break; }
+        if (!ok) { ai->enum_pending = 0; return 0; }
+    }
+    Token *b = pool_find(ai->pool, ai->enum_b);
+    if (!b || !ai->enum_rid) { ai->enum_pending = 0; return 0; }
+    char buf[320];
+    size_t off = (size_t)snprintf(buf, sizeof buf, "还 有 ： ");
+    size_t hits = 0;
+    uint32_t last = ai->enum_after;
+    /* 反查桶按 id 升序取（与首屏同一顺序），只列 id > enum_after 的 */
+    uint32_t cand[512];
+    size_t ncd = 0;
+    for (uint32_t ent = b->rev_head; ent && ncd < (sizeof cand / sizeof cand[0]);
+         ent = ai->pool->rev_next[ent - 1]) {
+        uint32_t meta = ai->pool->rev_meta[ent - 1];
+        if ((uint8_t)(meta & 0x7FFFu) != ai->enum_rid) continue;
+        if (((meta & 0x8000u) != 0) != (ai->enum_neg != 0)) continue;
+        uint32_t sid = ai->pool->rev_src[ent - 1];
+        if (sid < ai->pool->count) cand[ncd++] = sid;
+    }
+    for (size_t i = 1; i < ncd; ++i) { uint32_t v = cand[i]; size_t j = i;
+        while (j > 0 && cand[j - 1] > v) { cand[j] = cand[j - 1]; --j; } cand[j] = v; }
+    for (size_t ci = 0; ci < ncd && hits < 6; ++ci) {
+        if (cand[ci] <= ai->enum_after) continue;
+        Token *t = ai->pool->tokens[cand[ci]];
+        if (!t || t->is_garbage || !t->name || t->name[0] == '[') continue;
+        if (ai->enum_neg ? (rel_direct_neg(t, ai->enum_rid, b) == 0)
+                         : (rel_direct(t, ai->enum_rid, b) == 0)) continue;
+        if (strstr(buf, t->name)) continue;   /* 同名去重 */
+        off += (size_t)snprintf(buf + off, sizeof buf - off, "%s%s", hits ? " 、 " : "", t->name);
+        hits++; last = t->id;
+    }
+    if (hits == 0) {
+        snprintf(buf, sizeof buf, "没 有 了 —— 图里 属于 %s 的 就 这些", ai->enum_b);
+        ai->enum_pending = 0;
+    } else {
+        ai->enum_after = last;
+        if (hits >= 6) snprintf(buf + strlen(buf), sizeof buf - strlen(buf), " 等（还 有 更 多）");
+    }
+    snprintf(out, cap, "%s", buf);
+    return 1;
+}
+
+/* §6.987 字符串级判断「还有呢/还有哪些/其他呢/再来几个」——要在 reply 桶之前拦住它 */
+static inline int aip_more_request(const char *in) {
+    if (!in) return 0;
+    char j[64]; size_t o = 0;
+    for (const char *q = in; *q && o + 1 < sizeof j; ++q)
+        if (*q != ' ' && *q != '\t') j[o++] = *q;
+    j[o] = 0;
+    if (!strstr(j, "还有") && !strstr(j, "其他") && !strstr(j, "别的") && !strstr(j, "再来") &&
+        !strstr(j, "再列") && !strstr(j, "更多") && !strstr(j, "接着")) return 0;
+    return strstr(j, "呢") || strstr(j, "吗") || strstr(j, "哪些") || strstr(j, "几个") ||
+           strstr(j, "再列") || strstr(j, "更多") || strstr(j, "接着");
+}
+
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
     if (!a || !input || !out || out_cap == 0) return 0;
     out[0] = 0;
@@ -10023,7 +10102,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             return agent_say(ai, out);
         }
     }
-    if (!ai->ask_pending) {
+    if (!ai->ask_pending && !(ai->enum_pending && aip_more_request(input))) {
         const char *dr = aip_reply_lookup(input);
         if (dr) {
             g_last_src = AI_SRC_REPLY;   /* §6.420 */
@@ -10432,6 +10511,9 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (words && n > 0) (void)aip_strip_fillers(words, &n);
     if (words && n > 0) (void)agent_norm_quant_def(words, &n);
     if (!ai->char_stream && words) n = agent_repair_rel_typo(ai, words, n);
+    /* §6.987 「还有呢」：接着上一次列表往后列 */
+    if (words && n <= 6 && agent_more_reply(ai, words, n, out, out_cap))
+        return agent_say(ai, out);
     /* §6.967 滑动切分的兜底：图里还没有这个词（比如刚开的新脑）时，滑分会把
      * 「窗户」拆成字，三词关系解析就失败。这时**换回最长匹配**再解析一次：
      * 只在这句确实解析不出关系时回退，不是全局开关。 */

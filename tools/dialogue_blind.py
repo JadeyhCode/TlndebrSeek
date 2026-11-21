@@ -7,6 +7,11 @@ import os, shutil, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "build_aip"); MODEL = os.path.join(ROOT, "model.bin")
 W = os.path.join(ROOT, "_t", "dialblind")
+TWO = [
+    (["谁 属于 动物", "还有呢"], "还 有 ："),
+    (["谁 属于 动物", "还有呢", "还有吗"], "没 有 了"),
+    (["我教你，貘 属于 奇蹄目", "刚才 说 的 是 什么"], "貘"),
+]
 CASES = [
     ("它-属于", ["我教你，貘 属于 奇蹄目", "它 属于 什么"], "奇蹄目"),
     ("它-吃", ["我教你，树懒 吃 叶子", "它 吃 什么"], "叶子"),
@@ -33,13 +38,14 @@ def main():
         src = os.path.join(ROOT, f)
         if os.path.isfile(src): shutil.copy(src, os.path.join(W, f))
     res = {"pass": 0, "refuse": 0, "wrong": 0}
-    for name, lines, want in CASES:
+    all_cases = list(CASES) + [(str(seq), seq, want) for seq, want in TWO]
+    for name, lines, want in all_cases:
         rs = run(lines); got = rs[-1] if rs else ""
         ref = any(w in got for w in ("不 认识", "不 知道", "没 记 过", "不 太 懂", "不 确定", "不 太 确定"))
         if want in got and not ref: res["pass"] += 1; print("  [PASS] %-10s => %r" % (name, got.strip()[:55]))
         elif ref: res["refuse"] += 1; print("  [REFUSE] %-8s => %r" % (name, got.strip()[:55]))
         else: res["wrong"] += 1; print("  [WRONG] %-9s => %r（要 %r）" % (name, got.strip()[:55], want))
-    print("=> pass %d / refuse %d / wrong %d（共 %d）" % (res["pass"], res["refuse"], res["wrong"], len(CASES)))
+    print("=> pass %d / refuse %d / wrong %d（共 %d）" % (res["pass"], res["refuse"], res["wrong"], len(all_cases)))
     return 1 if res["wrong"] > 0 else 0
 if __name__ == "__main__":
     sys.exit(main())

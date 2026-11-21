@@ -1127,6 +1127,11 @@ typedef struct {
     int    seg_off;                 /* 0 = 允许换切分（拆解/合并）找帧（默认） */
     int    seg_sliding;             /* §6.966 0 = 旧的最长匹配；1 = 滑动联想（默认） */
     int    q_ellipsis;              /* §6.981 这一轮问题来自「那X呢」补全：不做类比猜 */
+    int    enum_pending;            /* §6.987 刚给过「属于 X 的有…」：下一句「还有呢」接着列 */
+    char   enum_b[40];
+    uint8_t enum_rid;
+    int    enum_neg;
+    uint32_t enum_after;
     int    clarify_pending;         /* §6.985 刚反问过「什么关系」：下一句若是关系词就按它答 */
     char   clarify_a[40], clarify_b[40];
     int    n_reseg_merge;           /* §6.968 切词修正：合并次数（诊断） */
