@@ -31,6 +31,10 @@ printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "量词短语剥掉
 o=$(run '猫 是 动物 的 一种 吗')
 printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "定义问法归一到属于" || bad "定义问法没归一" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
 
+echo "== ⑤ 类比门槛：事实问句不许用 60% 相似度下结论 =="
+o=$(run '猫 有 六 条 腿 吗')
+printf '%s' "$o" | grep -qaE '大概|同类里|像）' && bad "6 条腿仍靠类比答" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)" || ok "不再靠类比硬答"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL longtext（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS longtext（$pass 过 / 0 红）"

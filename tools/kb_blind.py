@@ -38,7 +38,7 @@ def main():
     res = {"pass": 0, "refuse": 0, "wrong": 0}
     for q, want in TASKS:
         got = run(q)
-        ref = any(w in got for w in ("不 认识", "不 知道", "没 记 过", "不 太 懂", "不 确定"))
+        ref = any(w in got for w in ("不 认识", "不 知道", "没 记 过", "不 太 懂", "不 确定", "不 太 确定", "不 肯 定"))
         if want in got and not ref:
             res["pass"] += 1; print("  [PASS] %-20s => %r" % (q, got.strip()[:60]))
         elif ref:

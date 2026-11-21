@@ -827,6 +827,28 @@ static inline int aip_bucket_idx(const char *kind) {
 }
 
 /* §6.975 词类表查询：`[class] 名=词,词,…`（返回 1 = 命中） */
+/* §6.976 类比最低相似度：`[class] guessmin=有:70,吃:50`（关系名:百分数）。
+ * 没列的关系返回默认门槛（REL_GUESS_SIM）。数据驱动，不写死某个关系。 */
+static inline int aip_guess_min(const char *relname) {
+    if (!relname) return REL_GUESS_SIM;
+    for (size_t i = 0; i < g_class_n; ++i) {
+        if (strcmp(g_class_name[i], "guessmin") != 0) continue;
+        const char *p = g_class_words[i];
+        while (*p) {
+            while (*p == ' ' || *p == ',') p++;
+            const char *e = p; while (*e && *e != ',') e++;
+            const char *colon = NULL;
+            for (const char *q = p; q < e; ++q) if (*q == ':') { colon = q; break; }
+            if (colon && (size_t)(colon - p) == strlen(relname) && !strncmp(p, relname, strlen(relname))) {
+                int v = atoi(colon + 1);
+                return v > 0 ? v : REL_GUESS_SIM;
+            }
+            p = e;
+        }
+    }
+    return REL_GUESS_SIM;
+}
+
 static inline int aip_class_has(const char *cls, const char *word) {
     if (!cls || !word || !*word) return 0;
     for (size_t i = 0; i < g_class_n; ++i) {
@@ -2795,6 +2817,7 @@ static inline int agent_guess_answer(AI *ai, Token *A, uint8_t rid, Token *B, in
         Token *src = (gpf.n >= 2 && gpf.step[1].tok) ? gpf.step[1].tok : A;
         int pol = (gpf.n >= 1) ? (gpf.step[gpf.n - 1].neg ? -1 : +1) : +1;
         int sim = (gpf.n >= 2) ? gpf.step[1].sim : 0;
+        if (sim < aip_guess_min(rel_name_of(ai, rid))) return 0;   /* §6.976 低于该关系的最低相似度：不猜 */
         der_reset(d);
         d->has_claim = 1;
         der_goal(d, A, rid, B);
@@ -2839,6 +2862,7 @@ static inline int agent_guess_answer(AI *ai, Token *A, uint8_t rid, Token *B, in
      * 而那条证据本来就不靠相似度 —— 实测：卡掉之后 ㊵ 那条兜底整条失效（4 项红）。
      * 取 max 是为了不把真的算出来的更高分压下去。 */
     if (sim < REL_STRUCT_MIN_PCT) sim = REL_STRUCT_MIN_PCT;
+    if (sim < aip_guess_min(rel_name_of(ai, rid))) return 0;   /* §6.976 同类互推也受该关系门槛管 */
     int pol = rel_direct(sib, rid, B) ? +1 : -1;
     der_reset(d);
     d->has_claim = 1;
