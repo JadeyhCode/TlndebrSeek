@@ -5120,6 +5120,26 @@ static inline int agent_learn_kinship(AI *ai, char *const *words, size_t n, char
  * 只认"空格分开的五段"：`A 是 我/你/他 的 K`（K 在 kinship 表里）。 */
 static inline int agent_learn_kinship_raw(AI *ai, const char *input, char *out, size_t cap) {
     if (!ai || !input || !out || cap == 0) return 0;
+    /* §6.977 无空格：`小明是我的表弟` —— 先按「X是我/你/他的K」扫一遍，拼成带空格形再走老逻辑 */
+    if (!strchr(input, ' ') && !strchr(input, '\t')) {
+        static const char *mid[] = { "是我", "是你", "是他", "是 我", "是 你", "是 他", NULL };
+        for (size_t i = 0; mid[i]; ++i) {
+            const char *p = strstr(input, mid[i]);
+            if (!p || p == input) continue;
+            const char *d = strstr(p + strlen(mid[i]), "的");
+            if (!d) continue;
+            const char *k = d + 3;
+            if (!*k || strlen(k) > 24) continue;
+            if (!agent_is_kinship((char *)k)) continue;
+            char subj[64];
+            size_t sl = (size_t)(p - input);
+            if (sl == 0 || sl >= sizeof subj) continue;
+            memcpy(subj, input, sl); subj[sl] = 0;
+            char spaced[160];
+            snprintf(spaced, sizeof spaced, "%s 是 我 的 %s", subj, k);
+            return agent_learn_kinship_raw(ai, spaced, out, cap);
+        }
+    }
     char buf[128];
     snprintf(buf, sizeof buf, "%.127s", input);
     char *w[8]; size_t n = 0;
@@ -9935,13 +9955,14 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     char decl_in[256];
     const char *input_eff = input;
     /* §6.975b 词形归一（字符串级）：量词短语 / 「的 一种」问法 ⇒ 先改写，后面所有路径都受益 */
+    char qn_sp[512], qn_nb[512];
     {
-        char sp[512];
+        char *sp = qn_sp;
         size_t so = 0;
-        for (const char *q = input_eff; q && *q && so + 1 < sizeof sp; ++q)
+        for (const char *q = input_eff; q && *q && so + 1 < 512; ++q)
             if (*q != ' ' && *q != '\t') sp[so++] = *q;
         sp[so] = 0;
-        char nb[512];
+        char *nb = qn_nb;
         int changed = 0;
         const char *s = sp;
         size_t l1 = s[0] ? aip_u8len(s) : 0;

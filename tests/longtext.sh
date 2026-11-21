@@ -35,6 +35,16 @@ echo "== ⑤ 类比门槛：事实问句不许用 60% 相似度下结论 =="
 o=$(run '猫 有 六 条 腿 吗')
 printf '%s' "$o" | grep -qaE '大概|同类里|像）' && bad "6 条腿仍靠类比答" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)" || ok "不再靠类比硬答"
 
+echo "== ⑥ 无空格中文：亲属/量词/定义/指令 =="
+o=$(run '小明是我的表弟')
+printf '%s' "$o" | grep -qa '表弟' && ok "无空格亲属句学得进" || bad "无空格亲属句没学" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+o=$(run '三只猫属于动物吗')
+printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "无空格量词句答得出" || bad "无空格量词句没答" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+o=$(run '猫是动物的一种吗')
+printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "无空格定义问法答得出" || bad "无空格定义问法没答" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+o=$(run '我教你貘属于奇蹄目\n貘属于什么')
+printf '%s' "$o" | grep -qa '奇蹄目' && ok "无空格教学+查询" || bad "无空格教学没学" "$(printf '%s' "$o" | grep -a 'AI >' | tail -1)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL longtext（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS longtext（$pass 过 / 0 红）"
