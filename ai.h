@@ -1126,6 +1126,7 @@ typedef struct {
     int    coin_off;                /* 0 = 允许现场造词（默认） */
     int    seg_off;                 /* 0 = 允许换切分（拆解/合并）找帧（默认） */
     int    seg_sliding;             /* §6.966 0 = 旧的最长匹配；1 = 滑动联想（默认） */
+    int    q_ellipsis;              /* §6.981 这一轮问题来自「那X呢」补全：不做类比猜 */
     int    n_reseg_merge;           /* §6.968 切词修正：合并次数（诊断） */
     int    n_reseg_split;           /* §6.968 切词修正：拆开次数 */
     int    reseg_fix;               /* §6.968 1 = 解析失败时自动合并/拆开重切（默认 1） */

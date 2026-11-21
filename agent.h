@@ -2011,7 +2011,11 @@ static inline size_t aip_pat_prefix_words(const AipPat *arr, size_t n, char **wo
 
 static inline void aip_join_words(char **w, size_t n, char *out, size_t cap) {
     size_t o = 0;
+    static const char *punct[] = { "，", "。", "；", "、", "！", "？", "：", ",", ".", ";", "!", "?", ":", NULL };
     for (size_t i = 0; i < n && o + 1 < cap; ++i) {
+        int is_p = 0;
+        for (size_t k = 0; punct[k]; ++k) if (!strcmp(w[i], punct[k])) { is_p = 1; break; }
+        if (is_p) continue;
         /* 中文词直接相接（分词器会自己重新切）；ASCII 之间才补空格 */
         if (i && o > 0 && (unsigned char)out[o - 1] < 128 && (unsigned char)w[i][0] < 128) out[o++] = ' ';
         size_t l = strlen(w[i]);
@@ -2810,6 +2814,7 @@ static inline int agent_guess_answer(AI *ai, Token *A, uint8_t rid, Token *B, in
                                      char *resp, size_t respcap, float *out_conf) {
     if (!ai || !A || !B || rid == 0 || !d || !resp || respcap == 0) return 0;
     if (!(kinds & (AGENT_GUESS_NEIGHBOR | AGENT_GUESS_SIBLING))) return 0;
+    if (ai->q_ellipsis) return 0;   /* §6.981 「那X呢」只答图上直接有的，不拿相似度猜 */
     /* ---- ① 最近邻 / 结构相似 ---- */
     Proof gpf;
     memset(&gpf, 0, sizeof gpf);
@@ -10322,6 +10327,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         if (agent_rewrite_ellipsis(ai, input_eff, el, sizeof el)) {
             snprintf(decl_in, sizeof decl_in, "%s", el);
             input_eff = decl_in;
+            ai->q_ellipsis = 1;      /* §6.981 追问补全：只答直接知识，不类比 */
         }
     }
     {   /* §6.262 「X在哪 / X住哪」⇒ 「X 在 什么」（必须在分词前：`我在` 会被当成一个词）*/
@@ -11448,7 +11454,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     /* §6.255 记"这一轮的主语"，供下一句的指代用（代词/虚词不记）。
      * **必须放在最后**：`鲸鱼 会 游泳` 这种新词是 natcoin 在**后面**才造出来的，
      * 分词刚结束时 `pool_find(鲸鱼)` 还是 NULL ⇒ 记录会漏（实测：下一句「它」指不回去）。 */
-    if (words && n >= 1 && words[0] && words[0][0] && input_eff == input) {
+    if (words && n >= 1 && words[0] && words[0][0]) {   /* §6.981 引导语剥掉后也要记主语（否���「它」指不回去） */
         static const char *skip0[] = {"我", "你", "您", "他", "她", "它", "我们", "你们",
                                       "他们", "这", "那", "这个", "那个", "什么", "谁",
                                       NULL};
