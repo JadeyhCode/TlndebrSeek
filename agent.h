@@ -10088,6 +10088,117 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             }
         }
     }
+    /* §6.968 切词修正：解析失败时，试“合并相邻词”“拆开长词”，哪个能解析就用哪个。
+     * 这不是新词表：合并/拆开都用**图里已有的字/词**拼；成功才采用，并记账。 */
+    if (!ai->char_stream && ai->seg_sliding && ai->reseg_fix && words && n >= 2) {
+        char fb[64];
+        const char *fa = NULL, *fr = NULL, *fob = NULL;
+        uint8_t frid = 0;
+        int fneg = 0, fq = 0;
+        if (!rel_parse(ai, words, n, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+            int fixed = 0;
+            /* ① 合并相邻两个词（总长 <= 12 字节） */
+            for (size_t i = 0; i + 1 < n && !fixed; ++i) {
+                size_t l1 = strlen(words[i]), l2 = strlen(words[i + 1]);
+                if (l1 + l2 > 12) continue;
+                char merged[64];
+                snprintf(merged, sizeof merged, "%s%s", words[i], words[i + 1]);
+                if (pool_find(ai->pool, merged)) continue;   /* 图里的词，滑分本该切到 */
+                char **v = (char **)calloc(n - 1, sizeof *v);
+                if (!v) break;
+                int okv = 1;
+                size_t k = 0;
+                for (size_t j = 0; j < n; ++j) {
+                    const char *src = (j == i || j == i + 1) ? merged : words[j];
+                    v[k] = (char *)malloc(strlen(src) + 1);
+                    if (!v[k]) { okv = 0; break; }
+                    strcpy(v[k], src); k++;
+                    if (j == i) j++;   /* 两词合成一个 */
+                }
+                if (okv && k == n - 1 &&
+                    rel_parse(ai, v, k, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+                    ai_free_words(words, n);
+                    words = v; n = k;
+                    ai->n_reseg_merge++;
+                    if (getenv("AIP_SEGDBG")) fprintf(stderr, "[reseg] 合并「%s」\n", merged);
+                    fixed = 1;
+                } else {
+                    ai_free_words(v, k);
+                }
+            }
+            /* ①b 全部单字两两合并（“麒麟属于神兽”→“麒麟/属于/神兽”）：一次成形再解析 */
+            if (!fixed) {
+                int made = 0;
+                char **v = (char **)calloc(n, sizeof *v);
+                if (v) {
+                    int okv = 1;
+                    size_t k = 0;
+                    for (size_t j = 0; j < n && okv; ++j) {
+                        int single = words[j][0] && strlen(words[j]) == cjk_char_len((const unsigned char *)words[j]);
+                        int nxt_single = (j + 1 < n) && words[j + 1][0] &&
+                                         strlen(words[j + 1]) == cjk_char_len((const unsigned char *)words[j + 1]);
+                        if (single && nxt_single) {
+                            char merged2[64];
+                            snprintf(merged2, sizeof merged2, "%s%s", words[j], words[j + 1]);
+                            v[k] = (char *)malloc(strlen(merged2) + 1);
+                            if (!v[k]) { okv = 0; break; }
+                            strcpy(v[k], merged2); k++; j++; made = 1;
+                        } else {
+                            v[k] = (char *)malloc(strlen(words[j]) + 1);
+                            if (!v[k]) { okv = 0; break; }
+                            strcpy(v[k], words[j]); k++;
+                        }
+                    }
+                    if (okv && made && rel_parse(ai, v, k, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+                        ai_free_words(words, n);
+                        words = v; n = k;
+                        ai->n_reseg_merge++;
+                        if (getenv("AIP_SEGDBG")) fprintf(stderr, "[reseg] 成对合并 -> %zu 词\n", n);
+                        fixed = 1;
+                    } else {
+                        ai_free_words(v, k);
+                    }
+                }
+            }
+            /* ② 拆开一个多字词（按 UTF-8 字边界） */
+            for (size_t i = 0; i < n && !fixed; ++i) {
+                size_t bl = strlen(words[i]);
+                if (bl <= 3) continue;
+                size_t nchars = 0;
+                for (const unsigned char *p = (const unsigned char *)words[i]; *p; p += cjk_char_len(p)) nchars++;
+                if (nchars < 2) continue;
+                char **v = (char **)calloc(n - 1 + nchars, sizeof *v);
+                if (!v) break;
+                int okv = 1;
+                size_t k = 0;
+                for (size_t j = 0; j < n && okv; ++j) {
+                    if (j != i) {
+                        v[k] = (char *)malloc(strlen(words[j]) + 1);
+                        if (!v[k]) { okv = 0; break; }
+                        strcpy(v[k], words[j]); k++;
+                        continue;
+                    }
+                    const unsigned char *p = (const unsigned char *)words[j];
+                    for (size_t q = 0; q < nchars; ++q) {
+                        size_t cl = cjk_char_len(p);
+                        v[k] = (char *)malloc(cl + 1);
+                        if (!v[k]) { okv = 0; break; }
+                        memcpy(v[k], p, cl); v[k][cl] = 0;
+                        k++; p += cl;
+                    }
+                }
+                if (okv && rel_parse(ai, v, k, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
+                    ai_free_words(words, n);
+                    words = v; n = k;
+                    ai->n_reseg_split++;
+                    if (getenv("AIP_SEGDBG")) fprintf(stderr, "[reseg] 拆开「%zu 字」\n", nchars);
+                    fixed = 1;
+                } else {
+                    ai_free_words(v, k);
+                }
+            }
+        }
+    }
     /* 第 4 步 · 手法层：先认「这不是字面」，再走学习/答复（命中就不写关系事实/共现） */
     if (words && n > 0) {
         int rhet = agent_rhetoric_step(ai, words, n, out, out_cap);

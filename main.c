@@ -4579,6 +4579,8 @@ int main(int argc, char **argv) {
                 }
                 printf("[分词 = %s]（AIP_SEG=1 / ::seg sliding 开；greedy 是旧的最长匹配）\n",
                        a->brain->seg_sliding ? "滑动联想" : "最长匹配");
+                printf("[切词修正] 合并 %d 次 / 拆开 %d 次（解析失败时自动重切）\n",
+                       a->brain->n_reseg_merge, a->brain->n_reseg_split);
                 printf("[换切分找帧 = %s]（拆解 %zu 次 / 合并 %zu 次）\n",
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
