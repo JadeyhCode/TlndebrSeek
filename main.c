@@ -27,6 +27,7 @@
 #include "tool.h"       /* 外部工具（本地大模型，默认关）：::tool —— 只显示/只记账，不进图 */
 #include "web.h"        /* 网页搜索（默认关，复用 ::net 的门）：::web —— 只抽标题/链接/摘要，一律待证 */
 #include "english.h"    /* 英语问 ⇒ 英语答（只做是非问；中文不碰） */
+#include "symtool.h"    /* §6.988 自省/自修改：::sym */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -564,6 +565,7 @@ typedef enum {
     CMD_COIN,
     CMD_SEG,
     CMD_SSEG,
+    CMD_SYM,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -765,6 +767,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "sym", "符号", 1, "基本",
+      "自省/自修改：active（活跃符号）/ links <名> / add|del|rename|merge / edge add|del|mod / write on|off（默认只读）", CMD_SYM },
     { "sseg", "滑动切分", 1, "基本",
       "按图做滑动匹配：先列候选切分，再按词度数+相邻边选最优，并激活与上下文相连的词义", CMD_SSEG },
     { "relay", NULL, 1, "基本",
@@ -4585,6 +4589,12 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_SYM: {
+                const char *arg = (cmd[3] == ' ') ? cmd + 4 : NULL;
+                while (arg && *arg == ' ') arg++;
+                sym_cmd(a->brain, arg ? arg : "active");
                 continue;
             }
             case CMD_SSEG: {
