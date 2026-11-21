@@ -45,6 +45,12 @@ printf '%s' "$o" | grep -qa '猫 -\[属于\]-> 动物' && ok "无空格定义问
 o=$(run '我教你貘属于奇蹄目\n貘属于什么')
 printf '%s' "$o" | grep -qa '奇蹄目' && ok "无空格教学+查询" || bad "无空格教学没学" "$(printf '%s' "$o" | grep -a 'AI >' | tail -1)"
 
+echo "== ⑦ 连谓句：喜欢 + 吃鱼 =="
+o=$(run '猫 喜欢 吃鱼 吗')
+printf '%s' "$o" | grep -qa '吃 鱼' && printf '%s' "$o" | grep -qa '喜欢 鱼' && ok "两个谓词都成立才答对" || bad "连谓句没答" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)"
+o=$(run '猫 讨厌 吃鱼 吗')
+printf '%s' "$o" | grep -qa '对 ：' && bad "不成立也答对" "$(printf '%s' "$o" | grep -a 'AI >' | head -1)" || ok "不成立不硬答"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL longtext（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS longtext（$pass 过 / 0 红）"

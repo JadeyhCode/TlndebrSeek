@@ -9782,6 +9782,44 @@ static inline int agent_rhetoric_step(AI *ai, char *const *words, size_t n, char
     return 1;
 }
 
+/* §6.978 连谓句：`A V1 V2 B 吗`（`猫 喜欢 吃鱼 吗`）。
+ * 图里 A--V1-->B 与 A--V2-->B 都成立才回答“对：A V2 B，也 V1 B”；否则不接（留给别的路）。 */
+static inline int agent_serial_verb(AI *ai, char *const *words, size_t n, char *out, size_t cap) {
+    if (!ai || !words || !out || cap == 0 || n < 5) return 0;
+    if (!words[n - 1] || (strcmp(words[n - 1], "吗") != 0 && strcmp(words[n - 1], "呢"))) return 0;
+    size_t last = n - 1;
+    if (last < 4) return 0;
+    uint8_t rid[4], rpos[4];
+    size_t nr = 0;
+    for (size_t i = 1; i + 1 < last && nr < 4; ++i) {
+        uint8_t r = rel_id_of(ai, words[i], 0);
+        if (r == 0) continue;
+        rid[nr] = r; rpos[nr] = (uint8_t)i; nr++;
+    }
+    if (nr != 2) return 0;
+    /* 只认**紧挨着**的连谓（V1 V2 相邻）、宾语紧跟 V2：`猫 喜欢 吃 鱼 吗`。
+     * 并列谓语/并列宾语（`我 喜欢 狗 也 喜欢 猫 吗`）不是这个形状，放给别的路。 */
+    if (rpos[1] != rpos[0] + 1) return 0;
+    if (last - 1 != (size_t)rpos[1] + 1) return 0;
+    /* 主语 = 第一个谓词前的词；宾语 = 语气词前最后一个词 */
+    char subj[64] = {0};
+    for (size_t i = 0; i < rpos[0]; ++i) {
+        if (strlen(subj) + strlen(words[i]) + 1 >= sizeof subj) return 0;
+        strcat(subj, words[i]);
+    }
+    const char *obj = words[last - 1];
+    if (!subj[0] || !obj || !obj[0]) return 0;
+    Token *A = pool_find(ai->pool, subj), *B = pool_find(ai->pool, obj);
+    if (!A || !B) return 0;
+    if (!(rel_direct(A, rid[0], B) && rel_direct(A, rid[1], B))) return 0;
+    const char *v1 = rel_name_of(ai, rid[0]) ? rel_name_of(ai, rid[0]) : words[rpos[0]];
+    const char *v2 = rel_name_of(ai, rid[1]) ? rel_name_of(ai, rid[1]) : words[rpos[1]];
+    const char *t = ai_say_tpl("串谓.对");
+    const char *const a[5] = { subj, v2, obj, v1, NULL };
+    der_fill5(out, cap, t ? t : "对 ： $1 $2 $3 ， $1 也 $4 $3", a[0], a[1], a[2], a[3], a[4]);
+    return 1;
+}
+
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
     if (!a || !input || !out || out_cap == 0) return 0;
     out[0] = 0;
@@ -10700,7 +10738,14 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
      * （那就推理回答）。两条都在联想之后 —— 先想一遍，再动确定性推理。 */
     if (!resp) {
         float rc = 0.5f;
-        resp = agent_set_hypothesis(ai, words, n, &rc);
+        {
+            char sb[256];
+            if (agent_serial_verb(ai, words, n, sb, sizeof sb)) {
+                resp = (char *)malloc(strlen(sb) + 1);
+                if (resp) { strcpy(resp, sb); rc = 0.8f; }
+            }
+        }
+        if (!resp) resp = agent_set_hypothesis(ai, words, n, &rc);
         /* ② 触发接求解：闭合问句答不了时，试**开放式**关系问句（默认关） */
         if (!resp && ai->rel_open) resp = agent_open_relation(ai, words, n, &rc);
         /* ② 类比兜底（默认关）：规则**答不上来**时（不只是没答，而是答了 DER_VERDICT_UNSURE）
