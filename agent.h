@@ -9864,6 +9864,32 @@ static inline size_t agent_repair_rel_typo(AI *ai, char **words, size_t n) {
     return n;
 }
 
+/* §6.985 澄清闭环：上一轮反问过「X 和 Y 的什么关系」，这一轮如果只回了一个关系词
+ * （`属于/有/吃…`），就按用户说的关系去图上查，而不是换话题。 */
+static inline int agent_clarify_reply(AI *ai, const char *input, char *out, size_t cap) {
+    if (!ai || !ai->clarify_pending || !input || !out || cap == 0) return 0;
+    size_t n = 0;
+    char **w = ai_tokenize(ai, input, &n);
+    if (!w || n == 0 || n > 3) { ai_free_words(w, n); ai->clarify_pending = 0; return 0; }
+    uint8_t rid = 0;
+    const char *rname = NULL;
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t r = rel_id_of(ai, w[i], 0);
+        if (r) { rid = r; rname = rel_name_of(ai, r); break; }
+    }
+    if (!rid) { ai_free_words(w, n); ai->clarify_pending = 0; return 0; }
+    Token *A = pool_find(ai->pool, ai->clarify_a), *B = pool_find(ai->pool, ai->clarify_b);
+    int yes = (A && B && rel_direct(A, rid, B));
+    int no = (A && B && rel_direct_neg(A, rid, B));
+    const char *t = ai_say_tpl(yes ? "澄清.对" : "澄清.没记");
+    const char *const a[3] = { ai->clarify_a, rname ? rname : (w[0] ? w[0] : "?"), ai->clarify_b };
+    der_filln(out, cap, t ? t : (yes ? "对 ： $1 $2 $3" : "图里 没 记 过 $1 $2 $3"), a, 3);
+    (void)no;
+    ai->clarify_pending = 0;
+    ai_free_words(w, n);
+    return 1;
+}
+
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
     if (!a || !input || !out || out_cap == 0) return 0;
     out[0] = 0;
@@ -9889,6 +9915,14 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (!empty_turn && input && input[0] != ':' &&
         !agent_history_kind(input) && !agent_repeat_request(input))
         agent_history_record(ai, input);
+    /* §6.985 澄清闭环：先接“用户回了一个关系词”的那一句 */
+    if (!empty_turn) {
+        char cb[320];
+        if (agent_clarify_reply(ai, input, cb, sizeof cb)) {
+            snprintf(out, out_cap, "%s", cb);
+            return agent_say(ai, out);
+        }
+    }
     /* 第 5 步 · 回答格式：先认「用X回答：…」/「以后用X回答」/「以后按这个格式回答：…」。
      * 一次性格式剥掉指令，剩下的是真正的问题；教/取消直接答复。
      * ⚠ fmt_bare 必须活到函数结束（input 会指过来），不能放在内层块里。 */
@@ -11251,6 +11285,11 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                               a2, 2);
                     resp = (char *)malloc(strlen(cl) + 1);
                     if (resp) { memcpy(resp, cl, strlen(cl) + 1); clarified = 1; }
+                    if (clarified) {
+                        ai->clarify_pending = 1;
+                        snprintf(ai->clarify_a, sizeof ai->clarify_a, "%s", words[0]);
+                        snprintf(ai->clarify_b, sizeof ai->clarify_b, "%s", words[n - 2]);
+                    }
                     if (clarified) {
                         g_last_src = AI_SRC_FALLBACK;
                         conf = 0.25f;

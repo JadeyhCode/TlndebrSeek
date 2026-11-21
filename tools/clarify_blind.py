@@ -17,8 +17,14 @@ CASES = [
     ("猫 属于 动物 吗", "对"),
     ("猫 吃 鱼 吗", "对"),
 ]
+TWO = [
+    (["猫 对 动物 吗", "属于"], "对 ： 猫 属于 动物"),
+    (["鸟 对 翅膀 吗", "有"], "对 ： 鸟 有 翅膀"),
+    (["猫 对 动物 吗", "吃"], "没 记 过"),
+]
 def run(q):
-    inp = "::notepad off\n::char off\n" + q + "\n::quit\n"
+    lines = q if isinstance(q, list) else [q]
+    inp = "::notepad off\n::char off\n" + "\n".join(lines) + "\n::quit\n"
     p = subprocess.run([BIN, "--model", "model.bin"], input=inp, text=True, encoding="utf-8",
                        errors="replace", capture_output=True, cwd=W, timeout=120)
     rs = [l[l.find("AI > ") + 5:] for l in p.stdout.splitlines() if "AI > " in l]
@@ -30,13 +36,14 @@ def main():
         src = os.path.join(ROOT, f)
         if os.path.isfile(src): shutil.copy(src, os.path.join(W, f))
     res = {"pass": 0, "refuse": 0, "wrong": 0}
-    for q, want in CASES:
+    cases = list(CASES) + [(seq, want) for seq, want in TWO]
+    for q, want in cases:
         got = run(q)
         ref = any(w in got for w in ("不 认识", "不 知道", "没 记 过", "不 太 懂", "不 确定", "不 太 确定"))
         if want in got and not ref: res["pass"] += 1; print("  [PASS] %-16s => %r" % (q, got.strip()[:56]))
         elif ref: res["refuse"] += 1; print("  [REFUSE] %-13s => %r" % (q, got.strip()[:56]))
         else: res["wrong"] += 1; print("  [WRONG] %-14s => %r（要 %r）" % (q, got.strip()[:56], want))
-    print("=> pass %d / refuse %d / wrong %d（共 %d）" % (res["pass"], res["refuse"], res["wrong"], len(CASES)))
+    print("=> pass %d / refuse %d / wrong %d（共 %d）" % (res["pass"], res["refuse"], res["wrong"], len(cases)))
     return 1 if res["wrong"] > 0 else 0
 if __name__ == "__main__":
     sys.exit(main())
