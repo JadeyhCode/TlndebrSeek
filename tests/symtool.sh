@@ -68,6 +68,16 @@ echo "== ⑪ active 有「最近触碰」 =="
 o=$(run '::sym active 3')
 printf '%s' "$o" | grep -qa '最近触碰' && ok "active 列最近触碰" || bad "active 没有最近触碰" "$(printf '%s' "$o" | grep -a '活跃' | head -2)"
 
+echo "== ⑫ JSON 输出（links/active） =="
+o=$(run '::sym links 猫 json')
+line=$(printf '%s' "$o" | grep -a '"name"' | head -1 | sed 's/^你 > //')
+printf '%s' "$line" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="猫" and d["degree"]>0 and len(d["out"])>0; print("ok")' >/dev/null 2>&1 \
+    && ok "links json 可解析且 out 非空" || bad "links json 不合法" "$(printf '%s' "$line" | cut -c1-80)"
+o=$(run '::sym active 2 json')
+line=$(printf '%s' "$o" | grep -a '"pool"' | head -1 | sed 's/^你 > //')
+printf '%s' "$line" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["pool"]>0 and "recent" in d; print("ok")' >/dev/null 2>&1 \
+    && ok "active json 可解析且 pool>0" || bad "active json 不合法" "$(printf '%s' "$line" | cut -c1-80)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL symtool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS symtool（$pass 过 / 0 红）"

@@ -45,12 +45,122 @@ static inline uint8_t sym_assoc_rid(AI *ai, const AssocEntry *e, int *neg) {
 static inline void sym_print_edge(AI *ai, const AssocEntry *e, const char *other) {
     int neg = 0;
     uint8_t rid = sym_assoc_rid(ai, e, &neg);
-    const char *rn = rid ? rel_name_of(ai, rid) : "?";
+    const char *rn = rid ? rel_name_of(ai, rid) : "共现";
     const char *role = (e->role == ASSOC_ROLE_DERIVED) ? "推论"
                      : (e->role == ASSOC_ROLE_INNATE) ? "基准" : "观测";
     printf("  %s%s%s -> %s  （hits %u，%s%s）\n", neg ? "不 " : "", rn ? rn : "?",
            neg ? "" : "", other, e->hits, role,
            e->action && e->action->name ? "，带动作槽" : "");
+}
+
+/* §6.990 JSON 输出：名字里的引号/反斜杠转义；UTF-8 原样输出 */
+static inline void sym_json_str(const char *s) {
+    putchar('"');
+    const unsigned char *p = (const unsigned char *)(s ? s : "");
+    while (*p) {
+        unsigned char ch = *p;
+        if (ch == '"' || ch == '\\') { putchar('\\'); putchar(ch); p++; continue; }
+        if (ch == '\n') { fputs("\\n", stdout); p++; continue; }
+        if (ch < 0x80) { putchar(ch); p++; continue; }
+        /* 多字节：校验长度与续字节；坏序列输出 ?（JSON 必须是合法 UTF-8） */
+        size_t need = (ch & 0xE0) == 0xC0 ? 1 : (ch & 0xF0) == 0xE0 ? 2 : (ch & 0xF8) == 0xF0 ? 3 : 0;
+        int ok = need > 0;
+        for (size_t k = 1; ok && k <= need; ++k)
+            if ((p[k] & 0xC0) != 0x80) ok = 0;
+        if (!ok) { putchar('?'); p++; continue; }
+        for (size_t k = 0; k <= need; ++k) putchar(p[k]);
+        p += need + 1;
+    }
+    putchar('"');
+}
+
+static inline void sym_links_json(AI *ai, Token *t) {
+    printf("{\"name\":"); sym_json_str(t->name);
+    printf(",\"id\":%u,\"degree\":%zu,\"state\":", t->id, t->count); sym_json_str(sym_state(t));
+    printf(",\"out\":[");
+    size_t no = 0;
+    for (size_t i = 0; i < t->count; ++i) {
+        AssocEntry *e = &token_assocs(t)[i];
+        if (!e->main || !e->main->name) continue;
+        int neg = 0;
+        uint8_t rid = sym_assoc_rid(NULL, e, &neg);
+        const char *rn = rid ? rel_name_of(ai, rid) : "共现";
+        const char *role = (e->role == ASSOC_ROLE_DERIVED) ? "推论"
+                         : (e->role == ASSOC_ROLE_INNATE) ? "基准" : "观测";
+        printf("%s{\"rel\":", no ? "," : "");
+        sym_json_str(rn ? rn : "");
+        printf(",\"to\":"); sym_json_str(e->main->name);
+        printf(",\"hits\":%u,\"neg\":%d,\"role\":", e->hits, neg);
+        sym_json_str(role);
+        printf(",\"action\":%s}", (e->action && e->action->name) ? "true" : "false");
+        no++;
+    }
+    printf("],\"in\":[");
+    size_t ni = 0;
+    for (uint32_t ent = t->rev_head; ent && ni < 64; ent = ai->pool->rev_next[ent - 1]) {
+        uint32_t meta = ai->pool->rev_meta[ent - 1];
+        uint32_t sid = ai->pool->rev_src[ent - 1];
+        if (sid >= ai->pool->count) continue;
+        Token *s = ai->pool->tokens[sid];
+        if (!s || s->is_garbage || !s->name) continue;
+        uint8_t rid = (uint8_t)(meta & 0x7FFFu);
+        const char *rn = rel_name_of(ai, rid);
+        printf("%s{\"from\":", ni ? "," : "");
+        sym_json_str(s->name);
+        printf(",\"rel\":"); sym_json_str(rn ? rn : "");
+        printf(",\"neg\":%d}", (meta & 0x8000u) ? 1 : 0);
+        ni++;
+    }
+    printf("],\"in_count\":%zu}\n", ni);
+}
+
+static inline void sym_active_json(AI *ai, int lim) {
+    if (lim <= 0) lim = 12;
+    printf("{\"focus\":[");
+    size_t shown = 0;
+    for (size_t i = 0; i < ai->focus_n && (int)shown < lim; ++i) {
+        Token *t = ai->focus_ring[i];
+        if (!t || t->is_garbage || !t->name) continue;
+        printf("%s{\"id\":%u,\"name\":", shown ? "," : "", t->id); sym_json_str(t->name);
+        printf(",\"weight\":%.3f,\"degree\":%zu,\"state\":", ai->focus_weight[i], t->count);
+        sym_json_str(sym_state(t));
+        printf("}");
+        shown++;
+    }
+    printf("],\"recent\":[");
+    size_t shown2 = 0;
+    uint32_t best[64]; size_t nb = 0;
+    for (size_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage || !t->name || t->last_touch_tick == 0) continue;
+        if (nb < 64) best[nb++] = t->id;
+        else {
+            size_t worst = 0;
+            for (size_t k = 1; k < nb; ++k)
+                if (ai->pool->tokens[best[k]]->last_touch_tick < ai->pool->tokens[best[worst]]->last_touch_tick) worst = k;
+            if (t->last_touch_tick > ai->pool->tokens[best[worst]]->last_touch_tick) best[worst] = t->id;
+        }
+    }
+    while ((int)shown2 < lim) {
+        size_t bi = 0; int found = 0;
+        for (size_t k = 0; k < nb; ++k) {
+            if (!best[k]) continue;
+            if (!found || ai->pool->tokens[best[k]]->last_touch_tick >
+                          ai->pool->tokens[best[bi]]->last_touch_tick) { bi = k; found = 1; }
+        }
+        if (!found) break;
+        Token *t = ai->pool->tokens[best[bi]]; best[bi] = 0;
+        int dup = 0;
+        for (size_t i = 0; i < ai->focus_n; ++i) if (ai->focus_ring[i] == t) { dup = 1; break; }
+        if (dup) continue;
+        printf("%s{\"id\":%u,\"name\":", shown2 ? "," : "", t->id); sym_json_str(t->name);
+        printf(",\"degree\":%zu,\"touched\":%llu,\"state\":", t->count,
+               (unsigned long long)t->last_touch_tick);
+        sym_json_str(sym_state(t));
+        printf("}");
+        shown2++;
+    }
+    printf("],\"pool\":%zu,\"focus_n\":%zu}\n", ai->pool ? ai->pool->count : 0, ai->focus_n);
 }
 
 static inline Token *sym_find(AI *ai, const char *name) {
@@ -265,13 +375,19 @@ static inline void sym_cmd(AI *ai, const char *arg) {
     if (!sub) { printf("[用法] ::sym active|links <名>|add <名>|del <名>|rename <旧> <新>|merge <源> <目标>|write on|off|edge add|del|mod …\n"); return; }
     if (!strcmp(sub, "active")) {
         char *n = strtok_r(NULL, " \t", &save);
-        sym_cmd_active(ai, n ? atoi(n) : 12);
+        char *fmt = strtok_r(NULL, " \t", &save);
+        if (fmt && !strcmp(fmt, "json")) sym_active_json(ai, n ? atoi(n) : 12);
+        else sym_cmd_active(ai, n ? atoi(n) : 12);
         return;
     }
     if (!strcmp(sub, "links")) {
         char *name = strtok_r(NULL, " \t", &save);
-        if (!name) { printf("[用法] ::sym links <名字>\n"); return; }
-        sym_cmd_links(ai, name);
+        char *fmt = strtok_r(NULL, " \t", &save);
+        if (!name) { printf("[用法] ::sym links <名字> [json]\n"); return; }
+        Token *t = sym_find(ai, name);
+        if (!t) { printf("[符号] 图里没有「%s」\n", name); return; }
+        if (fmt && !strcmp(fmt, "json")) sym_links_json(ai, t);
+        else sym_cmd_links(ai, name);
         return;
     }
     if (!strcmp(sub, "undo")) {

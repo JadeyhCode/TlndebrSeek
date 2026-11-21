@@ -34246,3 +34246,32 @@ PASS symtool（20 过 / 0 红）
 - 撤销日志**不落盘**（进程级）；跨进程不能 undo；
 - rename/merge 不可撤销（打印提示）；批量 undo 上限 32 条；
 - “最近触碰”Tie 时顺序不稳定（同一 tick 的多个符号按堆弹出顺序）。
+
+## §6.990 `::sym` JSON 输出：给工具链消费（2026-11-21）
+
+`::sym links <名> json` / `::sym active [n] json` 输出单行 JSON：
+
+```
+{"name":"猫","id":53,"degree":268,"state":"淡化",
+ "out":[{"rel":"共现","to":"[原语:对象]","hits":222,"neg":0,"role":"观测","action":false}, …],
+ "in":[{"from":"老鼠","rel":"怕","neg":0}, …],"in_count":5}
+```
+
+- 无关系位的普通共现边标 `共现`（以前打成空串/问号）；
+- **JSON 必须合法 UTF-8**：`sym_json_str` 会校验多字节序列，坏字节输出 `?`
+  （池子里有历史语料带非 UTF-8 名字，直接原样输出会让 `json.load` 报错——这轮实测遇到）；
+- 名字里的引号/反斜杠转义，换行转 `\n`；输出带 `你 > ` 前缀是 REPL 的，工具里用 `sed 's/^你 > //'` 剥。
+
+### 读数（`tests/symtool.sh` 20 → 22 项）
+
+```
+PASS symtool（22 过 / 0 红）
+```
+
+两项用 `python3 -c json.load(...)` 真解析：links 的 `name/degree/out`、active 的 `pool/recent`。
+
+### 边界
+
+- JSON 是**单行**、无缩进；大符号（猫 268 条边）约 18 KB；
+- 入边仍只取反查表前 64 条（`in_count` 是**已列条数**，不是总数）；
+- 没有 JSON schema 版本号；字段增减要同步工具。
