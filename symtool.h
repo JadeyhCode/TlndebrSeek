@@ -11,6 +11,38 @@
  */
 
 static int g_sym_write = 0;   /* 进程内开关：::sym write on */
+static char g_sym_reason[192]; /* §6.991 下一条写操作的理由（::sym reason …） */
+
+static inline void sym_log_append(const char *op, const char *a, const char *r, const char *b) {
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/sym_log.tsv", "ab");
+    if (!f) return;
+    fprintf(f, "%s\t%s\t%s\t%s\t%s\n", op, a ? a : "", r ? r : "", b ? b : "",
+            g_sym_reason[0] ? g_sym_reason : "（未给理由）");
+    fclose(f);
+}
+
+static inline void sym_cmd_log(int n) {
+    if (n <= 0) n = 10;
+    FILE *f = fopen("_t/sym_log.tsv", "rb");
+    if (!f) { printf("[符号日志] 还没有写操作记录（_t/sym_log.tsv）\n"); return; }
+    char lines[64][512];
+    size_t nl = 0;
+    char buf[512];
+    while (fgets(buf, sizeof buf, f)) {
+        size_t l = strlen(buf);
+        while (l && (buf[l-1] == '\n' || buf[l-1] == '\r')) buf[--l] = 0;
+        snprintf(lines[nl % 64], sizeof lines[0], "%s", buf);
+        nl++;
+    }
+    fclose(f);
+    size_t start = nl > 64 ? nl - 64 : 0;
+    size_t total = nl - start;
+    size_t from = total > (size_t)n ? total - (size_t)n : 0;
+    printf("[符号日志] 最近 %zu 条（共 %zu，_t/sym_log.tsv）：\n", total - from, nl);
+    for (size_t i = from; i < total; ++i)
+        printf("  %s\n", lines[(start + i) % 64]);
+}
 
 static inline const char *sym_state(const Token *t) {
     if (!t) return "?";
@@ -390,6 +422,19 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         else sym_cmd_links(ai, name);
         return;
     }
+    if (!strcmp(sub, "reason")) {
+        const char *rest = save;
+        while (rest && (*rest == ' ' || *rest == '\t')) rest++;
+        if (!rest || !*rest) { printf("[符号] 当前理由：%s\n[用法] ::sym reason <文字>\n", g_sym_reason[0] ? g_sym_reason : "（空）"); return; }
+        snprintf(g_sym_reason, sizeof g_sym_reason, "%s", rest);
+        printf("[符号] 下一条写操作的理由：%s\n", g_sym_reason);
+        return;
+    }
+    if (!strcmp(sub, "log")) {
+        char *n = strtok_r(NULL, " \t", &save);
+        sym_cmd_log(n ? atoi(n) : 10);
+        return;
+    }
     if (!strcmp(sub, "undo")) {
         char *n = strtok_r(NULL, " \t", &save);
         sym_cmd_undo(ai, n ? atoi(n) : 1);
@@ -420,6 +465,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         if (!t) { printf("[符号] 图里没有「%s」\n", name); return; }
         t->is_garbage = 1;
         sym_undo_push(4, NULL, NULL, 0, 0, 0, t);
+        sym_log_append("sym.del", t->name, "", "");
         sym_after_write(ai, "符号标垃圾（不物理删；GC/存盘会收）");
         return;
     }
@@ -436,6 +482,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         if (!to || to == from) { printf("[符号] 目标「%s」有问题\n", b); return; }
         size_t moved = sym_move_edges(ai, from, to);
         from->is_garbage = 1;
+        sym_log_append(sub, from->name, "→", to->name);
         char what[160];
         snprintf(what, sizeof what, "%s → %s（搬 %zu 条边，旧符号标垃圾）", a, b, moved);
         sym_after_write(ai, what);
@@ -456,6 +503,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
             if (ai_write_rel(ai, A, B, rid, 0, AI_WSRC_RELATION) != 0) { printf("[符号] 写不进\n"); return; }
             agent_teach_mark(ai, A, rid, B, 0);
             sym_undo_push(1, A, B, rid, 0, 0, NULL);
+            sym_log_append("edge.add", a, rel_name_of(ai, rid), b);
             char what[160];
             snprintf(what, sizeof what, "%s %s %s", a, rel_name_of(ai, rid), b);
             sym_after_write(ai, what);
@@ -472,6 +520,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
                 (void)sym_assoc_rid(NULL, e, &rneg);
                 token_remove_assoc(A, B);
                 sym_undo_push(2, A, B, rid, 0, rneg, NULL);
+                sym_log_append("edge.del", a, rel_name_of(ai, rid), b);
                 removed = 1;
                 break;
             }
@@ -491,6 +540,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
                 if (sym_assoc_rid(ai, e, &neg) != rid) continue;
                 token_remove_assoc(A, B);
                 sym_undo_push(3, A, B, nrid, rid, 0, NULL);
+                sym_log_append("edge.mod", a, rel_name_of(ai, nrid), b);
                 break;
             }
             if (ai_write_rel(ai, A, B, nrid, 0, AI_WSRC_RELATION) != 0) { printf("[符号] 新关系写不进\n"); return; }

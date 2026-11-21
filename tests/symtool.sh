@@ -78,6 +78,13 @@ line=$(printf '%s' "$o" | grep -a '"pool"' | head -1 | sed 's/^你 > //')
 printf '%s' "$line" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["pool"]>0 and "recent" in d; print("ok")' >/dev/null 2>&1 \
     && ok "active json 可解析且 pool>0" || bad "active json 不合法" "$(printf '%s' "$line" | cut -c1-80)"
 
+echo "== ⑬ 理由登记 + 写操作日志 =="
+o=$(run '::sym write on\n::sym reason 因为甲兽是测试分类\n::sym edge add 甲兽 属于 乙兽\n::sym log')
+printf '%s' "$o" | grep -qa '下一条写操作的理由' && ok "reason 记录理由" || bad "reason 没记" "$(printf '%s' "$o" | grep -a '理由' | head -2)"
+printf '%s' "$o" | grep -qa 'edge.add.*甲兽.*属于.*乙兽.*因为甲兽是测试分类' && ok "日志含操作+理由" || bad "日志缺理由" "$(printf '%s' "$o" | grep -a 'edge.add' | head -2)"
+o=$(run '::sym write on\n::sym edge add 丙兽 属于 丁兽\n::sym log')
+printf '%s' "$o" | grep -qa '未给理由' && ok "没给理由也登记" || bad "没登记未给理由" "$(printf '%s' "$o" | grep -a 'edge.add' | head -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL symtool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS symtool（$pass 过 / 0 红）"
