@@ -9830,6 +9830,39 @@ static inline int agent_serial_verb(AI *ai, char *const *words, size_t n, char *
     return 1;
 }
 
+/* §6.983 关系词错字修复：`猫 属鱼 动物 吗` 被分词成 [猫][属][鱼][动物][吗]，
+ * 两个单字拼起来与某个已知关系**同长且至少共享一个字**（属鱼≈属于）⇒ 合成关系词再走原流水线。 */
+static inline size_t agent_repair_rel_typo(AI *ai, char **words, size_t n) {
+    if (!ai || !words || n < 4) return n;
+    const char *tail = words[n - 1];
+    if (!tail || (strcmp(tail, "吗") && strcmp(tail, "呢") && strcmp(tail, "什么") &&
+                  strcmp(tail, "谁") && strcmp(tail, "啥") && strcmp(tail, "哪")))
+        return n;
+    for (size_t i = 1; i + 2 < n; ++i) {
+        if (!words[i] || !words[i + 1]) continue;
+        if (strlen(words[i]) != 3 || strlen(words[i + 1]) != 3) continue;   /* 只认单字 */
+        char pair[16];
+        snprintf(pair, sizeof pair, "%s%s", words[i], words[i + 1]);
+        for (size_t k = 0; AI_RELS[k].name; ++k) {
+            const char *rn = AI_RELS[k].name;
+            size_t rl = strlen(rn);
+            if (rl != 6 || strlen(pair) != 6) continue;
+            if (strncmp(pair, rn, 3) != 0 && strncmp(pair + 3, rn + 3, 3) != 0) continue;
+            char *nn = (char *)malloc(rl + 1);
+            if (!nn) return n;
+            memcpy(nn, rn, rl + 1);
+            free(words[i]);
+            free(words[i + 1]);
+            words[i] = nn;
+            for (size_t j = i + 1; j + 1 < n; ++j) words[j] = words[j + 1];
+            n--;
+            if (getenv("AIP_SEGDBG")) fprintf(stderr, "[repair] %s -> %s\n", pair, rn);
+            return n;
+        }
+    }
+    return n;
+}
+
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
     if (!a || !input || !out || out_cap == 0) return 0;
     out[0] = 0;
@@ -10363,6 +10396,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     /* §6.375 副词填充（真的/其实/确实/实际上/到底/究竟）：删掉再走后面所有判据 */
     if (words && n > 0) (void)aip_strip_fillers(words, &n);
     if (words && n > 0) (void)agent_norm_quant_def(words, &n);
+    if (!ai->char_stream && words) n = agent_repair_rel_typo(ai, words, n);
     /* §6.967 滑动切分的兜底：图里还没有这个词（比如刚开的新脑）时，滑分会把
      * 「窗户」拆成字，三词关系解析就失败。这时**换回最长匹配**再解析一次：
      * 只在这句确实解析不出关系时回退，不是全局开关。 */
