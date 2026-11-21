@@ -6281,6 +6281,11 @@ static inline int agent_history_kind(const char *input) {
         /* 「我不明白你说什么」里也有"说什么"，但那是"没听懂"，不是问历史 */
         if (strstr(j, "不明白") || strstr(j, "听不懂") || strstr(j, "没听懂") ||
             strstr(j, "没听清")) fam = 0;
+        /* §6.982 「刚才 说 的 是 什么」/「上一句 说 的 什么」：中间多了「的/是」，不是 "说什么" 连续串 */
+        if (!fam && (strstr(j, "刚才") || strstr(j, "上一") || strstr(j, "上句") || strstr(j, "前面")) &&
+            (strstr(j, "什么") || strstr(j, "啥")) &&
+            (strstr(j, "说") || strstr(j, "讲") || strstr(j, "问") || strstr(j, "聊")))
+            fam = 1;
         if (fam) {
             if (strstr(j, "我说的") || strstr(j, "我说了") || strstr(j, "我说啥") ||
                 strstr(j, "我刚才说") || strstr(j, "刚才我说") || strstr(j, "我说的是"))
