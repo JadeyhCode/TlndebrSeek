@@ -1930,6 +1930,57 @@ static inline size_t aip_pat_prefix(const AipPat *arr, size_t n, const char *s) 
     return best;
 }
 /* §6.374 前缀命中并带回**命中下标**（引导语要读它的类别标记） */
+/* §6.969 按**词序列**匹配引导语：`我 教 你` / `我教你，` / `我 教 你 ，` 都算命中。
+ * 旧实现按原始字节前缀比，空格/逗号一换就漏（外部测试的已知缺口）。
+ * 返回要吃掉多少个词；idx 回填命中的模式下标。 */
+static inline size_t aip_pat_prefix_words(const AipPat *arr, size_t n, char **words,
+                                          size_t nw, size_t *idx) {
+    if (idx) *idx = (size_t)-1;
+    if (!arr || !words || nw == 0) return 0;
+    size_t best = 0, bi = (size_t)-1;
+    for (size_t i = 0; i < n; ++i) {
+        const char *pat = arr[i].w;
+        if (!pat || !*pat) continue;
+        size_t plen = 0;
+        for (const char *q = pat; *q; ++q) if (*q != ' ' && *q != '\t') plen++;
+        if (plen == 0 || plen > strlen(words[0]) + 64 * nw) continue;
+        size_t got = 0, k = 0;
+        char joined[256];
+        size_t jl = 0;
+        while (k < nw && got < plen && jl + strlen(words[k]) + 1 < sizeof joined) {
+            memcpy(joined + jl, words[k], strlen(words[k])); jl += strlen(words[k]);
+            got += strlen(words[k]); k++;
+        }
+        joined[jl] = 0;
+        if (got != plen) continue;
+        char pat_flat[256]; size_t pf = 0;
+        for (const char *q = pat; *q && pf + 1 < sizeof pat_flat; ++q)
+            if (*q != ' ' && *q != '\t') pat_flat[pf++] = *q;
+        pat_flat[pf] = 0;
+        if (strcmp(joined, pat_flat) == 0 && plen > best) { best = plen; bi = i; }
+    }
+    if (idx) *idx = bi;
+    if (bi == (size_t)-1) return 0;
+    /* 由字节长度换回词数：重数一遍 */
+    const char *pat = arr[bi].w;
+    size_t plen = 0, k = 0, got = 0;
+    for (const char *q = pat; *q; ++q) if (*q != ' ' && *q != '\t') plen++;
+    while (k < nw && got < plen) { got += strlen(words[k]); k++; }
+    return got == plen ? k : 0;
+}
+
+static inline void aip_join_words(char **w, size_t n, char *out, size_t cap) {
+    size_t o = 0;
+    for (size_t i = 0; i < n && o + 1 < cap; ++i) {
+        /* 中文词直接相接（分词器会自己重新切）；ASCII 之间才补空格 */
+        if (i && o > 0 && (unsigned char)out[o - 1] < 128 && (unsigned char)w[i][0] < 128) out[o++] = ' ';
+        size_t l = strlen(w[i]);
+        if (o + l >= cap) l = cap - o - 1;
+        memcpy(out + o, w[i], l); o += l;
+    }
+    out[o] = 0;
+}
+
 static inline size_t aip_pat_prefix_ex(const AipPat *arr, size_t n, const char *s, size_t *idx) {
     if (idx) *idx = (size_t)-1;
     if (!arr || !s) return 0;
@@ -9878,51 +9929,37 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         /* §6.339 引导语可能**连着两个**（`难道 请注意 …` / `请问 麻烦你 …`）：
          * 以前只剥一次，剩下的那个引导语会让整句掉兜底。最多剥三层。 */
         for (int layer = 0; layer < 3; ++layer) {
-            size_t ll = 0;   /* §6.530 代码表已退役：引导语只从数据桶/图里来 */
-            /* §6.283 数据表里的引导语（`请注意` / `记一下` 这类） */
+            /* §6.969 引导语按**词序列**匹配（空格/逗号无关） */
             size_t lead_i = (size_t)-1;
-            /* §6.517 顺序开关：`AIP_SHELLFIRST=1` 时**先图后桶**（默认仍是先桶后图）。
-             * 为什么要试：真 A/B 下"只用图"pert 215→248（+33），但 blind4 −2 —— 先图后桶可能两头都要。 */
+            size_t consumed = 0, gi = (size_t)-1;
+            size_t lw_n = 0;
+            char **lw = ai_tokenize(ai, q, &lw_n);
             {
                 const char *sf = getenv("AIP_SHELLFIRST");
                 int gfirst = (sf && *sf && strcmp(sf, "0") != 0);
                 if (gfirst) {
                     aip_shell_refresh(ai);
-                    size_t gi = (size_t)-1;
-                    size_t gl = aip_pat_prefix_ex(g_shell, g_shell_n, q, &gi);
-                    if (gl) {
-                        ll = gl;
-                        if (gi != (size_t)-1 && g_shell_q[gi]) was_rhet = 1;
-                    }
+                    consumed = aip_pat_prefix_words(g_shell, g_shell_n, lw, lw_n, &gi);
+                    if (consumed && gi != (size_t)-1 && g_shell_q[gi]) was_rhet = 1;
                 }
             }
-            if (!ll) {
-                /* §6.520 默认**只用图**（桶退役出剥离路径，仍作镜像来源）；`AIP_SHELLONLY=0` 回到旧行为。 */
+            if (!consumed) {
                 const char *so2 = getenv("AIP_SHELLONLY");
                 int only = !(so2 && *so2 && strcmp(so2, "0") == 0);
-                if (!only) ll = aip_pat_prefix_ex(g_lead, g_lead_n, q, &lead_i);
+                if (!only) consumed = aip_pat_prefix_words(g_lead, g_lead_n, lw, lw_n, &lead_i);
             }
-            /* §6.516 **A/B 开关**：`AIP_SHELLONLY=1` 时**完全不看 `[lead]` 桶**，只用图。
-             * 这是"图能不能等价顶住"的唯一判据 —— 没有它，所谓的 A/B 其实两边都走了桶（§6.515 就吃过这个亏）。 */
-            /* §6.513 B5：`[lead]` 桶没命中时，再看**图里的外壳标记**（`标外壳` 建的那些）。
-             * 顺序先桶后图：桶是既有行为（blind4 靠它），图是新的下沉通道。 */
-            if (!ll) {
+            if (!consumed) {
                 aip_shell_refresh(ai);
-                size_t si = (size_t)-1;
-                size_t sl = aip_pat_prefix_ex(g_shell, g_shell_n, q, &si);
-                if (sl) {
-                    ll = sl;
-                    /* §6.515 只有**问句框架**的外壳才补问号（以前一律补 ⇒ 陈述被当成问句，blind4 −81） */
-                    if (si != (size_t)-1 && g_shell_q[si]) was_rhet = 1;
-                }
+                consumed = aip_pat_prefix_words(g_shell, g_shell_n, lw, lw_n, &gi);
+                if (consumed && gi != (size_t)-1 && g_shell_q[gi]) was_rhet = 1;
             }
-            if (!ll) break;
-            if (getenv("AIP_PATDBG")) fprintf(stderr, "[strip] layer=%d ll=%zu q=%.40s\n", layer, ll, q);
+            if (!consumed || consumed >= lw_n) { ai_free_words(lw, lw_n); break; }
+            if (getenv("AIP_PATDBG"))
+                fprintf(stderr, "[strip] layer=%d words=%zu q=%.40s\n", layer, consumed, q);
             if (lead_i != (size_t)-1 && g_lead_q[lead_i]) was_rhet = 1;
-            const char *rest = q + ll;
-            while (*rest == ' ' || *rest == '\t') rest++;
-            if (!*rest) break;
-            snprintf(decl_in, sizeof decl_in, "%s", rest);
+            aip_join_words(lw + consumed, lw_n - consumed, decl_in, sizeof decl_in);
+            ai_free_words(lw, lw_n);
+            if (!decl_in[0]) break;
             input_eff = decl_in;
             q = decl_in;
         }
