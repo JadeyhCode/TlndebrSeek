@@ -12,6 +12,7 @@
 
 static int g_sym_write = 0;   /* 进程内开关：::sym write on */
 static char g_sym_reason[192]; /* §6.991 下一条写操作的理由（::sym reason …） */
+static int g_sym_dry = 0;      /* §6.992 只预览不写：::sym dry … */
 
 static inline void sym_log_append(const char *op, const char *a, const char *r, const char *b) {
     mkdir("_t", 0755);
@@ -422,6 +423,18 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         else sym_cmd_links(ai, name);
         return;
     }
+    if (!strcmp(sub, "dry")) {
+        const char *rest = save;
+        while (rest && (*rest == ' ' || *rest == '\t')) rest++;
+        if (!rest || !*rest) { printf("[用法] ::sym dry <子命令…>（只预览不写）\n"); return; }
+        if (!sym_write_gate()) return;
+        char tmp[512];
+        snprintf(tmp, sizeof tmp, "%s", rest);
+        g_sym_dry = 1;
+        sym_cmd(ai, tmp);
+        g_sym_dry = 0;
+        return;
+    }
     if (!strcmp(sub, "reason")) {
         const char *rest = save;
         while (rest && (*rest == ' ' || *rest == '\t')) rest++;
@@ -461,6 +474,11 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         char *name = strtok_r(NULL, " \t", &save);
         if (!name) { printf("[用法] ::sym del <名字>\n"); return; }
         if (!sym_write_gate()) return;
+        if (g_sym_dry) {
+            Token *t0 = sym_find(ai, name);
+            printf("[预览] 删除符号 %s：%s（不写）\n", name, t0 ? "存在，会标垃圾" : "不存在");
+            return;
+        }
         Token *t = sym_find(ai, name);
         if (!t) { printf("[符号] 图里没有「%s」\n", name); return; }
         t->is_garbage = 1;
@@ -474,6 +492,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         char *b = strtok_r(NULL, " \t", &save);
         if (!a || !b) { printf("[用法] ::sym rename|merge <旧/源> <新/目标>\n"); return; }
         if (!sym_write_gate()) return;
+        if (g_sym_dry) { printf("[预览] %s %s → %s（不写）\n", sub, a, b); return; }
         Token *from = sym_find(ai, a);
         if (!from && !strcmp(sub, "rename")) from = pool_token_intern(ai->pool, a);
         if (!from) { printf("[符号] 源「%s」不在图里\n", a); return; }
@@ -495,6 +514,16 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         char *b = strtok_r(NULL, " \t", &save);
         if (!op || !a || !r || !b) { printf("[用法] ::sym edge add|del|mod <A> <关系> <B> [新关系]\n"); return; }
         if (!sym_write_gate()) return;
+        if (g_sym_dry) {
+            Token *A0 = pool_find(ai->pool, a), *B0 = pool_find(ai->pool, b);
+            uint8_t rid0 = rel_id_of(ai, r, 0);
+            int has = (A0 && B0 && rid0 && rel_direct(A0, rid0, B0));
+            printf("[预览] %s %s %s %s：", op, a, r, b);
+            if (!strcmp(op, "add")) printf(has ? "已存在，不需要写\n" : "会新增一条边（不写）\n");
+            else if (!strcmp(op, "del")) printf(has ? "会删除一条边（不写）\n" : "没有这条边，删不了\n");
+            else printf("会把关系改成 %s（不写）\n", save ? save : "?");
+            return;
+        }
         Token *A = pool_token_intern(ai->pool, a);
         Token *B = pool_token_intern(ai->pool, b);
         uint8_t rid = rel_id_of(ai, r, 1);

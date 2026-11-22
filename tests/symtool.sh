@@ -85,6 +85,18 @@ printf '%s' "$o" | grep -qa 'edge.add.*甲兽.*属于.*乙兽.*因为甲兽是�
 o=$(run '::sym write on\n::sym edge add 丙兽 属于 丁兽\n::sym log')
 printf '%s' "$o" | grep -qa '未给理由' && ok "没给理由也登记" || bad "没登记未给理由" "$(printf '%s' "$o" | grep -a 'edge.add' | head -2)"
 
+echo "== ⑭ dry-run 只预览不写 =="
+o=$(run '::sym write on\n::sym dry edge add 甲 属于 乙\n::sym links 甲')
+printf '%s' "$o" | grep -qa '会新增一条边（不写）' && ok "dry add 有预览" || bad "dry add 没预览" "$(printf '%s' "$o" | grep -a '预览' | head -2)"
+printf '%s' "$o" | grep -qa '图里没有「甲」' && ok "dry add 真的没写（连符号都没造）" || bad "dry add 写进去了" "$(printf '%s' "$o" | grep -a '符号' | head -2)"
+o=$(run '::sym write on\n::sym edge add 甲 属于 乙\n::sym dry edge del 甲 属于 乙\n::sym links 甲')
+printf '%s' "$o" | grep -qa '会删除一条边（不写）' && ok "dry del 有预览" || bad "dry del 没预览" "$(printf '%s' "$o" | grep -a '预览' | head -2)"
+printf '%s' "$o" | grep -qa '出边 1' && ok "dry del 没真删" || bad "dry del 删掉了" "$(printf '%s' "$o" | grep -a '出边' | head -2)"
+o=$(run '::sym write on\n::sym dry edge del 甲 属于 乙')
+printf '%s' "$o" | grep -qa '没有这条边' && ok "dry del 不存在的边说清" || bad "dry del 不存在没提示" "$(printf '%s' "$o" | grep -a '预览' | head -2)"
+o=$(run '::sym write on\n::sym dry del 符号不存在')
+printf '%s' "$o" | grep -qa '不存在' && ok "dry del 符号不存在的边说清" || bad "dry del 符号没提示" "$(printf '%s' "$o" | grep -a '预览' | head -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL symtool（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS symtool（$pass 过 / 0 红）"
