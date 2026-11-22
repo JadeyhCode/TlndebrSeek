@@ -2341,6 +2341,7 @@ int main(int argc, char **argv) {
 
     Agent *a = agent_new(stdin_perceive, stdout_act, NULL);
     if (!a) { fprintf(stderr, "agent_new 失败\n"); return 1; }
+    a->brain->tool_hook = toolcall_hook;   /* §6.993 模型可调用工具（::sym） */
     laws_load("laws.txt");   /* §6.760 逻辑律（可选文件） */
     paper_map_load("paraphrase.map");   /* §6.760 外部说法表（可选文件；归纳出来的映射放这里） */
     paper_cf_load("circumfix.map");     /* §6.762 外部框式表（以…为X 这类，可归纳） */
@@ -2362,6 +2363,7 @@ int main(int argc, char **argv) {
             ai_free(a->brain);
             a->brain = m;
             a->brain->rel_verify_hook = aip_rel_verify;    /* §6.248 */
+            a->brain->tool_hook = toolcall_hook;           /* §6.993 装好模型后也要装上 */
             /* §6.515 换了新池子之后要重新镜像（外壳边建在旧池子上；默认关时这里是空操作） */
             aip_shell_mirror_lead(a->brain);
             /* §6.800/§6.805 模型装好之后：单位系数、说法层四张表都从图里补一遍
@@ -3611,6 +3613,7 @@ int main(int argc, char **argv) {
                         printf("[多脑] 最多同时 %d 个（现在 %zu 个）\n", AI_MAX_BRAINS, g_nbrains);
                     } else {
                         Agent *nb = agent_new(stdin_perceive, stdout_act, NULL);
+                        if (nb) nb->brain->tool_hook = toolcall_hook;
                         if (!nb) printf("[多脑] 建不出来（内存不够？）\n");
                         else {
                             nb->brain->rel_verify_hook = aip_rel_verify;

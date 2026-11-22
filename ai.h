@@ -815,7 +815,7 @@ typedef struct {
     char    source[64];  /* has_claim=0 时的来源说明 */
 } Derivation;
 
-typedef struct {
+typedef struct AI {
     TokenPool *pool;
     uint32_t rng, gc_rng;
 
@@ -1101,6 +1101,7 @@ typedef struct {
     size_t   n_verify_ok;
     size_t   n_verify_miss;
     int    (*rel_verify_hook)(const Token *a, const Token *b, uint8_t rid, int neg);
+    int    (*tool_hook)(struct AI *ai, const char *input, char *out, size_t cap);  /* §6.993 模型调用工具 */
     /* §6.139 脏思考检查器（默认**开**，用户点名要"强制停止"）：输出里连续重复词/句就截停。
      * `AIP_DIRTY=0` 或 `::dirty off` 退回。 */
     int    dirty_guard;

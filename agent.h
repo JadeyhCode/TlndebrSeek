@@ -9989,6 +9989,15 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     int empty_turn = 1;
     for (const char *q = input; q && *q; ++q)
         if (*q != ' ' && *q != '\t' && *q != '\r' && *q != '\n') { empty_turn = 0; break; }
+    /* §6.993 模型可调用工具：输入里带「工具 …」前缀就交给工具钩子（写操作过网关/写入门/限额）。
+     * 放在历史记录之前：工具调用本身不算“内容”。 */
+    if (!empty_turn && ai->tool_hook) {
+        char tb[2048];
+        if (ai->tool_hook(ai, input, tb, sizeof tb)) {
+            snprintf(out, out_cap, "%s", tb);
+            return agent_say(ai, out);
+        }
+    }
     /* §6.217 记"用户说了什么"——但**元问题本身不记**（「我刚才说了什么」不是内容，
      * 记了就会答成"你刚才说的是这句问题本身"，实测踩过）。 */
     if (!empty_turn && input && input[0] != ':' &&
