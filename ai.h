@@ -491,6 +491,7 @@ typedef struct {
     uint8_t  neg;           /* 1 = 写的否定边 */
     uint8_t  src;           /* AiWriteSrc */
     uint8_t  kind;          /* AIMOD_REL / AIMOD_ASSOC */
+    uint32_t why_id;        /* §6.994 这条写的理由 token id（0 = 没给理由） */
 } AIModEntry;
 
 typedef enum {
@@ -5643,6 +5644,14 @@ static inline void ai_modlog_note_raw(AI *ai, uint32_t a_id, uint32_t b_id, uint
     e->neg  = (uint8_t)(neg ? 1 : 0);
     e->src  = (uint8_t)((unsigned)s < AI_WSRC_N ? (unsigned)s : 0u);
     e->kind = (uint8_t)kind;
+    e->why_id = 0;
+}
+
+/* §6.994 给**最后一条**修改账挂理由（理由节点的 token id）：只改账，不改图 */
+static inline void ai_modlog_set_why(AI *ai, uint32_t why_id) {
+    if (!ai || !ai->modlog.n || !why_id) return;
+    size_t idx = (ai->modlog.head + AI_MODLOG_MAX - 1u) % AI_MODLOG_MAX;
+    ai->modlog.ent[idx].why_id = why_id;
 }
 static inline void ai_modlog_note(AI *ai, Token *a, Token *b, uint8_t rid, int neg,
                                   AiWriteSrc s, AIModKind kind) {

@@ -3849,18 +3849,25 @@ int main(int argc, char **argv) {
                     Token *tb = e->b_id ? pool_token_by_id(a->brain->pool, e->b_id) : NULL;
                     const char *kind = ai_modlog_kind_name(e->kind);
                     const char *anam = ta && ta->name ? ta->name : "?";
+                    const char *why = "";
+                    if (e->why_id) {
+                        Token *tw = pool_token_by_id(a->brain->pool, e->why_id);
+                        if (tw && tw->name) why = tw->name;
+                    }
                     const char *bnam = tb && tb->name ? tb->name : "?";
                     /* §6.580 关系类动作 = 加关系/删关系/照抄/冲突未写/强行覆盖（都是三元组） */
                     if (e->kind == AIMOD_REL || e->kind == AIMOD_REL_DEL ||
                         e->kind == AIMOD_REL_COPY || e->kind == AIMOD_REL_CONFLICT ||
                         e->kind == AIMOD_REL_OVERRIDE) {
                         const char *rn = e->rid ? rel_name_of(a->brain, e->rid) : NULL;
-                        printf("  #%u %s  %s %s%s %s  [%s]\n", e->seq, kind, anam,
+                        printf("  #%u %s  %s %s%s %s  [%s]%s%s\n", e->seq, kind, anam,
                                e->neg ? "不 " : "", rn ? rn : "?", bnam,
-                               ai_write_src_name((AiWriteSrc)e->src));
+                               ai_write_src_name((AiWriteSrc)e->src),
+                               why[0] ? "  " : "", why);
                     } else {
-                        printf("  #%u %s  %s → %s  [%s]\n", e->seq, kind, anam, bnam,
-                               ai_write_src_name((AiWriteSrc)e->src));
+                        printf("  #%u %s  %s → %s  [%s]%s%s\n", e->seq, kind, anam, bnam,
+                               ai_write_src_name((AiWriteSrc)e->src),
+                               why[0] ? "  " : "", why);
                     }
                 }
                 continue;

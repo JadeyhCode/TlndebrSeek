@@ -9994,7 +9994,12 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (!empty_turn && ai->tool_hook) {
         char tb[2048];
         if (ai->tool_hook(ai, input, tb, sizeof tb)) {
-            snprintf(out, out_cap, "%s", tb);
+            size_t tl = strlen(tb);
+            if (out_cap) {
+                if (tl >= out_cap) tl = out_cap - 1;
+                memcpy(out, tb, tl);
+                out[tl] = 0;
+            }
             return agent_say(ai, out);
         }
     }

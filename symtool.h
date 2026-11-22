@@ -380,6 +380,15 @@ static inline int sym_check(AI *ai) {
     return 1;
 }
 
+/* §6.994 理由节点：`[理由:…]` 进池（随存盘），并把 id 挂到修改账最后一条 */
+static inline void sym_note_reason(AI *ai) {
+    if (!ai || !ai->pool || !g_sym_reason[0]) return;
+    char name[256];
+    snprintf(name, sizeof name, "[理由:%.*s]", (int)(sizeof name - 12), g_sym_reason);
+    Token *t = pool_token_intern(ai->pool, name);
+    if (t) ai_modlog_set_why(ai, t->id);
+}
+
 static inline void sym_after_write(AI *ai, const char *what) {
     ai->n_rel_learned++;
     int ok = sym_check(ai);
@@ -535,6 +544,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         t->is_garbage = 1;
         sym_undo_push(4, NULL, NULL, 0, 0, 0, t);
         sym_log_append("sym.del", t->name, "", "");
+        sym_note_reason(ai);
         sym_after_write(ai, "符号标垃圾（不物理删；GC/存盘会收）");
         return;
     }
@@ -553,6 +563,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         size_t moved = sym_move_edges(ai, from, to);
         from->is_garbage = 1;
         sym_log_append(sub, from->name, "→", to->name);
+        sym_note_reason(ai);
         char what[160];
         snprintf(what, sizeof what, "%s → %s（搬 %zu 条边，旧符号标垃圾）", a, b, moved);
         sym_after_write(ai, what);
@@ -584,6 +595,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
             agent_teach_mark(ai, A, rid, B, 0);
             sym_undo_push(1, A, B, rid, 0, 0, NULL);
             sym_log_append("edge.add", a, rel_name_of(ai, rid), b);
+            sym_note_reason(ai);
             char what[160];
             snprintf(what, sizeof what, "%s %s %s", a, rel_name_of(ai, rid), b);
             sym_after_write(ai, what);
@@ -733,6 +745,12 @@ static inline int toolcall_hook(AI *ai, const char *input, char *out, size_t cap
             g_tool_damage++;
             return 1;
         }
+        if (!g_sym_reason[0]) {
+            snprintf(out, cap, "（工具）模型写图要先给理由：`工具 reason 因为…`，没有理由我不落盘");
+            tool_ledger_add("self", sub, "reject_no_reason");
+            g_tool_damage++;
+            return 1;
+        }
         long limit = getenv("AIP_TOOLWRITE_LIMIT") ? atol(getenv("AIP_TOOLWRITE_LIMIT")) : 50;
         if (limit > 0 && g_tool_writes >= limit) {
             snprintf(out, cap, "（工具）这个会话里模型已经改图 %d 次，到限额 %ld 了", g_tool_writes, limit);
@@ -752,7 +770,7 @@ static inline int toolcall_hook(AI *ai, const char *input, char *out, size_t cap
     out[got] = 0;
     fclose(tmp);
     while (got > 0 && (out[got - 1] == '\n' || out[got - 1] == '\r')) out[--got] = 0;
-    if (write) g_tool_writes++;
+    if (write) { g_tool_writes++; g_sym_reason[0] = 0; }   /* §6.994 理由一条一用：写成就消费掉 */
     tool_ledger_add("self", sub, write ? "allow_write" : "allow");
     return 1;
 }
