@@ -509,6 +509,69 @@ static inline long aip_policy_int(const char *key, long def) {
     return def;
 }
 
+/* §6.999 策略**字符串**参数：`policy.txt` 里 `键=词1,词2`（中文逗号也认）。
+ * 用于“怎么想”的触发词表（工具意图词、前缀），让这些词不再是 C 里的常量。
+ * 返回 1 表示 policy.txt 里给了这个键；0 表示没给（调用方用自己的默认表）。 */
+static inline int aip_policy_str(const char *key, char *out, size_t cap) {
+    if (!key || !out || cap == 0) return 0;
+    FILE *f = fopen("policy.txt", "rb");
+    if (!f) return 0;
+    int found = 0;
+    char line[512];
+    while (fgets(line, sizeof line, f)) {
+        char *h = strchr(line, '#');
+        if (h) *h = 0;
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *k = line;
+        while (*k == ' ' || *k == '\t') k++;
+        char *ke = k + strlen(k);
+        while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t' || ke[-1] == '\r' || ke[-1] == '\n')) *--ke = 0;
+        if (strcmp(k, key) != 0) continue;
+        char *v = eq + 1;
+        while (*v == ' ' || *v == '\t') v++;
+        size_t vl = strlen(v);
+        while (vl && (v[vl-1] == '\r' || v[vl-1] == '\n' || v[vl-1] == ' ' || v[vl-1] == '\t')) vl--;
+        if (vl >= cap) vl = cap - 1;
+        memcpy(out, v, vl);
+        out[vl] = 0;
+        found = 1;
+        break;
+    }
+    fclose(f);
+    return found;
+}
+
+/* 词表按半角/全角逗号切分：**不能用 strtok_r**——全角逗号的字节里含 0x8C，
+ * 会把“指”这种 UTF-8 字符从中间切断（实测：“指令”被切成 1 字节）。这里按**整段序列**跳过。 */
+static inline char *aip_policy_next(char **pp) {
+    if (!pp || !*pp) return NULL;
+    char *s = *pp;
+    for (;;) {
+        while (*s == ' ' || *s == '\t') s++;
+        if (*s == ',') { s++; continue; }
+        if ((unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBC && (unsigned char)s[2] == 0x8C) { s += 3; continue; }
+        break;
+    }
+    if (!*s) { *pp = s; return NULL; }
+    char *e = s;
+    while (*e) {
+        if (*e == ',') break;
+        if ((unsigned char)e[0] == 0xEF && (unsigned char)e[1] == 0xBC && (unsigned char)e[2] == 0x8C) break;
+        e++;
+    }
+    char *nxt = e;
+    if (*e == ',') { *e = 0; nxt = e + 1; }
+    else if (*e) { *e = 0; nxt = e + 3; }
+    char *t = e;
+    (void)t;
+    size_t l = strlen(s);
+    while (l && (s[l-1] == ' ' || s[l-1] == '\t')) s[--l] = 0;
+    *pp = nxt;
+    return s;
+}
+
 /* ============================ §6.564 每个智能体自己的修改账 ============================
  *
  * 目标（用户 2026-10-24）：**打开多个智能体，每个智能体只维护自己的修改**。

@@ -652,13 +652,30 @@ static inline void sym_cmd(AI *ai, const char *arg) {
 
 /* §6.993 模型可调用工具：自然语言里的「工具 …」前缀 → ::sym 子命令（默认只读，写操作过网关）。
  * 借鉴 路线C gates.py：来源白名单 + 写入门 + 限额 + 判定账本；模型来源固定 "self"。 */
+/* 策略词表里有没有任意一个词出现在 text 里 */
+static inline int tool_str_has_list(const char *key, const char *deflist, const char *text) {
+    if (!text) return 0;
+    char buf[256];
+    if (!aip_policy_str(key, buf, sizeof buf))
+        snprintf(buf, sizeof buf, "%s", deflist ? deflist : "");
+    char *cur = buf;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (*w && strstr(text, w)) return 1;
+    return 0;
+}
+
 static inline int tool_detect(const char *input) {
     if (!input) return 0;
     const char *p = input;
     while (*p == ' ' || *p == '\t') p++;
-    if (strncmp(p, "工具", 6) == 0) return 1;
-    if (strncmp(p, "tool:", 5) == 0) return 1;
-    if (strncmp(p, "TOOL:", 5) == 0) return 1;
+    char buf[128];
+    if (!aip_policy_str("tool_prefix", buf, sizeof buf))
+        snprintf(buf, sizeof buf, "%s", "工具,tool:,TOOL:");
+    char *cur = buf;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur)) {
+        size_t l = strlen(w);
+        if (l && strncmp(p, w, l) == 0) return (int)l;
+    }
     return 0;
 }
 
@@ -676,7 +693,7 @@ static inline int tool_resolve(AI *ai, const char *rest, char *cmd, size_t cap) 
         }
     }
     /* 「看看猫的连接 / 猫连着哪些符号」→ links <猫> */
-    if (strstr(rest, "连接") || strstr(rest, "连着") || strstr(rest, "相连")) {
+    if (tool_str_has_list("tool_link_words", "连接,连着,相连", rest)) {
         /* 子串匹配池里最长的符号名：自然句没空格（「看看猫的连接」），按词切抓不到「猫」 */
         const char *best = NULL;
         size_t bl = 0, bdeg = 0;
@@ -699,11 +716,11 @@ static inline int tool_resolve(AI *ai, const char *rest, char *cmd, size_t cap) 
         }
         return 0;
     }
-    if (strstr(rest, "活跃") || strstr(rest, "激活") || strstr(rest, "符号")) {
+    if (tool_str_has_list("tool_active_words", "活跃,激活,符号", rest)) {
         snprintf(cmd, cap, "active 8");
         return 1;
     }
-    if (strstr(rest, "网关") || strstr(rest, "gate")) {
+    if (tool_str_has_list("tool_gate_words", "网关,gate", rest)) {
         snprintf(cmd, cap, "gate");
         return 1;
     }
@@ -714,7 +731,8 @@ static inline int toolcall_hook(AI *ai, const char *input, char *out, size_t cap
     if (!ai || !out || cap == 0 || !tool_detect(input)) return 0;
     const char *p = input;
     while (*p == ' ' || *p == '\t') p++;
-    p += (strncmp(p, "工具", 6) == 0) ? 6 : 5;
+    int plen = tool_detect(input);
+    p += plen > 0 ? plen : 0;
     char cmd[512];
     if (!tool_resolve(ai, p, cmd, sizeof cmd)) {
         snprintf(out, cap, "（工具）用法：工具 active | 工具 links 猫 | 工具 看看猫的连接 | 工具 gate…（写操作要先 ::sym write on）");

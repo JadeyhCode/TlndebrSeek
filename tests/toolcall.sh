@@ -58,6 +58,21 @@ rm -f "$W/policy.txt"
 o=$(run '::sym write on\n工具 reason r1\n工具 edge add 甲 属于 乙\n工具 reason r2\n工具 edge add 丙 属于 丁')
 printf '%s' "$o" | grep -qav '到限额' && ok "删掉 policy.txt 回到默认（两次都能写）" || bad "回不到默认" "$(printf '%s' "$o" | grep -a '工具' | head -3)"
 
+echo "== ⑨ §6.999 意图词表来自 policy.txt（换词/删文件都能消融） =="
+printf 'tool_link_words=联系\n' > "$W/policy.txt"
+o=$(run '工具 看看猫的联系')
+printf '%s' "$o" | grep -qa '猫  id=' && ok "自定义“联系”能路由 links" || bad "自定义词没生效" "$(printf '%s' "$o" | grep -a '工具' | head -2)"
+o=$(run '工具 看看猫的连接')
+printf '%s' "$o" | grep -qa '工具）用法' && ok "旧词“连接”让位（不再路由）" || bad "旧词还在抢" "$(printf '%s' "$o" | grep -a 'AI >' | head -2)"
+printf 'tool_prefix=指令\n' > "$W/policy.txt"
+o=$(run '指令 active')
+printf '%s' "$o" | grep -qa '焦点环' && ok "自定义前缀“指令”生效" || bad "自定义前缀没生效" "$(printf '%s' "$o" | grep -a 'AI >' | head -2)"
+o=$(run '工具 active')
+printf '%s' "$o" | grep -qa '焦点环' && bad "旧前缀“工具”还在生效" "$(printf '%s' "$o" | grep -a 'AI >' | head -2)" || ok "旧前缀让位"
+rm -f "$W/policy.txt"
+o=$(run '工具 看看猫的连接')
+printf '%s' "$o" | grep -qa '猫  id=' && ok "删掉 policy.txt 回默认词表" || bad "默认词表没回来" "$(printf '%s' "$o" | grep -a 'AI >' | head -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL toolcall（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS toolcall（$pass 过 / 0 红）"
