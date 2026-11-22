@@ -9969,6 +9969,21 @@ static inline int aip_more_request(const char *in) {
            strstr(j, "再列") || strstr(j, "更多") || strstr(j, "接着");
 }
 
+/* §6.995 答不出时把**具体问题**入好奇心队列（本地先记，不立刻联网）。
+ * 只在“图里确实没有”的兜底里调；问句形状才收（陈述/命令不收）。 */
+static inline int aip_question_shape(const char *s) {
+    if (!s) return 0;
+    size_t n = strlen(s);
+    if (n < 4) return 0;
+    static const char *tail[] = { "吗", "呢", "什么", "谁", "哪", "哪里", "哪儿", "几", "多少",
+                                  "怎么", "怎样", "为什么", "啥", NULL };
+    for (size_t i = 0; tail[i]; ++i) {
+        size_t l = strlen(tail[i]);
+        if (n >= l && strcmp(s + n - l, tail[i]) == 0) return 1;
+    }
+    return strncmp(s, "请问", 6) == 0 || strstr(s, "？") != NULL;
+}
+
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
     if (!a || !input || !out || out_cap == 0) return 0;
     out[0] = 0;
@@ -11397,6 +11412,13 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                 }
             }
             if (!clarified) {
+            /* §6.995 兜底：这个问题图里答不出 ⇒ 生成具体问题入好奇心队列（限额）
+             * 借鉴 路线C 的“先记下来、再按需查”的分层：本地队列 →（人工/开关）搜索 → 外部。 */
+            if (ai->curious_hook && aip_question_shape(input) &&
+                ai->curious_n < (getenv("AIP_CURIOUS_LIMIT") ? atoi(getenv("AIP_CURIOUS_LIMIT")) : 5)) {
+                ai->curious_hook(ai, input, "对话里答不出（图里没有这条）");
+                ai->curious_n++;
+            }
             /* §6.537 说法池来自数据（`[refuse]`）；池空（消融）时退一句最小的诚实说法 */
             size_t nref = ai_refuse_count();
             const char *rf = nref ? ai_refuse_at(ai->n_refusals++) : "我 不 知道";

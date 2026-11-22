@@ -71,6 +71,28 @@ printf '%s' "$o" | grep -qa '接受：编译过了' && ok "学习接受" || bad 
 printf '%s' "$o" | grep -qa '\[learned\]' && ok "队列自动销项（learned）" || bad "队列没销项" "$(printf '%s' "$o" | grep -a 二号 | head -2)"
 kill "$SRV2" 2>/dev/null
 
+echo "== ⑥ §6.995 对话答不出：自动生成具体问题入队（带原因） =="
+W2="$ROOT/_t/curious_dlg"; rm -rf "$W2"; mkdir -p "$W2"
+cp build_aip "$W2/build_aip"; cp model.bin "$W2/model.bin"
+cp patterns.txt frames.txt relations.txt "$W2/" 2>/dev/null
+run2() { ( cd "$W2" && printf '%b\n::quit\n' "$1" | ./build_aip --model model.bin 2>&1 ); }
+o=$(run2 '鸟 吃 石头 吗\n::curious')
+printf '%s' "$o" | grep -qa '鸟 吃 石头 吗' && ok "问句入队" || bad "没入队" "$(printf '%s' "$o" | grep -a '好奇' -A2 | head -4)"
+printf '%s' "$o" | grep -qa '对话里答不出' && ok "记了为什么问" || bad "没记原因" "$(printf '%s' "$o" | grep -a '鸟 吃' | head -2)"
+run2 '你好' > /dev/null
+if grep -q "你好" "$W2/_t/curious.tsv" 2>/dev/null; then bad "寒暄也被入队" "$(head -2 "$W2/_t/curious.tsv")"; else ok "陈述/寒暄不入队"; fi
+n=$(grep -c "对话里答不出" "$W2/_t/curious.tsv" 2>/dev/null || true)
+[ "$n" = "1" ] && ok "只入队问句（1 条）" || bad "条数不对" "对话原因条数=$n"
+
+echo "== ⑦ §6.995 入队限额（AIP_CURIOUS_LIMIT=1） =="
+W3="$ROOT/_t/curious_limit"; rm -rf "$W3"; mkdir -p "$W3"
+cp build_aip "$W3/build_aip"; cp model.bin "$W3/model.bin"
+cp patterns.txt frames.txt relations.txt "$W3/" 2>/dev/null
+run3() { ( cd "$W3" && printf '%b\n::quit\n' "$1" | AIP_CURIOUS_LIMIT=1 ./build_aip --model model.bin 2>&1 ); }
+run3 '鸟 吃 石头 吗\n鱼 会 唱歌 吗' > /dev/null
+n=$(grep -c "对话里答不出" "$W3/_t/curious.tsv" 2>/dev/null || true)
+[ "$n" = "1" ] && ok "限额 1 生效" || bad "限额没生效" "条数=$n"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL curious（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS curious（$pass 过 / 0 红）"

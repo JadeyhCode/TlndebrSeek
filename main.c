@@ -2274,6 +2274,11 @@ static void curious_enqueue(const char *what, const char *why) {
     if (a) { fprintf(a, "%ld\t%s\t%s\tpending\n", now, what, (why && *why) ? why : "（没有记录原因）"); fclose(a); }
 }
 
+static void aip_curious_hook(AI *ai, const char *q, const char *why) {
+    (void)ai;
+    curious_enqueue(q, why);
+}
+
 /* §6.928 学会后销项：把队列里同一问题的 pending 标成 learned（不删，留痕） */
 static void curious_resolve(const char *what) {
     if (!what || !*what) return;
@@ -2342,6 +2347,7 @@ int main(int argc, char **argv) {
     Agent *a = agent_new(stdin_perceive, stdout_act, NULL);
     if (!a) { fprintf(stderr, "agent_new 失败\n"); return 1; }
     a->brain->tool_hook = toolcall_hook;   /* §6.993 模型可调用工具（::sym） */
+    a->brain->curious_hook = aip_curious_hook;   /* §6.995 答不出入好奇心队列 */
     laws_load("laws.txt");   /* §6.760 逻辑律（可选文件） */
     paper_map_load("paraphrase.map");   /* §6.760 外部说法表（可选文件；归纳出来的映射放这里） */
     paper_cf_load("circumfix.map");     /* §6.762 外部框式表（以…为X 这类，可归纳） */
@@ -2364,6 +2370,7 @@ int main(int argc, char **argv) {
             a->brain = m;
             a->brain->rel_verify_hook = aip_rel_verify;    /* §6.248 */
             a->brain->tool_hook = toolcall_hook;           /* §6.993 装好模型后也要装上 */
+            a->brain->curious_hook = aip_curious_hook;     /* §6.995 */
             /* §6.515 换了新池子之后要重新镜像（外壳边建在旧池子上；默认关时这里是空操作） */
             aip_shell_mirror_lead(a->brain);
             /* §6.800/§6.805 模型装好之后：单位系数、说法层四张表都从图里补一遍
@@ -3613,7 +3620,7 @@ int main(int argc, char **argv) {
                         printf("[多脑] 最多同时 %d 个（现在 %zu 个）\n", AI_MAX_BRAINS, g_nbrains);
                     } else {
                         Agent *nb = agent_new(stdin_perceive, stdout_act, NULL);
-                        if (nb) nb->brain->tool_hook = toolcall_hook;
+                        if (nb) { nb->brain->tool_hook = toolcall_hook; nb->brain->curious_hook = aip_curious_hook; }
                         if (!nb) printf("[多脑] 建不出来（内存不够？）\n");
                         else {
                             nb->brain->rel_verify_hook = aip_rel_verify;

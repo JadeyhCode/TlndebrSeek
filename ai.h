@@ -1103,6 +1103,8 @@ typedef struct AI {
     size_t   n_verify_miss;
     int    (*rel_verify_hook)(const Token *a, const Token *b, uint8_t rid, int neg);
     int    (*tool_hook)(struct AI *ai, const char *input, char *out, size_t cap);  /* §6.993 模型调用工具 */
+    void   (*curious_hook)(struct AI *ai, const char *q, const char *why);  /* §6.995 答不出时入好奇心队列 */
+    int     curious_n;      /* 本会话已入队条数（限额记账） */
     /* §6.139 脏思考检查器（默认**开**，用户点名要"强制停止"）：输出里连续重复词/句就截停。
      * `AIP_DIRTY=0` 或 `::dirty off` 退回。 */
     int    dirty_guard;
