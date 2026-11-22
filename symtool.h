@@ -53,9 +53,10 @@ static inline int tool_is_write(const char *sub) {
                    !strcmp(sub, "write") || !strcmp(sub, "dry"));
 }
 static inline void tool_gate_report(void) {
-    sym_printf("[工具网关] 记录 %d 条，违规 %d 次，模型已写 %d 次（限额 %ld）\n",
-               g_tool_ledger_n, g_tool_damage, g_tool_writes,
-               (long)(getenv("AIP_TOOLWRITE_LIMIT") ? atol(getenv("AIP_TOOLWRITE_LIMIT")) : 50));
+    long lim_now = getenv("AIP_TOOLWRITE_LIMIT") ? atol(getenv("AIP_TOOLWRITE_LIMIT"))
+                                                 : aip_policy_int("toolwrite_limit", 50);
+    sym_printf("[工具网关] 记录 %d 条，违规 %d 次，模型已写 %d 次（限额 %ld，来自 policy.txt/环境变量）\n",
+               g_tool_ledger_n, g_tool_damage, g_tool_writes, lim_now);
     int from = g_tool_ledger_n > 10 ? g_tool_ledger_n - 10 : 0;
     for (int i = from; i < g_tool_ledger_n; ++i)
         sym_printf("  %-8s %-24s %s\n", g_tool_ledger[i].owner, g_tool_ledger[i].name, g_tool_ledger[i].verdict);
@@ -751,7 +752,8 @@ static inline int toolcall_hook(AI *ai, const char *input, char *out, size_t cap
             g_tool_damage++;
             return 1;
         }
-        long limit = getenv("AIP_TOOLWRITE_LIMIT") ? atol(getenv("AIP_TOOLWRITE_LIMIT")) : 50;
+        long limit = getenv("AIP_TOOLWRITE_LIMIT") ? atol(getenv("AIP_TOOLWRITE_LIMIT"))
+                                                    : aip_policy_int("toolwrite_limit", 50);
         if (limit > 0 && g_tool_writes >= limit) {
             snprintf(out, cap, "（工具）这个会话里模型已经改图 %d 次，到限额 %ld 了", g_tool_writes, limit);
             tool_ledger_add("self", sub, "reject_limit");

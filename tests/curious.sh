@@ -93,6 +93,19 @@ run3 '鸟 吃 石头 吗\n鱼 会 唱歌 吗' > /dev/null
 n=$(grep -c "对话里答不出" "$W3/_t/curious.tsv" 2>/dev/null || true)
 [ "$n" = "1" ] && ok "限额 1 生效" || bad "限额没生效" "条数=$n"
 
+echo "== ⑧ §6.998 好奇心限额也来自 policy.txt =="
+W4="$ROOT/_t/curious_policy"; rm -rf "$W4"; mkdir -p "$W4"
+cp build_aip "$W4/build_aip"; cp model.bin "$W4/model.bin"
+cp patterns.txt frames.txt relations.txt "$W4/" 2>/dev/null
+printf 'curious_limit=1\n' > "$W4/policy.txt"
+( cd "$W4" && printf '鸟 吃 石头 吗\n鱼 会 唱歌 吗\n::quit\n' | ./build_aip --model model.bin > /dev/null 2>&1 )
+n=$(grep -c "对话里答不出" "$W4/_t/curious.tsv" 2>/dev/null || true)
+[ "$n" = "1" ] && ok "policy.txt curious_limit=1 生效" || bad "policy 没生效" "条数=$n"
+rm -f "$W4/policy.txt"
+( cd "$W4" && rm -rf _t && printf '鸟 吃 石头 吗\n鸟 吃 木头 吗\n::quit\n' | ./build_aip --model model.bin > /dev/null 2>&1 )
+n=$(grep -c "对话里答不出" "$W4/_t/curious.tsv" 2>/dev/null || true)
+[ "$n" = "2" ] && ok "删掉 policy.txt 回默认（两条都入队）" || bad "回不到默认" "条数=$n"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL curious（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS curious（$pass 过 / 0 红）"

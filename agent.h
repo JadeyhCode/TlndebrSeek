@@ -11415,7 +11415,8 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             /* §6.995 兜底：这个问题图里答不出 ⇒ 生成具体问题入好奇心队列（限额）
              * 借鉴 路线C 的“先记下来、再按需查”的分层：本地队列 →（人工/开关）搜索 → 外部。 */
             if (ai->curious_hook && aip_question_shape(input) &&
-                ai->curious_n < (getenv("AIP_CURIOUS_LIMIT") ? atoi(getenv("AIP_CURIOUS_LIMIT")) : 5)) {
+                ai->curious_n < (getenv("AIP_CURIOUS_LIMIT") ? atoi(getenv("AIP_CURIOUS_LIMIT"))
+                                                             : (int)aip_policy_int("curious_limit", 5))) {
                 ai->curious_hook(ai, input, "对话里答不出（图里没有这条）");
                 ai->curious_n++;
             }

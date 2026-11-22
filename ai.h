@@ -471,6 +471,44 @@ static inline const char *ai_write_src_name(AiWriteSrc s) {
     default:               return "?";
     }
 }
+/* §6.998 **策略参数数据层**：`policy.txt` 里 `键=值` 的整数，供写入门/好奇心限额这类
+ * “约束怎么想”的阈值使用。顺序：环境变量（调用方自己查）> policy.txt > 代码最小默认。
+ * 只认整数；文件缺失/坏行就当没写（保持可复现：删掉 policy.txt 就回到默认）。 */
+static inline long aip_policy_int(const char *key, long def) {
+    static char p_key[16][40];
+    static long p_val[16];
+    static int p_n = -1;
+    if (!key) return def;
+    if (p_n < 0) {
+        p_n = 0;
+        FILE *f = fopen("policy.txt", "rb");
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof line, f) && p_n < 16) {
+                char *h = strchr(line, '#');
+                if (h) *h = 0;
+                char *eq = strchr(line, '=');
+                if (!eq) continue;
+                *eq = 0;
+                char *k = line;
+                while (*k == ' ' || *k == '\t') k++;
+                char *ke = k + strlen(k);
+                while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t' || ke[-1] == '\r' || ke[-1] == '\n')) *--ke = 0;
+                char *v = eq + 1;
+                while (*v == ' ' || *v == '\t') v++;
+                if (!*k) continue;
+                snprintf(p_key[p_n], sizeof p_key[0], "%s", k);
+                p_val[p_n] = atol(v);
+                p_n++;
+            }
+            fclose(f);
+        }
+    }
+    for (int i = 0; i < p_n; ++i)
+        if (!strcmp(p_key[i], key)) return p_val[i];
+    return def;
+}
+
 /* ============================ §6.564 每个智能体自己的修改账 ============================
  *
  * 目标（用户 2026-10-24）：**打开多个智能体，每个智能体只维护自己的修改**。

@@ -50,6 +50,14 @@ printf '%s' "$o" | grep -qa '要先给理由' && ok "无理由写入被拒" || b
 o=$(run '::sym write on\n工具 reason 因为甲是测试分类\n工具 edge add 甲 属于 乙\n::mods')
 printf '%s' "$o" | grep -qa '理由:因为甲是测试分类' && ok "理由进修改账" || bad "修改账没有理由" "$(printf '%s' "$o" | grep -a '加关系' | head -2)"
 
+echo "== ⑧ §6.998 限额来自数据（policy.txt），删掉回默认 =="
+printf 'toolwrite_limit=1\n' > "$W/policy.txt"
+o=$(run '::sym write on\n工具 reason r1\n工具 edge add 甲 属于 乙\n工具 reason r2\n工具 edge add 丙 属于 丁')
+printf '%s' "$o" | grep -qa '到限额' && ok "policy.txt 限额=1 生效" || bad "policy 没生效" "$(printf '%s' "$o" | grep -a '工具' | head -3)"
+rm -f "$W/policy.txt"
+o=$(run '::sym write on\n工具 reason r1\n工具 edge add 甲 属于 乙\n工具 reason r2\n工具 edge add 丙 属于 丁')
+printf '%s' "$o" | grep -qav '到限额' && ok "删掉 policy.txt 回到默认（两次都能写）" || bad "回不到默认" "$(printf '%s' "$o" | grep -a '工具' | head -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL toolcall（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS toolcall（$pass 过 / 0 红）"
