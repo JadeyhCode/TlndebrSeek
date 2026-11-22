@@ -193,6 +193,7 @@ whyfor|sh tests/whyfor.sh
 curious|sh tests/curious.sh
 shard|sh tests/shard.sh
 shardquery|sh tests/shardquery.sh
+shardcold|python3 tools/shard_cold.py
 hardcode|sh tests/hardcode.sh
 shapewords|sh tests/shapewords.sh
 multivar|sh tests/multivar.sh
