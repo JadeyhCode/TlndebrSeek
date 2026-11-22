@@ -214,6 +214,7 @@ int main(void) {\
 任务:矩阵乘法	排除	矩阵元素
 任务:矩阵乘法	排除	元素的和
 任务:矩阵乘法	排除	矩阵转置
+任务:矩阵乘法	排除	转置
 任务:矩阵乘法	排除	矩阵平均数
 任务:矩阵乘法	排除	求逆
 任务:矩阵乘法	排除	逆矩阵
@@ -312,17 +313,19 @@ int main(int argc, char **argv) {\
 任务:最大公约数	关键词	gcd
 任务:最大公约数	关键词	约数
 任务:最大公约数	排除	最小公倍数
+任务:最大公约数	排除	一行
 任务:最大公约数	骨架	骨架:最大公约数
 任务:最大公约数	用途	求两个数的最大公约数
 骨架:最大公约数	语言	C11
 骨架:最大公约数	依赖	stdio.h
 骨架:最大公约数	代码	#include <stdio.h>\
+#include <stdlib.h>\
 static long gcd(long a, long b) { while (b) { long t = a % b; a = b; b = t; } return a < 0 ? -a : a; }\
-int main(void) {\
-    printf("%ld\n", gcd(48, 18));\
-    int ok = gcd(48,18) == 6 && gcd(17,5) == 1 && gcd(0,9) == 9 && gcd(100,75) == 25;\
-    printf("%s\n", ok ? "ok gcd" : "FAIL gcd");\
-    return ok ? 0 : 1;\
+int main(int argc, char **argv) {\
+    long A = argc > 1 ? atol(argv[1]) : 2;\
+    long B = argc > 2 ? atol(argv[2]) : 10;\
+    printf("%ld\n", gcd(A, B));\
+    return 0;\
 }
 任务:字符统计	排除	字母个数
 任务:字符统计	排除	字母的个数

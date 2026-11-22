@@ -52,7 +52,7 @@ def main():
     print("  %-10s %5d %7d %7d %6d" % ("合计", tot["n"], tot["pass_"], tot["refuse"], tot["wrong"]))
     print("=> 首跑：pass %d / refuse %d / wrong %d（共 %d）" %
           (tot["pass_"], tot["refuse"], tot["wrong"], tot["n"]))
-    return 0
+    return 1 if tot["wrong"] > 0 else 0   # 门禁：族切分里不许有“答错”
 
 
 if __name__ == "__main__":
