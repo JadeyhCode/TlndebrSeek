@@ -87,13 +87,54 @@ def main():
         print("  [FAIL] 事实冷读 p95 > 200ms"); ok = False
     else:
         print("  [OK]   事实冷读 p95 ≤ 200ms")
-    # ④ RSS
+    # ④ 多分片 + 全局桶索引的路由冷读
+    sharddir = os.path.join(W, "many")
+    os.makedirs(sharddir, exist_ok=True)
+    for f in os.listdir(sharddir):
+        os.remove(os.path.join(sharddir, f))
+    trip2 = os.path.join(W, "in2.triples")
+    with open(trip2, "w", encoding="utf-8") as f:
+        for i in range(EDGES):
+            f.write("N%d\tP%d\tN%d\n" % (i % 100000, i % 20, (i * 7 + 3) % 100000))
+    per = max(1, EDGES // 10)
+    r = sh([t2c, trip2, os.path.join(sharddir, "s"), "--max-edges", str(per)])
+    nsh = len([f for f in os.listdir(sharddir) if f.endswith(".c7b2")])
+    print("== ④ 多分片路由（%d 片，每片 %d 边） ==" % (nsh, per))
+    idxbin = os.path.join(W, "c7bidx")
+    r = sh(["gcc", "-std=c11", "-O2", "-o", idxbin, os.path.join(ROOT, "tools", "c7b_index.c")])
+    if r.returncode != 0:
+        print("  [FAIL] c7b_index 编不过\n" + r.stderr[:300]); ok = False
+    else:
+        idxdir = os.path.join(W, "idx")
+        r = sh([idxbin, sharddir, idxdir])
+        if r.returncode != 0:
+            print("  [FAIL] 索引建不出\n" + (r.stderr or r.stdout)[:300]); ok = False
+        else:
+            r = sh([bench, "--index", idxdir, sharddir, "100000", str(QUERIES)], env=env)
+            m = re.search(r"命中 (\d+) / 未命中 (\d+)", r.stdout)
+            p95i = p95_of(r.stdout)
+            if not m:
+                print("  [FAIL] 路由查询没读数\n" + r.stdout[:300]); ok = False
+            else:
+                hi, mi = int(m.group(1)), int(m.group(2))
+                ri = hi / max(1, hi + mi)
+                print("  路由查询 %d 次：命中 %.2f%%  p95 %s ms" %
+                      (QUERIES, ri * 100, ("%.2f" % p95i) if p95i is not None else "?"))
+                if ri < 0.95 or p95i is None or p95i > 200:
+                    print("  [FAIL] 多分片路由命中率 <95% 或 p95 >200ms"); ok = False
+                else:
+                    print("  [OK]   多分片路由命中率 ≥95% 且 p95 ≤200ms")
+
+    # ⑤ RSS
     m = re.search(r"RSS: ([\d.]+) MB", r.stdout)
-    print("== ④ 去重口径：生成即唯一（未注入重复）；RSS %s MB ==" % (m.group(1) if m else "?"))
-    print("=> S1 冷读压测：%d 边 / 1%% 抽样 / 命中 %.2f%% / 名字 p95 %s ms / 事实 p95 %s ms"
+    print("== ⑤ 去重口径：生成即唯一（未注入重复）；RSS %s MB ==" % (m.group(1) if m else "?"))
+    route = ""
+    try: route = " / 路由 p95 %.2f ms" % p95i
+    except Exception: pass
+    print("=> S1 冷读压测：%d 边 / 1%% 抽样 / 命中 %.2f%% / 名字 p95 %s ms / 事实 p95 %s ms%s"
           % (EDGES, ratio * 100,
              ("%.2f" % p95) if p95 is not None else "?",
-             ("%.2f" % p95f) if p95f is not None else "?"))
+             ("%.2f" % p95f) if p95f is not None else "?", route))
     return 0 if ok else 1
 
 
