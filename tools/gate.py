@@ -42,7 +42,7 @@ def prepare():
 
 
 def hidden():
-    rc, out = run('rm -rf _t/work && mkdir -p _t/work && python3 tools/code_hidden.py')
+    rc, out = run('rm -rf _t/work _t/learn && mkdir -p _t/work && python3 tools/code_hidden.py')
     ok = sum(int(m) for m in re.findall(r'=> (\d) / 8', out))
     total = 8 * len(re.findall(r'=> \d / 8', out))
     return ok, total, ('PASS' if rc == 0 and ok == total and total > 0 else 'FAIL')
@@ -58,7 +58,7 @@ def blind(n):
     f = os.path.join(ROOT, 'tools', 'code_blind%d.py' % n)
     if not os.path.exists(f):
         return None
-    rc, out = run('rm -rf _t/work && mkdir -p _t/work && python3 tools/code_blind%d.py' % n)
+    rc, out = run('rm -rf _t/work _t/learn && mkdir -p _t/work && python3 tools/code_blind%d.py' % n)
     m = re.search(r'=> pass (\d+) / refuse (\d+) / wrong (\d+)', out)
     if not m:
         return ('?', '?', '?')

@@ -208,6 +208,7 @@ longtext|sh tests/longtext.sh
 kbcats|sh tests/kbcats.sh
 paperblind|python3 tools/paper_blind.py
 pyblind|python3 tools/py_blind.py
+learnblind|python3 tools/learn_blind.py
 paperlong|python3 tools/paper_long_blind.py
 paperprobe|gcc -std=c11 -O2 -Wall -Wextra -Werror -o build_paperprobe tools/paperprobe.c -lm && ./build_paperprobe
 dialogueblind|python3 tools/dialogue_blind.py

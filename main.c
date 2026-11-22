@@ -2274,6 +2274,44 @@ static void curious_enqueue(const char *what, const char *why) {
     if (a) { fprintf(a, "%ld\t%s\t%s\tpending\n", now, what, (why && *why) ? why : "（没有记录原因）"); fclose(a); }
 }
 
+/* §7.001 teacher-free 复用（C）：同描述学过、且**存着的测试重跑全过**才复用；
+ * 放在本地合成之前——否则“本地自测绿但语义错”会一直盖住学到的正解（实测 learn_blind 3/3）。 */
+static int aip_registry_replay(AI *ai, const char *d) {
+    if (!d || !*d) return -1;
+    FILE *rf = fopen("_t/learn/registry.tsv", "rb");
+    if (!rf) return -1;
+    char hit[512] = {0};
+    char rl[2048];
+    while (fgets(rl, sizeof rl, rf)) {
+        char *tab = strchr(rl, '\t');
+        if (!tab) continue;
+        *tab = 0;
+        char *cp = tab + 1;
+        char *nl = strchr(cp, '\n');
+        if (nl) *nl = 0;
+        if (!strcmp(rl, d)) { snprintf(hit, sizeof hit, "%s", cp); break; }
+    }
+    fclose(rf);
+    if (!hit[0]) return -1;
+    mkdir("_t", 0755);
+    mkdir("_t/work", 0755);
+    char dst[160];
+    snprintf(dst, sizeof dst, "_t/work/synth_learn_%ld.c", (long)getpid());
+    FILE *sf = fopen(hit, "rb"), *df = fopen(dst, "wb");
+    if (!sf || !df) { if (sf) fclose(sf); if (df) fclose(df); return -1; }
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, sf)) > 0) fwrite(buf, 1, n, df);
+    fclose(sf); fclose(df);
+    char lnote[512] = {0};
+    char rel[200];
+    snprintf(rel, sizeof rel, "synth_learn_%ld.c", (long)getpid());
+    if (code_test_file(ai, rel, lnote, sizeof lnote) != 0) return -1;
+    printf("[合成] 本地记住的解（teacher-free）：%s\n", hit);
+    printf("       ⇒ **测试全绿**（%s）\n", lnote);
+    return 0;
+}
+
 static void aip_curious_hook(AI *ai, const char *q, const char *why) {
     (void)ai;
     curious_enqueue(q, why);
@@ -6155,14 +6193,23 @@ int main(int argc, char **argv) {
                     /* §6.920 自学闭环 v1：本地先做；不会才问教师；**无理由/无证据/编译不过都不落盘**。 */
                     const char *d = arg + 5;
                     while (*d == ' ') d++;
-                    int py = 0;
-                    if (!strncmp(d, "--py", 4)) { py = 1; d += 4; while (*d == ' ') d++; }
-                    if (!*d) { printf("[用法] ::code learn [--py] <中文任务描述>\n"); continue; }
+                    int py = 0, force = 0;
+                    for (;;) {
+                        if (!strncmp(d, "--py", 4)) { py = 1; d += 4; while (*d == ' ') d++; }
+                        else if (!strncmp(d, "--force", 7)) { force = 1; d += 7; while (*d == ' ') d++; }
+                        else break;
+                    }
+                    if (!*d) { printf("[用法] ::code learn [--py] [--force] <中文任务描述>\n"); continue; }
                     char nb0[512] = {0};
                     int sr0 = py ? -1 : code_synth(a->brain, d, nb0, sizeof nb0);
-                    if (sr0 == 0) {
+                    if (sr0 == 0 && !force) {
                         printf("[学习] 本地已经会了（合成+自测通过），不需要教师：%s\n", d);
                         continue;
+                    }
+                    if (sr0 == 0 && force) {
+                        /* §7.001 本地“自测通过”不等于语义对：--force 允许请教师重新核对，
+                         * 教师的 TESTS 是**独立**的验收（本地自测只证明它自己那两条过）。 */
+                        printf("[学习] 本地自测通过，但按 --force 请教师复核：%s\n", d);
                     }
                     if (strstr(nb0, "写文件失败") && strstr(nb0, "链：")) {
                         printf("[学习] 本地其实会，但写入门关着（先 ::act on 再重试）；本轮不落盘。\n");
@@ -6479,7 +6526,13 @@ int main(int argc, char **argv) {
                     while (*d == ' ') d++;
                     if (!*d) { printf("[用法] ::code synth <中文任务描述>\n"); continue; }
                     char nb[512] = {0};
-                    int sr = code_synth(a->brain, d, nb, sizeof nb);
+                    int sr;
+                    if (aip_registry_replay(a->brain, d) == 0) {
+                        sr = 0;
+                        snprintf(nb, sizeof nb, "本地记住的解（teacher-free）");
+                    } else {
+                        sr = code_synth(a->brain, d, nb, sizeof nb);
+                    }
                     /* §6.837/§6.834 **只在“确实没匹配”时**加两道兜底：操作类归一 → 同义改写。 */
                     if (sr == -1 && strstr(nb, "没有匹配")) {
                         char cn[1024];
