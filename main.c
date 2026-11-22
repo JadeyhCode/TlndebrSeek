@@ -6249,6 +6249,10 @@ int main(int argc, char **argv) {
                                 if (crc != 0) printf("[学习] 模板语法没过（%s），不落盘。\n", cpath);
                                 else {
                                     int tn = 0, bad = 0;
+                                    /* §6.997 测试串要先**存一份**：下面 strtok 会把 tbuf 切碎，
+                                     * 直接拿切碎的写 accepted.tsv ⇒ 回放时“没有可用测试”（实测）。 */
+                                    char tbuf_save[1024];
+                                    snprintf(tbuf_save, sizeof tbuf_save, "%s", tbuf);
                                     char *sv = NULL;
                                     for (char *one = strtok_r(tbuf, ";", &sv); one;
                                          one = strtok_r(NULL, ";", &sv)) {
@@ -6286,7 +6290,7 @@ int main(int argc, char **argv) {
                                             fclose(af);
                                         }
                                         FILE *tsv = fopen("_t/py/accepted.tsv", "ab");
-                                        if (tsv) { fprintf(tsv, "%s\t%s\t本地模板\t模板自测 %d/%d\t%s\n", d, cpath, tn, tn, tbuf); fclose(tsv); }
+                                        if (tsv) { fprintf(tsv, "%s\t%s\t本地模板\t模板自测 %d/%d\t%s\n", d, cpath, tn, tn, tbuf_save); fclose(tsv); }
                                         FILE *rf = fopen("_t/py/registry.tsv", "ab");
                                         if (rf) { fprintf(rf, "%s\t%s\n", d, cpath); fclose(rf); }
                                         printf("[学习] 本地模板接受：%s（%d 条测试全过，没问教师）\n", nm, tn);
