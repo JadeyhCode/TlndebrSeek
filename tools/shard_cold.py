@@ -125,16 +125,53 @@ def main():
                 else:
                     print("  [OK]   多分片路由命中率 ≥95% 且 p95 ≤200ms")
 
-    # ⑤ RSS
+    # ⑤ 去重率：故意注入 5% 重复，再看写进分片的边数
+    U = 50000
+    dup_n = U // 10   # 故意注入 10% 重复（阈值 5%，必须靠写入口去重）
+    tdup = os.path.join(W, "dup.triples")
+    with open(tdup, "w", encoding="utf-8") as f:
+        for i in range(U):
+            f.write("N%d\tP%d\tN%d\n" % (i, i % 20, (i * 7 + 3) % U))
+        for i in range(dup_n):
+            f.write("N%d\tP%d\tN%d\n" % (i, i % 20, (i * 7 + 3) % U))   # 原样重复
+    ddir = os.path.join(W, "dup")
+    shutil_rm = __import__("shutil")
+    shutil_rm.rmtree(ddir, ignore_errors=True)
+    os.makedirs(ddir, exist_ok=True)
+    r_conv = sh([t2c, tdup, os.path.join(ddir, "s"), "--max-edges", str(U * 2)])
+    dumps = [f for f in os.listdir(ddir) if f.endswith(".c7b2")]
+    stored = None
+    if dumps:
+        dbin = os.path.join(W, "c7bdump")
+        r = sh(["gcc", "-std=c11", "-O2", "-o", dbin, os.path.join(ROOT, "tools", "c7b2dump.c")])
+        if r.returncode == 0:
+            r = sh([dbin, os.path.join(ddir, dumps[0]), str(U * 4)])
+            stored = len([l for l in r.stdout.splitlines() if l.strip()])
+    if stored is None:
+        print("== ⑤ 去重率：测量失败（dump 打不开） ==")
+        ok = False
+    else:
+        rate = (stored - U) / max(1, stored)
+        rep = re.search(r"去重 (\d+) 条", (r_conv.stderr or "") + (r_conv.stdout or ""))
+        print("== ⑤ 去重率：输入 %d 条（其中 %d 条重复）⇒ 分片 %d 条，重复占比 %.2f%%%s ==" %
+              (U + dup_n, dup_n, stored, max(0.0, rate) * 100,
+               ("，写入口报去重 %s 条" % rep.group(1)) if rep else ""))
+        if stored <= U * 1.05:
+            print("  [OK]   重复占比 <5%（写入口已去重）")
+        else:
+            print("  [FAIL] 重复占比 ≥5%"); ok = False
+
+    # ⑥ RSS
     m = re.search(r"RSS: ([\d.]+) MB", r.stdout)
-    print("== ⑤ 去重口径：生成即唯一（未注入重复）；RSS %s MB ==" % (m.group(1) if m else "?"))
+    print("== ⑥ RSS：%s MB（--index 输出里没带就写 ?） ==" % (m.group(1) if m else "?"))
     route = ""
     try: route = " / 路由 p95 %.2f ms" % p95i
     except Exception: pass
-    print("=> S1 冷读压测：%d 边 / 1%% 抽样 / 命中 %.2f%% / 名字 p95 %s ms / 事实 p95 %s ms%s"
+    print("=> S1 冷读压测：%d 边 / 1%% 抽样 / 命中 %.2f%% / 名字 p95 %s ms / 事实 p95 %s ms%s / 去重 %s"
           % (EDGES, ratio * 100,
              ("%.2f" % p95) if p95 is not None else "?",
-             ("%.2f" % p95f) if p95f is not None else "?", route))
+             ("%.2f" % p95f) if p95f is not None else "?", route,
+             ("%.2f%%" % (max(0.0, (stored - U) / max(1, stored)) * 100)) if stored is not None else "?"))
     return 0 if ok else 1
 
 

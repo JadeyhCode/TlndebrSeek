@@ -12,6 +12,51 @@
  */
 #include "c7b2_writer.h"
 
+/* §7.005 写入口去重：同一 (主,谓,宾) 只留一条。
+ * 2.5B 规模下不能全量进内存，所以按**分片**去重：分片落盘时表清空（与 writer 同生命周期）。
+ * 开放寻址 u64，装载因子 >0.6 翻倍；初始 1<<20（8MB），一片 5M 边约 64MB。 */
+typedef struct { uint64_t *slot; size_t cap, n; } DupSet;
+static int dupset_init(DupSet *d, size_t cap) {
+    d->cap = cap; d->n = 0;
+    d->slot = (uint64_t *)calloc(d->cap, sizeof *d->slot);
+    return d->slot ? 0 : -1;
+}
+static void dupset_free(DupSet *d) { free(d->slot); d->slot = NULL; d->cap = d->n = 0; }
+static int dupset_grow(DupSet *d) {
+    size_t ncap = d->cap * 2;
+    uint64_t *ns = (uint64_t *)calloc(ncap, sizeof *ns);
+    if (!ns) return -1;
+    for (size_t i = 0; i < d->cap; ++i) {
+        uint64_t h = d->slot[i];
+        if (!h) continue;
+        size_t j = (size_t)(h * 11400714819323198485ull >> 40) & (ncap - 1);
+        while (ns[j]) j = (j + 1) & (ncap - 1);
+        ns[j] = h;
+    }
+    free(d->slot);
+    d->slot = ns; d->cap = ncap;
+    return 0;
+}
+/* 返回 1 = 新边（已插入），0 = 重复 */
+static int dupset_add(DupSet *d, uint64_t h) {
+    if (!h) h = 0x9e3779b97f4a7c15ull;
+    if (d->n * 10 > d->cap * 6 && dupset_grow(d) != 0) return 1;   /* 长不大了就当新边，别丢数据 */
+    size_t j = (size_t)(h * 11400714819323198485ull >> 40) & (d->cap - 1);
+    while (d->slot[j] && d->slot[j] != h) j = (j + 1) & (d->cap - 1);
+    if (d->slot[j] == h) return 0;
+    d->slot[j] = h; d->n++;
+    return 1;
+}
+static uint64_t edge_hash(const char *s, const char *p, const char *o) {
+    uint64_t h = 1469598103934665603ull;
+    for (const unsigned char *q = (const unsigned char *)s; q && *q; ++q) { h ^= *q; h *= 1099511628211ull; }
+    h ^= 0xFF; h *= 1099511628211ull;
+    for (const unsigned char *q = (const unsigned char *)p; q && *q; ++q) { h ^= *q; h *= 1099511628211ull; }
+    h ^= 0xFF; h *= 1099511628211ull;
+    for (const unsigned char *q = (const unsigned char *)o; q && *q; ++q) { h ^= *q; h *= 1099511628211ull; }
+    return h ? h : 1;
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "用法: %s <输入.triples> <输出前缀> [--max-edges N]\n", argv[0]); return 2; }
     const char *in = argv[1], *prefix = argv[2];
@@ -33,7 +78,9 @@ int main(int argc, char **argv) {
     char *cur_s = NULL, *cur_p = NULL;
     int pending = 0;
     long shard = 0, total = 0;
-    long long dropped = 0;
+    long long dropped = 0, dups = 0;
+    DupSet dset;
+    if (dupset_init(&dset, 1u << 20) != 0) { fprintf(stderr, "内存不够\n"); fclose(f); return 1; }
 
     while ((got = getline(&line, &lcap, f)) > 0) {
         while (got > 0 && (line[got - 1] == '\n' || line[got - 1] == '\r')) line[--got] = 0;
@@ -43,7 +90,10 @@ int main(int argc, char **argv) {
             /* 新记录：先把上一条落进去（关系在 skip 名单里的整条丢，含它的续行） */
             if (pending && cur_s && cur_p) {
                 int skip = (skip1 && !strcmp(cur_p, skip1)) || (skip2 && !strcmp(cur_p, skip2));
-                if (!skip && c7b2w_edge(&w, cur_s, cur_p, obj) == 0) total++;
+                if (!skip) {
+                    if (!dupset_add(&dset, edge_hash(cur_s, cur_p, obj))) dups++;
+                    else if (c7b2w_edge(&w, cur_s, cur_p, obj) == 0) total++;
+                }
             }
             *t1 = 0; *t2 = 0;
             free(cur_s); free(cur_p);
@@ -75,12 +125,17 @@ int main(int argc, char **argv) {
             shard++;
             dropped += (long long)w.dropped;
             c7b2w_free(&w);
+            dupset_free(&dset);
+            if (dupset_init(&dset, 1u << 20) != 0) { fprintf(stderr, "内存不够\n"); return 1; }
             if (c7b2w_init(&w, 1 << 20) != 0) { fprintf(stderr, "内存不够\n"); return 1; }
         }
     }
     if (pending && cur_s && cur_p) {
         int skip = (skip1 && !strcmp(cur_p, skip1)) || (skip2 && !strcmp(cur_p, skip2));
-        if (!skip && c7b2w_edge(&w, cur_s, cur_p, obj) == 0) total++;
+        if (!skip) {
+            if (!dupset_add(&dset, edge_hash(cur_s, cur_p, obj))) dups++;
+            else if (c7b2w_edge(&w, cur_s, cur_p, obj) == 0) total++;
+        }
     }
     if (w.edges > 0) {
         char path[1024];
@@ -93,7 +148,9 @@ int main(int argc, char **argv) {
     dropped += (long long)w.dropped;
     free(line); free(obj); free(cur_s); free(cur_p);
     c7b2w_free(&w);
+    dupset_free(&dset);
     fclose(f);
-    printf("  文本事实 %ld 条 ⇒ %ld 个分片（丢属性号超 u16 的 %lld 条）\n", total, shard, dropped);
+    printf("  文本事实 %ld 条 ⇒ %ld 个分片（去重 %lld 条，丢属性号超 u16 的 %lld 条）\n",
+           total, shard, dups, dropped);
     return shard > 0 ? 0 : 1;
 }
