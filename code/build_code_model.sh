@@ -29,7 +29,7 @@ mkdir -p _t
 cp model.bin "$OUT.work"
 # 两个文件按顺序灌（骨架在前：它是合成器最先要查的）
 cp "$OUT.work" "$OUT.tmp.bin"
-printf '::ingest code/knowledge/skeletons.triples\n::ingest code/knowledge/compose.triples\n::ingest code/knowledge/plan.triples\n::ingest code/knowledge/rationale.triples\n::ingest code/knowledge/shapewords.triples\n::ingest code/knowledge/formwords.triples\n::ingest code/knowledge/stopwords.triples\n::ingest code/knowledge/py.triples\n::ingest code/knowledge/double.triples\n::ingest code/knowledge/capi.triples\n::save %s\n::quit\n' "$OUT" > _t/codebuild.in
+printf '::ingest code/knowledge/skeletons.triples\n::ingest code/knowledge/compose.triples\n::ingest code/knowledge/plan.triples\n::ingest code/knowledge/rationale.triples\n::ingest code/knowledge/shapewords.triples\n::ingest code/knowledge/formwords.triples\n::ingest code/knowledge/stopwords.triples\n::ingest code/knowledge/py.triples\n::ingest code/knowledge/verify.triples\n::ingest code/knowledge/double.triples\n::ingest code/knowledge/capi.triples\n::save %s\n::quit\n' "$OUT" > _t/codebuild.in
 # §6.834/§6.837 说法归一 + 操作类词表（存在就一起灌）
 for f in code/knowledge/opclass.triples code/knowledge/rewrite.triples code/knowledge/prim.triples code/knowledge/searched.triples; do
     [ -s "$f" ] && sed -i "1i ::ingest $f" _t/codebuild.in

@@ -2534,6 +2534,163 @@ static void study_sym_hint(AI *ai, const char *q, char *out, size_t cap) {
     ai_free_words(w, n);
 }
 
+/* 取 _t/work 下最新的 .c（合成器产物）；返回 1=找到 */
+static int study_newest_c(char *out, size_t cap) {
+    DIR *d = opendir("_t/work");
+    if (!d) return 0;
+    char best[768] = {0};
+    time_t bt = 0;
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        size_t l = strlen(de->d_name);
+        if (l < 3 || strcmp(de->d_name + l - 2, ".c") != 0) continue;
+        char p[600];
+        snprintf(p, sizeof p, "_t/work/%s", de->d_name);
+        struct stat st;
+        if (stat(p, &st) != 0) continue;
+        if (st.st_mtime >= bt) { bt = st.st_mtime; snprintf(best, sizeof best, "%s", p); }
+    }
+    closedir(d);
+    if (!best[0]) return 0;
+    snprintf(out, cap, "%s", best);
+    return 1;
+}
+
+/* 代码是否真的读输入（stdin / argv）：用来挡“演示骨架”（写死数字却自称会） */
+static int study_code_reads_input(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char buf[16384];
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    return strstr(buf, "scanf") || strstr(buf, "fgets") || strstr(buf, "getchar") ||
+           strstr(buf, "getline") || strstr(buf, "argv");
+}
+
+/* §7.012 属性校验：题目要求“答案必须满足什么性质”，从图里查（verify.triples）。
+ * 只对**本地合成的候选**做；找不到规则时按“未验证”放行（读数里会单列）。
+ * 性质是**通用原语**（区间/子集偶数/公因数/上界差/成员），不是按题名写死。 */
+static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, size_t cap) {
+    if (!ai || !q || !cand || !why) return -1;
+    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
+    uint8_t rid_pr = rel_id_of(ai, "性质", 0);
+    if (rid_kw < REL_DYN_BASE || rid_pr < REL_DYN_BASE) return -1;
+    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
+    uint8_t d_pr = (uint8_t)(rid_pr - REL_DYN_BASE + 1);
+    const char *prop = NULL;
+    for (size_t i = 0; i < ai->pool->count && !prop; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || !t->name || t->is_garbage || strncmp(t->name, "校验:", 7)) continue;
+        int kw_hit = 0;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->main->name && e->dyn == d_kw && strstr(q, e->main->name)) { kw_hit = 1; break; }
+        }
+        if (!kw_hit) continue;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && e->main->name && e->dyn == d_pr) { prop = e->main->name; break; }
+        }
+    }
+    if (!prop) return -1;
+    /* 固定两组输入（确定性）：只测一组会被巧合蒙混（实测：min 与相邻差最小在一组样本上相等）；
+     * 两组形状不同、且刻意让常见混淆量（min/max/均值）与目标量分开。 */
+    static const long sets[2][6] = { { 7, 1, 9, 3, 8, 2 }, { 4, 10, 1, 6, 2, 8 } };
+    long in[6];
+    char ip[160], op[160], exe[640], cmd[1200];
+    snprintf(ip, sizeof ip, "_t/work/verify_%ld.in", (long)getpid());
+    snprintf(op, sizeof op, "_t/work/verify_%ld.out", (long)getpid());
+    for (int si = 0; si < 2; ++si) {
+    memcpy(in, sets[si], sizeof in);
+    snprintf(exe, sizeof exe, "%s.out", cand);
+    FILE *f = fopen(ip, "wb");
+    if (!f) return -1;
+    for (int i = 0; i < 6; ++i) fprintf(f, "%ld ", in[i]);
+    fprintf(f, "\n");
+    fclose(f);
+    snprintf(cmd, sizeof cmd, "timeout 5 %s < %s > %s 2>/dev/null", exe, ip, op);
+    { int rc = system(cmd); (void)rc; }
+    long outv[32];
+    int no = 0;
+    char raw[256] = {0};
+    FILE *g = fopen(op, "rb");
+    if (!g) { remove(ip); return 0; }
+    {
+        size_t rn = fread(raw, 1, sizeof raw - 1, g);
+        raw[rn] = 0;
+        rewind(g);
+    }
+    while (no < 32 && fscanf(g, "%ld", &outv[no]) == 1) no++;
+    fclose(g);
+    remove(ip);
+    remove(op);
+    if (no == 0) { snprintf(why, cap, "输出为空（%s）", prop); return 0; }
+    /* 整数语义的题：输出里出现小数点就不收（"5.00" 与 "5" 是不同契约，盲测也按字符串比）。 */
+    if (strchr(raw, '.')) {
+        snprintf(why, cap, "输出不是整数（%.40s）", raw);
+        return 0;
+    }
+    if (!strcmp(prop, "区间")) {
+        long mn = in[0], mx = in[0];
+        for (int i = 1; i < 6; ++i) { if (in[i] < mn) mn = in[i]; if (in[i] > mx) mx = in[i]; }
+        if (no != 1 || outv[0] < mn || outv[0] > mx) {
+            snprintf(why, cap, "区间校验不过（输出 %ld 不在 [%ld,%ld]）", outv[0], mn, mx);
+            return 0;
+        }
+    } else if (!strcmp(prop, "子集偶数")) {
+        for (int i = 0; i < no; ++i) {
+            int found = 0;
+            for (int k = 0; k < 6; ++k) if (in[k] == outv[i]) { found = 1; break; }
+            if (!found || outv[i] % 2 != 0) {
+                snprintf(why, cap, "子集偶数校验不过（%ld 不是输入里的偶数）", outv[i]);
+                return 0;
+            }
+        }
+    } else if (!strcmp(prop, "公因数")) {
+        if (no != 1 || outv[0] <= 0) { snprintf(why, cap, "公因数校验不过（不是单值正整数）"); return 0; }
+        for (int i = 0; i < 6; ++i) if (outv[0] && in[i] % outv[0] != 0) {
+            snprintf(why, cap, "公因数校验不过（%ld 不整除 %ld）", outv[0], in[i]);
+            return 0;
+        }
+    } else if (!strcmp(prop, "上界差")) {
+        long mn = in[0], mx = in[0];
+        for (int i = 1; i < 6; ++i) { if (in[i] < mn) mn = in[i]; if (in[i] > mx) mx = in[i]; }
+        if (no != 1 || outv[0] < 0 || outv[0] > mx - mn) {
+            snprintf(why, cap, "上界差校验不过（输出 %ld 不在 [0,%ld]）", outv[0], mx - mn);
+            return 0;
+        }
+    } else if (!strcmp(prop, "均值")) {
+        long s = 0;
+        for (int i = 0; i < 6; ++i) s += in[i];
+        long want = s / 6;
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "均值校验不过（输出 %ld，期望 %ld）", outv[0], want);
+            return 0;
+        }
+    } else if (!strcmp(prop, "相邻差最小")) {
+        long best = -1;
+        for (int i = 1; i < 6; ++i) {
+            long d = in[i] - in[i - 1];
+            if (d < 0) d = -d;
+            if (best < 0 || d < best) best = d;
+        }
+        if (best < 0) best = 0;
+        if (no != 1 || outv[0] != best) {
+            snprintf(why, cap, "相邻差最小校验不过（输出 %ld，期望 %ld）", outv[0], best);
+            return 0;
+        }
+    } else if (!strcmp(prop, "成员")) {
+        int found = 0;
+        for (int i = 0; i < no && !found; ++i)
+            for (int k = 0; k < 6; ++k) if (in[k] == outv[i]) { found = 1; break; }
+        if (!found) { snprintf(why, cap, "成员校验不过（输出不在输入里）"); return 0; }
+    }
+    }   /* for si */
+    snprintf(why, cap, "性质「%s」通过（2 组输入）", prop);
+    return 1;
+}
+
 /* 一轮自学；返回 1=处理了一道题，0=队列空 */
 static int study_round(Agent *a) {
     AI *ai = a->brain;
@@ -2560,13 +2717,36 @@ static int study_round(Agent *a) {
         /* ① 本地检索：像代码题就先走合成器 */
         if (strstr(q, "写一个") || strstr(q, "实现") || strstr(q, "程序")) {
             char note[512] = {0};
-            if (code_synth(ai, q, note, sizeof note) == 0) {
-                g_study.help_local++;
-                helped = 1;
-                printf("[自学] 求助①本地合成：成功（%s）→ 待证\n", note[0] ? note : "编过");
-                study_log("_t/study/proposals.tsv", "%ld\t本地合成\t%s\t%s\n",
-                          (long)time(NULL), q, note[0] ? note : "（合成成功）");
-                g_study.propose++;
+            /* 合成器要能写候选到 _t/work 才有东西可验；只在**自学这一小段**临时开 act，
+             * 用完立刻还原（不改变用户 ::act 的设置）。写的是候选文件，不是图。 */
+            int saved_act = ai->act_on;
+            ai->act_on = 1;
+            int src_rc = code_synth(ai, q, note, sizeof note);
+            ai->act_on = saved_act;
+            if (src_rc == 0) {
+                /* §7.012 verifier：题目说要“读入/输入/命令行”，产物就必须真的读输入；
+                 * 否则是**演示骨架**（写死数字再打 ok），不能当答案（这条抓过多次误收）。 */
+                char cand[600] = {0};
+                int wants_input = strstr(q, "读入") || strstr(q, "输入") || strstr(q, "命令行");
+                int reads = study_newest_c(cand, sizeof cand) && study_code_reads_input(cand);
+                char vwhy[256] = {0};
+                int vrc = cand[0] ? study_prop_check(ai, q, cand, vwhy, sizeof vwhy) : -1;
+                if (vrc == 0) {
+                    printf("[自学] 求助①本地合成：**性质校验不过** ⇒ 拒收（%s）\n", vwhy);
+                } else if (wants_input && !reads) {
+                    printf("[自学] 求助①本地合成：合成器产物**不读输入**（演示骨架）⇒ 拒收（%s）\n",
+                           cand[0] ? cand : "找不到产物");
+                } else {
+                    g_study.help_local++;
+                    helped = 1;
+                    printf("[自学] 求助①本地合成：成功（%s）→ 待证（%s；%s）\n",
+                           note[0] ? note : "编过", cand[0] ? cand : "?",
+                           vrc == 1 ? vwhy : "未验证");
+                    study_log("_t/study/proposals.tsv", "%ld\t本地合成\t%s\t%s | %s\n",
+                              (long)time(NULL), q, note[0] ? note : "（合成成功）",
+                              cand[0] ? cand : "?");
+                    g_study.propose++;
+                }
             } else {
                 printf("[自学] 求助①本地合成：不成（%s）\n", note[0] ? note : "没匹配");
             }
@@ -2662,6 +2842,19 @@ static void study_cmd(Agent *a, const char *arg) {
         remove("_t/study/stats.tsv");
         remove("_t/study/proposals.tsv");
         printf("[自学] 统计/待证清零（ask_user/sym_hints 保留，等你处理）\n");
+        return;
+    }
+    if (arg && !strncmp(arg, "pose", 4)) {
+        const char *q = arg + 4;
+        while (*q == ' ') q++;
+        if (!*q) { printf("[自学] 用法：::study pose <一个问题>\n"); return; }
+        mkdir("_t", 0755);
+        mkdir("_t/work", 0755);
+        FILE *f = fopen("_t/curious.tsv", "ab");
+        if (!f) { printf("[自学] 写不进 _t/curious.tsv\n"); return; }
+        fprintf(f, "%ld\t%s\t用户出题\tpending\n", (long)time(NULL), q);
+        fclose(f);
+        printf("[自学] 已出题（pending）：%s\n", q);
         return;
     }
     if (arg && !strncmp(arg, "list", 4)) {
