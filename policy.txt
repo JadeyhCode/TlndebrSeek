@@ -25,3 +25,5 @@ att_topk=5
 study_rounds=3
 study_ext_help=1
 study_ask_user=1
+# §7.013 自出变式题预算
+study_gen=3

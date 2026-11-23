@@ -2660,6 +2660,13 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
             snprintf(why, cap, "上界差校验不过（输出 %ld 不在 [0,%ld]）", outv[0], mx - mn);
             return 0;
         }
+    } else if (!strcmp(prop, "求和")) {
+        long s = 0;
+        for (int i = 0; i < 6; ++i) s += in[i];
+        if (no != 1 || outv[0] != s) {
+            snprintf(why, cap, "求和校验不过（输出 %ld，期望 %ld）", outv[0], s);
+            return 0;
+        }
     } else if (!strcmp(prop, "均值")) {
         long s = 0;
         for (int i = 0; i < 6; ++i) s += in[i];
@@ -2834,6 +2841,70 @@ static void study_stats_print(void) {
            nq, solved, rate, failed, hl, he, hu, hs, prop);
 }
 
+/* §7.013 自出变式题：从已自解的题（proposals）出发，用 `改写:A --改写--> B` 的**方向反过来**
+ * （把 B 换成 A）造同义变式，作为 pending 入队。出题也由数据驱动（改写表），不是内置题库。 */
+static int study_gen(Agent *a, int want) {
+    if (!a || !a->brain || want <= 0) want = (want <= 0 ? 1 : want);
+    AI *ai = a->brain;
+    FILE *pf = fopen("_t/study/proposals.tsv", "rb");
+    if (!pf) return 0;
+    char seeds[8][512];
+    int ns = 0, nout = 0;
+    char line[4096];
+    while (ns < 8 && nout < want && fgets(line, sizeof line, pf)) {
+        char *t1 = strchr(line, '\t');
+        if (!t1) continue;
+        char *t2 = strchr(t1 + 1, '\t');
+        if (!t2) continue;
+        char *q = t2 + 1;
+        char *t3 = strchr(q, '\t');
+        if (!t3) continue;
+        *t3 = 0;
+        if (!strstr(line, "自解") && !strstr(line, "本地合成")) continue;
+        snprintf(seeds[ns++], sizeof seeds[0], "%s", q);
+    }
+    fclose(pf);
+    if (ns == 0) return 0;
+    uint8_t rid = rel_id_of(ai, "改写", 0);
+    if (rid < REL_DYN_BASE) return 0;
+    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    for (int si = 0; si < ns && nout < want; ++si) {
+        for (size_t i = 0; i < ai->pool->count && nout < want; ++i) {
+            Token *t = ai->pool->tokens[i];
+            if (!t || !t->name || t->is_garbage) continue;
+            if (strncmp(t->name, "改写:", 7)) continue;
+            const char *to = NULL;
+            for (size_t j = 0; j < t->count; ++j) {
+                const AssocEntry *e = &token_assocs_ro(t)[j];
+                if (e->main && e->main->name && e->dyn == d) { to = e->main->name; break; }
+            }
+            if (!to || !to[0] || !strstr(seeds[si], to)) continue;
+            const char *from = t->name + 7;
+            char vq[640];
+            const char *pos = strstr(seeds[si], to);
+            size_t pre = (size_t)(pos - seeds[si]);
+            if (pre + strlen(from) + strlen(pos + strlen(to)) + 2 >= sizeof vq) continue;
+            snprintf(vq, sizeof vq, "%.*s%s%s", (int)pre, seeds[si], from, pos + strlen(to));
+            /* 去重：队列里已有同题就不再加 */
+            int dup = 0;
+            FILE *cf = fopen("_t/curious.tsv", "rb");
+            if (cf) {
+                char cl[2048];
+                while (fgets(cl, sizeof cl, cf)) if (strstr(cl, vq)) { dup = 1; break; }
+                fclose(cf);
+            }
+            if (dup) continue;
+            mkdir("_t", 0755);
+            FILE *f = fopen("_t/curious.tsv", "ab");
+            if (!f) return nout;
+            fprintf(f, "%ld\t%s\t自学出题（变式）\tpending\n", (long)time(NULL), vq);
+            fclose(f);
+            nout++;
+        }
+    }
+    return nout;
+}
+
 static void study_cmd(Agent *a, const char *arg) {
     while (arg && *arg == ' ') arg++;
     if (arg && !strncmp(arg, "stats", 5)) { study_stats_print(); return; }
@@ -2842,6 +2913,16 @@ static void study_cmd(Agent *a, const char *arg) {
         remove("_t/study/stats.tsv");
         remove("_t/study/proposals.tsv");
         printf("[自学] 统计/待证清零（ask_user/sym_hints 保留，等你处理）\n");
+        return;
+    }
+    if (arg && !strncmp(arg, "gen", 3)) {
+        const char *n = arg + 3;
+        while (*n == ' ') n++;
+        int want = (*n ? atoi(n) : 0);
+        if (want <= 0) want = (int)aip_policy_int("study_gen", 3);
+        int got = study_gen(a, want);
+        printf("[自学] 自出变式 %d 条（从已自解的题 + 改写表反向替换）\n", got);
+        if (got == 0) printf("[自学] 没有种子/改写规则可用：先 ::study pose + ::study run，或看改写表\n");
         return;
     }
     if (arg && !strncmp(arg, "pose", 4)) {

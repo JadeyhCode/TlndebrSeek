@@ -52,6 +52,22 @@ run '::study run 5' > /dev/null
 o=$(run '::study')
 printf '%s' "$o" | grep -qa '没有待学的题' && ok "空队列不硬造" || bad "空队列乱造" "$(printf '%s' "$o" | grep -a '自学' | head -3)"
 
+echo "== ⑦ 自出变式题：从已自解的题 + 改写表反向替换 =="
+[ -s code/code_model.bin ] || sh code/build_code_model.sh > /dev/null 2>&1
+W3="$ROOT/_t/study_gen"; rm -rf "$W3"; mkdir -p "$W3/_t/work"
+cp build_aip "$W3/build_aip"; cp model.bin "$W3/model.bin"
+cp code/code_model.bin "$W3/model.bin" 2>/dev/null
+cp patterns.txt frames.txt relations.txt policy.txt "$W3/" 2>/dev/null
+run3() { ( cd "$W3" && printf '%b
+::quit
+' "$1" | ./build_aip --model model.bin 2>&1 ); }
+o=$(run3 '::study pose 写一个程序：读入一行整数（标准输入），输出它们的总和。\n::study run 1\n::study gen 2\n::study list')
+printf '%s' "$o" | grep -qa '自出变式 2 条' && ok "变式生成 2 条" || bad "变式没生成" "$(printf '%s' "$o" | grep -a '自学' | tail -3)"
+printf '%s' "$o" | grep -qa '总数' && ok "变式用了改写词（总数）" || bad "变式没换词" "$(printf '%s' "$o" | grep -a '^  [0-9]' | head -3)"
+o=$(run3 '::study pose 写一个程序：读入一行整数（标准输入），输出它们的总和。\n::study run 1\n::study gen 2\n::study run 1')
+printf '%s' "$o" | grep -qa '求助①本地合成：成功' && ok "变式也能自解" || bad "变式解不了" "$(printf '%s' "$o" | grep -a '求助' | tail -3)"
+printf '%s' "$o" | grep -qa '性质「求和」通过' && ok "变式过属性校验" || bad "变式没过校验（或未验证）" "$(printf '%s' "$o" | grep -a '求助①' | tail -2)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL study（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS study（$pass 过 / 0 红）"
