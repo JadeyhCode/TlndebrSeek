@@ -2658,9 +2658,16 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
             }
         }
     } else if (!strcmp(prop, "公因数")) {
-        if (no != 1 || outv[0] <= 0) { snprintf(why, cap, "公因数校验不过（不是单值正整数）"); return 0; }
-        for (int i = 0; i < 6; ++i) if (outv[0] && in[i] % outv[0] != 0) {
-            snprintf(why, cap, "公因数校验不过（%ld 不整除 %ld）", outv[0], in[i]);
+        /* 必须是**最大**公因数，不能只当“任意公因数”（否则输出恒 1 也能混过——实测误收）。 */
+        long a = in[0] < 0 ? -in[0] : in[0], b = in[1] < 0 ? -in[1] : in[1];
+        while (b) { long t = a % b; a = b; b = t; }
+        for (int i = 2; i < 6; ++i) {
+            long x = in[i] < 0 ? -in[i] : in[i], y = a;
+            while (x) { long t = y % x; y = x; x = t; }
+            a = y;
+        }
+        if (no != 1 || outv[0] != a) {
+            snprintf(why, cap, "公因数校验不过（输出 %ld，期望最大公约数 %ld）", outv[0], a);
             return 0;
         }
     } else if (!strcmp(prop, "上界差")) {
@@ -2668,6 +2675,51 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
         for (int i = 1; i < 6; ++i) { if (in[i] < mn) mn = in[i]; if (in[i] > mx) mx = in[i]; }
         if (no != 1 || outv[0] < 0 || outv[0] > mx - mn) {
             snprintf(why, cap, "上界差校验不过（输出 %ld 不在 [0,%ld]）", outv[0], mx - mn);
+            return 0;
+        }
+    } else if (!strcmp(prop, "最大值") || !strcmp(prop, "最小值")) {
+        long want = in[0];
+        for (int i = 1; i < 6; ++i) {
+            if (!strcmp(prop, "最大值") && in[i] > want) want = in[i];
+            if (!strcmp(prop, "最小值") && in[i] < want) want = in[i];
+        }
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "%s校验不过（输出 %ld，期望 %ld）", prop, outv[0], want);
+            return 0;
+        }
+    } else if (!strcmp(prop, "平方和")) {
+        long want = 0;
+        for (int i = 0; i < 6; ++i) want += in[i] * in[i];
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "平方和校验不过（输出 %ld，期望 %ld）", outv[0], want);
+            return 0;
+        }
+    } else if (!strcmp(prop, "奇数和")) {
+        long want = 0;
+        for (int i = 0; i < 6; ++i) if (in[i] % 2) want += in[i];
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "奇数和校验不过（输出 %ld，期望 %ld）", outv[0], want);
+            return 0;
+        }
+    } else if (!strcmp(prop, "第二大")) {
+        long mx = in[0], se = -1; int have = 0;
+        for (int i = 1; i < 6; ++i) {
+            if (in[i] > mx) { se = mx; mx = in[i]; have = 1; }
+            else if (in[i] < mx && (!have || in[i] > se)) { se = in[i]; have = 1; }
+        }
+        long want = have ? se : mx;
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "第二大校验不过（输出 %ld，期望 %ld）", outv[0], want);
+            return 0;
+        }
+    } else if (!strcmp(prop, "中位上")) {
+        long s[6];
+        memcpy(s, in, sizeof s);
+        for (int i = 1; i < 6; ++i) { long v = s[i]; int j = i;
+            while (j > 0 && s[j-1] > v) { s[j] = s[j-1]; --j; } s[j] = v; }
+        long want = s[6 / 2];   /* 上中位 */
+        if (no != 1 || outv[0] != want) {
+            snprintf(why, cap, "中位上校验不过（输出 %ld，期望 %ld）", outv[0], want);
             return 0;
         }
     } else if (!strcmp(prop, "求和")) {
