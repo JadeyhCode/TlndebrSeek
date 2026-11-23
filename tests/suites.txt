@@ -223,6 +223,7 @@ clarifypolicy|sh tests/clarifypolicy.sh
 policywords|sh tests/policywords.sh
 attention|sh tests/attention.sh
 attentionpick|python3 tools/attention_pick_blind.py
+attentionlist|python3 tools/attention_list_blind.py
 study|sh tests/study.sh
 studyeval|python3 tools/study_eval.py
 familysplit|sh tests/familysplit.sh

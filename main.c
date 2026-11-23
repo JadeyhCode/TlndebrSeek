@@ -7953,9 +7953,16 @@ int main(int argc, char **argv) {
                             size_t wn = 0;
                             char **w = ai_tokenize(a->brain, ln, &wn);
                             for (size_t k = 0; k < wn && a->brain->paper_n < 8; ++k) {
-                                if (!w[k] || strlen(w[k]) != 6) continue;
+                                if (!w[k]) continue;
+                                size_t wl = strlen(w[k]);
+                                if (wl != 3 && wl != 6) continue;          /* 单字或两字词 */
+                                if (rel_id_of(a->brain, w[k], 0) != 0) continue;  /* 关系词不算主题 */
                                 Token *tk = pool_find(a->brain->pool, w[k]);
                                 if (!tk || tk->is_garbage) continue;
+                                int has_rel = 0;
+                                for (size_t q = 0; q < tk->count; ++q)
+                                    if (token_assocs_ro(tk)[q].main && token_assocs_ro(tk)[q].rel) { has_rel = 1; break; }
+                                if (!has_rel) continue;                     /* 虚词不进来 */
                                 int dup = 0;
                                 for (size_t q = 0; q < a->brain->paper_n; ++q)
                                     if (a->brain->paper_focus[q] == tk) { dup = 1; break; }

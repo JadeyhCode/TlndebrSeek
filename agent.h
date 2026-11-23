@@ -2728,6 +2728,45 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
             while (j > 0 && cand[j - 1] > v) { cand[j] = cand[j - 1]; --j; }
             cand[j] = v;
         }
+        /* §7.018 让**注意力**影响列表顺序（策略开关 att_list，默认关：先不动既有逐字顺序）。
+         * 开：按注意力份额降序（同分保持 id 序）；这正是“注意力影响检索”的第一处。 */
+        if (getenv("AIP_LISTDBG")) {
+            fprintf(stderr, "[list] ncd=%zu att_n=%zu att_list=%ld att=", ncd, ai->att_n,
+                    aip_policy_int("att_list", 0));
+            for (size_t k = 0; k < ai->att_n; ++k)
+                fprintf(stderr, "%s(%p,%.2f) ", ai->att_top[k] && ai->att_top[k]->name ? ai->att_top[k]->name : "?",
+                        (void*)ai->att_top[k], (double)ai->att_w[k]);
+            fprintf(stderr, "\n");
+        }
+        if (aip_policy_int("att_list", 0) != 0 &&
+            !(getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0')) {
+            for (size_t i = 1; i < ncd; ++i) {
+                uint32_t v = cand[i];
+                float vs = 0.0f;
+                Token *tv = ai->pool->tokens[v];
+                for (size_t k = 0; k < ai->att_n; ++k)
+                    if (tv && ai->att_top[k] == tv) { vs = ai->att_w[k]; break; }
+                for (size_t k = 0; k < ai->paper_n; ++k)
+                    if (tv && ai->paper_focus[k] == tv) { vs += 0.50f; break; }
+                size_t j = i;
+                if (getenv("AIP_LISTDBG")) {
+                    fprintf(stderr, "[list] v=%u name=%s vs=%.3f\n", v,
+                            tv && tv->name ? tv->name : "?", (double)vs);
+                }
+                while (j > 0) {
+                    Token *tu = ai->pool->tokens[cand[j - 1]];
+                    float us = 0.0f;
+                    for (size_t k = 0; k < ai->att_n; ++k)
+                        if (tu && ai->att_top[k] == tu) { us = ai->att_w[k]; break; }
+                    for (size_t k = 0; k < ai->paper_n; ++k)
+                        if (tu && ai->paper_focus[k] == tu) { us += 0.50f; break; }
+                    if (us >= vs) break;
+                    cand[j] = cand[j - 1];
+                    --j;
+                }
+                cand[j] = v;
+            }
+        }
         size_t scanned = 0;
         uint32_t last_listed = 0;
         for (size_t ci = 0; ci < ncd && hits < 6; ++ci) {
