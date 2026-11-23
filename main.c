@@ -7822,6 +7822,41 @@ int main(int argc, char **argv) {
                     free(tb);
                     continue;
                 }
+                if (!strncmp(r, "roles", 5)) {
+                    /* §7.014 论证结构视图：主张/证据/限定/出处 + 注意力建议（先追问无证据的主张） */
+                    const char *fn = r + 5;
+                    while (*fn == ' ' || *fn == '\t') fn++;
+                    if (!*fn) { printf("[论文] 用法：::paper roles <文件>（本地纯文本）\n"); continue; }
+                    FILE *pf = fopen(fn, "rb");
+                    if (!pf) { printf("[论文] 读不开 %s\n", fn); continue; }
+                    char *txt = (char *)malloc(1 << 20);
+                    if (!txt) { fclose(pf); printf("[论文] 内存不够\n"); continue; }
+                    size_t tn = fread(txt, 1, (1 << 20) - 1, pf);
+                    txt[tn] = 0;
+                    fclose(pf);
+                    char *save = NULL;
+                    int cnt[5] = {0,0,0,0,0};
+                    const char *names[5] = { "主张", "证据", "限定", "出处", "陈述" };
+                    int shown = 0;
+                    printf("[论文·角色] 论证结构（主张/证据/限定/出处/陈述）：\n");
+                    for (char *ln = strtok_r(txt, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+                        while (*ln == ' ' || *ln == '\t') ln++;
+                        if (!*ln) continue;
+                        char *e = ln + strlen(ln);
+                        while (e > ln && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r')) *--e = 0;
+                        const char *role = paper_arg_role(a->brain, ln);
+                        int ri = 4;
+                        for (int k = 0; k < 4; ++k) if (!strcmp(role, names[k])) ri = k;
+                        cnt[ri]++;
+                        printf("  [%s] %.110s\n", role, ln);
+                        shown++;
+                    }
+                    printf("[论文·角色] 共 %d 句：主张 %d / 证据 %d / 限定 %d / 出处 %d / 陈述 %d\n",
+                           shown, cnt[0], cnt[1], cnt[2], cnt[3], cnt[4]);
+                    printf("[注意力] 优先追问「主张但无证据」的段落（当前只做角色视图；接 ::study 是下一步）\n");
+                    free(txt);
+                    continue;
+                }
                 if (!strncmp(r, "read", 4)) {
                     const char *p = r + 4;
                     while (*p == ' ' || *p == '\t') p++;

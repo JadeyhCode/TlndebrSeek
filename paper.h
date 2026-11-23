@@ -554,6 +554,18 @@ static inline int paper_sentence_claim(AI *ai, const char *s, size_t len, const 
 }
 
 /* 扫一段文本：按句号/问号/换行切句，逐句抽断言。返回抽到的条数（<= cap）。 */
+/* §7.014 论证结构：主张 / 证据 / 限定 / 出处 / 陈述。
+ * 线索词全部来自数据（patterns.txt 的 class），C 里不点具体词；顺序=优先级（出处最具体）。 */
+static inline const char *paper_arg_role(AI *ai, const char *s) {
+    (void)ai;
+    if (!s || !*s) return "陈述";
+    if (aip_class_in_text("sourceword", s)) return "出处";
+    if (aip_class_in_text("evidenceword", s)) return "证据";
+    if (aip_class_in_text("claimword", s)) return "主张";
+    if (aip_class_in_text("qualifierword", s)) return "限定";
+    return "陈述";
+}
+
 /* §6.986 并列句拆分：`猫 和 狗 都 属于 动物` ⇒ 两条；`牛 吃 草 和 树叶` ⇒ 两条。
  * 连词来自数据 `[class] conjword`；只在**单句抽取失败**后试，不抢正常路径。 */
 static inline size_t paper_conj_claims(AI *ai, const char *cl, PaperClaim *out, size_t cap) {

@@ -849,6 +849,27 @@ static inline int aip_guess_min(const char *relname) {
     return REL_GUESS_SIM;
 }
 
+/* §7.014 类词在**一段文字里**出现没有（aip_class_has 是整词相等，这里要子串） */
+static inline int aip_class_in_text(const char *cls, const char *text) {
+    if (!cls || !text || !*text) return 0;
+    for (size_t i = 0; i < g_class_n; ++i) {
+        if (strcmp(g_class_name[i], cls) != 0) continue;
+        const char *p = g_class_words[i];
+        while (*p) {
+            while (*p == ' ' || *p == ',') p++;
+            const char *q = p;
+            while (*q && *q != ',') q++;
+            if (q > p) {
+                size_t l = (size_t)(q - p);
+                for (const char *t = text; *t; ++t)
+                    if (!strncmp(t, p, l)) return 1;
+            }
+            p = q;
+        }
+    }
+    return 0;
+}
+
 static inline int aip_class_has(const char *cls, const char *word) {
     if (!cls || !word || !*word) return 0;
     for (size_t i = 0; i < g_class_n; ++i) {
