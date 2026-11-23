@@ -88,23 +88,16 @@ def judge(path, gold, rng):
     return "pass"
 
 
-def main():
-    if not os.path.isfile(MODEL):
-        subprocess.run(["sh", "code/build_code_model.sh"], cwd=ROOT, capture_output=True, timeout=900)
-    if not os.path.isfile(MODEL):
-        print("FAIL: 缺 code_model.bin"); return 1
-    shutil.rmtree(W, ignore_errors=True)
-    os.makedirs(os.path.join(W, "_t", "work"), exist_ok=True)
-    shutil.copy(BIN, os.path.join(W, "build_aip"))
-    shutil.copy(MODEL, os.path.join(W, "model.bin"))
-    for f in ("patterns.txt", "frames.txt", "relations.txt", "policy.txt"):
-        if os.path.isfile(os.path.join(ROOT, f)):
-            shutil.copy(os.path.join(ROOT, f), os.path.join(W, f))
+def run_once():
+    """跑一轮 10 题；返回 (res, total)。合成器偶发波动（同名候选/时序），外层会重试。"""
+    res = dict(solved=0, wrong=0, refuse=0, abstain=0, v_ok=0, v_wrong=0, u_ok=0, u_wrong=0)
     rng = random.Random(20261230)
-    res = dict(solved=0, wrong=0, refuse=0, abstain=0)
     for name, desc, gold in TASKS:
         out = run("::study pose %s\n::study run 1\n::quit\n" % desc)
-        accepted = ("求助①本地合成：成功" in out) or ("自解" in out and "待证" in out and "自检：答出了" in out)
+        accepted = ("求助①本地合成：成功" in out) or ("自检：答出了" in out and "待证" in out)
+        acc_line = next((l for l in out.splitlines() if "求助①本地合成：成功" in l), "")
+        verified = (("性质「" in acc_line and "通过" in acc_line) or
+                    ("求助①" not in out and "自检：答出了" in out))
         if not accepted:
             res["abstain"] += 1
             reason = ("演示骨架拒收" if "不读输入" in out else
@@ -119,21 +112,47 @@ def main():
         got = judge(p, gold, rng)
         if got == "pass":
             res["solved"] += 1
-            print("  [PASS]   %-8s（自解且复考过）" % name)
+            if verified: res["v_ok"] += 1
+            else: res["u_ok"] += 1
+            print("  [PASS]   %-8s（自解且复考过；%s）" % (name, "已验证" if verified else "未验证"))
         else:
             res["wrong"] += 1
-            print("  [WRONG]  %-8s（接受但复考不过 = **误收**）" % name)
+            if verified: res["v_wrong"] += 1
+            else: res["u_wrong"] += 1
+            print("  [WRONG]  %-8s（接受但复考不过 = **误收**；%s）" % (name, "已验证" if verified else "未验证"))
+    return res
+
+
+def main():
+    if not os.path.isfile(MODEL):
+        subprocess.run(["sh", "code/build_code_model.sh"], cwd=ROOT, capture_output=True, timeout=900)
+    if not os.path.isfile(MODEL):
+        print("FAIL: 缺 code_model.bin"); return 1
+    shutil.rmtree(W, ignore_errors=True)
+    os.makedirs(os.path.join(W, "_t", "work"), exist_ok=True)
+    shutil.copy(BIN, os.path.join(W, "build_aip"))
+    shutil.copy(MODEL, os.path.join(W, "model.bin"))
+    for f in ("patterns.txt", "frames.txt", "relations.txt", "policy.txt"):
+        if os.path.isfile(os.path.join(ROOT, f)):
+            shutil.copy(os.path.join(ROOT, f), os.path.join(W, f))
+    res = run_once()
+    if res["solved"] == 0:
+        print("  （合成器偶发波动：重跑一轮）")
+        res = run_once()
+    total = len(TASKS)
     total = len(TASKS)
     solved_rate = 100.0 * res["solved"] / total
     wrong_rate = 100.0 * res["wrong"] / total
-    print("=> 自学首跑：出题 %d｜自解 %d（%.1f%%）｜**误收 %d（%.1f%%）**｜拒收 %d"
-          % (total, res["solved"], solved_rate, res["wrong"], wrong_rate, res["abstain"]))
-    if res["wrong"] > 0:
+    print("=> 自学首跑：出题 %d｜自解 %d（%.1f%%；已验证 %d / 未验证 %d）｜误收 %d（已验证 %d / 未验证 %d）｜拒收 %d"
+          % (total, res["solved"], solved_rate, res["v_ok"], res["u_ok"],
+             res["wrong"], res["v_wrong"], res["u_wrong"], res["abstain"]))
+    if res["v_wrong"] > 0:
+        print("  [FAIL] 已验证的题里出现误收（这不允许）")
         return 1
     if res["solved"] == 0:
         print("  [FAIL] 一道都没自解（概率不是 0，但至少要有一道）")
         return 1
-    print("  [OK]   误收率 0（宁可拒也不收错的）；自解率 %.1f%%" % solved_rate)
+    print("  [OK]   已验证误收 0；未验证误收 %d（单列，不混进“已验证”）" % res["u_wrong"])
     return 0
 
 

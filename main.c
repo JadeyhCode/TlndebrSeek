@@ -2719,6 +2719,7 @@ static int study_round(Agent *a) {
     ans[0] = 0;
     (void)agent_step(a, q, ans, sizeof ans);
     int solved = !study_is_refusal(ans);
+    int local_ok = 0, local_verified = 0;
     char why[256];
     study_reflect(ai, q, why, sizeof why);
     printf("[自学] 自答：%.120s\n", ans[0] ? ans : "（空）");
@@ -2756,11 +2757,14 @@ static int study_round(Agent *a) {
                 } else {
                     g_study.help_local++;
                     helped = 1;
+                    local_ok = 1;
+                    local_verified = (vrc == 1);
                     printf("[自学] 求助①本地合成：成功（%s）→ 待证（%s；%s）\n",
                            note[0] ? note : "编过", cand[0] ? cand : "?",
                            vrc == 1 ? vwhy : "未验证");
-                    study_log("_t/study/proposals.tsv", "%ld\t本地合成\t%s\t%s | %s\n",
-                              (long)time(NULL), q, note[0] ? note : "（合成成功）",
+                    study_log("_t/study/proposals.tsv", "%ld\t本地合成（%s）\t%s\t%s | %s\n",
+                              (long)time(NULL), vrc == 1 ? "已验证" : "未验证", q,
+                              note[0] ? note : "（合成成功）",
                               cand[0] ? cand : "?");
                     g_study.propose++;
                 }
@@ -2808,15 +2812,16 @@ static int study_round(Agent *a) {
     /* 统计**落盘**：进程内计数会随每次 REPL 重开清零（实测），所以持久化成 tsv，
      * `::study stats` 从文件汇总。 */
     {
+        int success = solved || local_ok;
         char flags[64];
         snprintf(flags, sizeof flags, "%s%s%s%s%s",
-                 solved ? "self" : "-",
-                 (!solved && g_study.help_local) ? ",local" : "",
-                 (!solved && g_study.help_ext) ? ",ext" : "",
-                 (!solved && g_study.help_user) ? ",user" : "",
-                 (!solved && g_study.help_sym) ? ",sym" : "");
+                 solved ? "self" : (local_ok ? (local_verified ? "localv" : "localu") : "-"),
+                 (!success && g_study.help_ext) ? ",ext" : "",
+                 (!success && g_study.help_user) ? ",user" : "",
+                 (!success && g_study.help_sym) ? ",sym" : "",
+                 "");
         study_log("_t/study/stats.tsv", "%ld\t%s\t%s\t%s\n",
-                  (long)time(NULL), solved ? "solved" : "failed", flags, q);
+                  (long)time(NULL), success ? "solved" : "failed", flags, q);
     }
     study_mark(q, "studied");
     return 1;
@@ -2825,16 +2830,20 @@ static int study_round(Agent *a) {
 static void study_stats_print(void) {
     FILE *f = fopen("_t/study/stats.tsv", "rb");
     size_t nq = 0, solved = 0, failed = 0, hl = 0, he = 0, hu = 0, hs = 0, prop = 0;
+    size_t verified = 0, unverified = 0;
     if (f) {
         char line[2048];
         while (fgets(line, sizeof line, f)) {
             nq++;
-            if (strstr(line, "\tsolved\t")) solved++;
-            else failed++;
-            if (strstr(line, ",local")) hl++;
-            if (strstr(line, ",ext")) he++;
-            if (strstr(line, ",user")) hu++;
-            if (strstr(line, ",sym")) hs++;
+            if (strstr(line, "\tsolved\t")) {
+                solved++;
+                if (strstr(line, "\tself\t") || strstr(line, "\tlocalv\t")) verified++;
+                else if (strstr(line, "\tlocalu\t")) unverified++;
+            } else failed++;
+            if (strstr(line, "localv") || strstr(line, "localu")) hl++;
+            if (strstr(line, "ext")) he++;
+            if (strstr(line, "user")) hu++;
+            if (strstr(line, "sym")) hs++;
         }
         fclose(f);
     }
@@ -2847,8 +2856,8 @@ static void study_stats_print(void) {
         }
     }
     double rate = nq ? (100.0 * (double)solved / (double)nq) : 0.0;
-    printf("[自学统计] 出题 %zu｜自解 %zu（%.1f%%）｜答不出 %zu｜求助分布：本地 %zu / 外部 %zu / 问用户 %zu / ::sym 建议 %zu｜待证 %zu\n",
-           nq, solved, rate, failed, hl, he, hu, hs, prop);
+    printf("[自学统计] 出题 %zu｜自解 %zu（%.1f%%，其中已验证 %zu / 未验证 %zu）｜答不出 %zu｜求助分布：本地 %zu（含已验证） / 外部 %zu / 问用户 %zu / ::sym 建议 %zu｜待证 %zu\n",
+           nq, solved, rate, verified, unverified, failed, hl, he, hu, hs, prop);
 }
 
 /* §7.017 取题打分（注意力份额 + 论文加成）；权重在 policy.txt，可消融 */
