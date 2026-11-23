@@ -475,9 +475,10 @@ static inline const char *ai_write_src_name(AiWriteSrc s) {
  * “约束怎么想”的阈值使用。顺序：环境变量（调用方自己查）> policy.txt > 代码最小默认。
  * 只认整数；文件缺失/坏行就当没写（保持可复现：删掉 policy.txt 就回到默认）。 */
 static inline long aip_policy_int(const char *key, long def) {
-    static char p_key[16][40];
-    static long p_val[16];
-    static int p_n = -1;
+    /* 线程局部：并发（conc_tsan）下多个 agent 会同时进这里，全局静态会报 data race */
+    static AIP_TLS char p_key[16][40];
+    static AIP_TLS long p_val[16];
+    static AIP_TLS int p_n = -1;
     if (!key) return def;
     if (p_n < 0) {
         p_n = 0;
@@ -570,6 +571,17 @@ static inline char *aip_policy_next(char **pp) {
     while (l && (s[l-1] == ' ' || s[l-1] == '\t')) s[--l] = 0;
     *pp = nxt;
     return s;
+}
+
+/* 词表里有没有 needle（用 aip_policy_next 的安全切分） */
+static inline int aip_policy_word(const char *key, const char *deflist, const char *needle) {
+    if (!needle || !*needle) return 0;
+    char buf[256];
+    if (!aip_policy_str(key, buf, sizeof buf)) snprintf(buf, sizeof buf, "%s", deflist ? deflist : "");
+    char *cur = buf;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (!strcmp(w, needle)) return 1;
+    return 0;
 }
 
 /* ============================ §6.564 每个智能体自己的修改账 ============================

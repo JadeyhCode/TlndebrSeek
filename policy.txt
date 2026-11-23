@@ -7,3 +7,7 @@ tool_prefix=工具,tool:,TOOL:
 tool_link_words=连接,连着,相连
 tool_active_words=活跃,激活,符号
 tool_gate_words=网关,gate
+# §7.006 澄清的窄形状（“怎么想”的策略：多大范围先反问）
+clarify_min_tokens=4
+clarify_max_tokens=6
+clarify_tail_words=吗,呢

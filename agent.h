@@ -11375,8 +11375,12 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             int clarified = 0;
             const char *nodata = getenv("AIP_NODATA");
             int shape_ablate = (nodata && strstr(nodata, "shape")) ? 1 : 0;
-            if (ai->rel_nat && !shape_ablate && words && n >= 4 && n <= 6 && words[n - 1] &&
-                (!strcmp(words[n - 1], "吗") || !strcmp(words[n - 1], "呢"))) {
+            int cmin = (int)aip_policy_int("clarify_min_tokens", 4);
+            int cmax = (int)aip_policy_int("clarify_max_tokens", 6);
+            if (cmin < 3) cmin = 3;
+            /* 故意不把 cmax 夹到 cmin：max<min 就是“关闭澄清”的一种消融写法 */
+            if (ai->rel_nat && !shape_ablate && words && (int)n >= cmin && (int)n <= cmax &&
+                words[n - 1] && aip_policy_word("clarify_tail_words", "吗,呢", words[n - 1])) {
                 Token *ca = pool_find(ai->pool, words[0]);
                 Token *cb = pool_find(ai->pool, words[n - 2]);
                 int unknown_rel = 0, has_known_rel = 0;

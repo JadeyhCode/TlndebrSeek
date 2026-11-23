@@ -34749,3 +34749,38 @@ PASS curious（16 过 / 0 红）
 - 只按 `(主,谓,宾)` 文本精确去重，不做同义/归一；
 - 哈希碰撞按“新边”放行（宁多写不丢），统计上可忽略；
 - 多行代码体的续行不单独去重（按整条三元组算）。
+
+## §7.006 澄清窄形状下沉 policy.txt；顺手修一个 TSan 真竞争（2026-11-21）
+
+§6.984 的澄清形状写死在 C 里（4–6 词、尾词 吗/呢）。这轮下沉成策略：
+
+```
+clarify_min_tokens=4
+clarify_max_tokens=6
+clarify_tail_words=吗,呢
+```
+
+- `agent.h` 用 `aip_policy_int` / `aip_policy_word` 读；`max<min` 是**合法的“关闭澄清”消融写法**
+  （第一版把 `cmax` 夹到 `cmin`，导致 `clarify_max_tokens=3` 完全无效——实测抓到后删掉夹取）；
+- 新增 `tests/clarifypolicy.sh`（154 套）+ 登记表补三行；`hardcode.sh` 13 项全过。
+
+### 消融读数
+
+| 动作 | 结果 |
+|---|---|
+| 默认（4–6 词/吗呢） | `猫 对 动物 吗` → 反问「什么关系」 |
+| `clarify_max_tokens=3` | 不再反问，回退到诚实拒答 |
+| `clarify_tail_words=呢` | `…吗` 不反问、`…呢` 仍反问 |
+| 删 `policy.txt` | 回到默认 |
+
+### 顺带修的 TSan 竞争
+
+`aip_policy_int` 的静态缓存（p_key/p_val/p_n）是**全进程共享**；澄清路径现在每轮都会调用它，
+`conc_tsan` 立刻报 data race（两个 agent 线程同时懒初始化）。改成 `static AIP_TLS …` 后
+`PASS conc_tsan（0 处数据竞争）`。这也是为什么策略读取必须线程安全：**读数据也会被并发**。
+
+### 边界
+
+- 澄清形状只认词数+尾词，不看句法角色；
+- `clarify_tail_words` 是精确匹配（“么/嘛”这类变体不认）；
+- policy 读文件缓存是线程局部，但**没做“文件变更热加载”**（改文件要重启进程）。
