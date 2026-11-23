@@ -226,6 +226,7 @@ attentionpick|python3 tools/attention_pick_blind.py
 attentionlist|python3 tools/attention_list_blind.py
 study|sh tests/study.sh
 studyeval|python3 tools/study_eval.py
+studystr|python3 tools/study_str_eval.py
 familysplit|sh tests/familysplit.sh
 matrixfile|sh tests/matrixfile.sh
 shardindex|sh tests/shardindex.sh

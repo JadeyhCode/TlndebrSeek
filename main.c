@@ -2604,6 +2604,54 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
         }
     }
     if (!prop) return -1;
+    /* ---------- 字符串族：单独一套固定输入（不走整数解析） ---------- */
+    if (!strcmp(prop, "字符串长度") || !strcmp(prop, "单词个数") ||
+        !strcmp(prop, "翻转单词") || !strcmp(prop, "回文")) {
+        char exe2[640];
+        snprintf(exe2, sizeof exe2, "%s.out", cand);
+        const char *inputs[2] = { "ab cd ef", "abcba" };
+        const char *wants[2]  = { "", "" };
+        int nt = 1;
+        if (!strcmp(prop, "字符串长度")) wants[0] = "8";
+        else if (!strcmp(prop, "单词个数")) wants[0] = "3";
+        else if (!strcmp(prop, "翻转单词")) wants[0] = "efcdab";   /* 去空格比 */
+        else {
+            nt = 2;
+            inputs[0] = "abcba"; wants[0] = "yes";
+            inputs[1] = "abc";   wants[1] = "no";
+        }
+        for (int k = 0; k < nt; ++k) {
+            char ip[160], op[160], cmd[1200];
+            snprintf(ip, sizeof ip, "_t/work/vs_%ld.in", (long)getpid());
+            snprintf(op, sizeof op, "_t/work/vs_%ld.out", (long)getpid());
+            FILE *f = fopen(ip, "wb");
+            if (!f) return 0;
+            fprintf(f, "%s\n", inputs[k]);
+            fclose(f);
+            snprintf(cmd, sizeof cmd, "timeout 5 %s < %s > %s 2>/dev/null", exe2, ip, op);
+            { int rc = system(cmd); (void)rc; }
+            char got[512] = {0};
+            FILE *g = fopen(op, "rb");
+            if (g) { size_t n = fread(got, 1, sizeof got - 1, g); got[n] = 0; fclose(g); }
+            remove(ip); remove(op);
+            char zg[512];
+            size_t zo = 0;
+            for (const char *q = got; *q && zo + 1 < sizeof zg; ++q)
+                if (*q != ' ' && *q != '\t' && *q != '\n' && *q != '\r') zg[zo++] = *q;
+            zg[zo] = 0;
+            /* 合成器模板会在末尾打自测行（ok/FAIL）：答案是前面那部分 */
+            size_t zl = strlen(zg);
+            if (zl >= 2 && strcmp(zg + zl - 2, "ok") == 0) zg[zl - 2] = 0;
+            else if (zl >= 4 && strcmp(zg + zl - 4, "FAIL") == 0) zg[zl - 4] = 0;
+            if (strcmp(zg, wants[k]) != 0) {
+                snprintf(why, cap, "字符串「%s」校验不过（输出 %.40s，期望 %s）",
+                         prop, zg[0] ? zg : "（空）", wants[k]);
+                return 0;
+            }
+        }
+        snprintf(why, cap, "性质「%s」通过（字符串族）", prop);
+        return 1;
+    }
     /* 固定两组输入（确定性）：只测一组会被巧合蒙混（实测：min 与相邻差最小在一组样本上相等）；
      * 两组形状不同、且刻意让常见混淆量（min/max/均值）与目标量分开。 */
     static const long sets[2][6] = { { 7, 1, 9, 3, 8, 2 }, { 4, 10, 1, 6, 2, 8 } };
