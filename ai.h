@@ -584,6 +584,15 @@ static inline int aip_policy_word(const char *key, const char *deflist, const ch
     return 0;
 }
 
+/* §7.010 策略浮点（policy.txt 里允许小数）：坏值/缺键回默认 */
+static inline float aip_policy_float(const char *key, float def) {
+    char buf[64];
+    if (!aip_policy_str(key, buf, sizeof buf)) return def;
+    char *end = NULL;
+    float v = strtof(buf, &end);
+    return (end && end != buf) ? v : def;
+}
+
 /* ============================ §6.564 每个智能体自己的修改账 ============================
  *
  * 目标（用户 2026-10-24）：**打开多个智能体，每个智能体只维护自己的修改**。
@@ -1348,6 +1357,14 @@ typedef struct AI {
     float  focus_weight[AI_MAX_FOCUS];
     size_t focus_n;
     Token *focus;
+    /* §7.010 元认知管理的注意力：焦点环是“候选”，注意力是**这一轮实际分到的预算**。
+     * 预算按策略数据（att_budget/att_decay/att_topk）刷新；每项保留“为什么给它”的来源标签。 */
+    float  att_budget_max, att_budget, att_spent, att_decay;
+    Token *att_top[8];
+    float  att_w[8];
+    const char *att_why[8];
+    size_t att_n;
+    size_t att_rounds;
 
     Token **trace;
     size_t trace_n, trace_cap;

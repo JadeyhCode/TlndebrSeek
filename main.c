@@ -566,6 +566,7 @@ typedef enum {
     CMD_SEG,
     CMD_SSEG,
     CMD_SYM,
+    CMD_ATT,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -767,6 +768,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "att", "注意力", 1, "基本",
+      "元认知管理的注意力：::att 看预算/份额/来源/衰减；::att reset 清计数（策略在 policy.txt：att_budget/att_decay/att_topk）", CMD_ATT },
     { "sym", "符号", 1, "基本",
       "自省/自修改：active（活跃符号）/ links <名> / add|del|rename|merge / edge add|del|mod / write on|off（默认只读）", CMD_SYM },
     { "sseg", "滑动切分", 1, "基本",
@@ -4644,6 +4647,34 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_ATT: {
+                const char *arg = (cmd[3] == ' ') ? cmd + 4 : NULL;
+                while (arg && *arg == ' ') arg++;
+                if (arg && !strncmp(arg, "reset", 5)) {
+                    a->brain->att_rounds = 0;
+                    printf("[注意力] 计数清零\n");
+                    continue;
+                }
+                printf("[注意力] 预算 %.2f / 已分配 %.2f / top-k %ld / 衰减 %.2f / 轮数 %zu\n",
+                       (double)a->brain->att_budget, (double)a->brain->att_spent,
+                       (long)aip_policy_int("att_topk", 5), (double)a->brain->att_decay,
+                       a->brain->att_rounds);
+                if (getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0') {
+                    printf("[注意力] 关（AIP_ATT=0）\n");
+                    continue;
+                }
+                if (a->brain->att_n == 0) {
+                    printf("[注意力] 还没有分配（先说一句话再看）\n");
+                    continue;
+                }
+                for (size_t i = 0; i < a->brain->att_n; ++i) {
+                    Token *t = a->brain->att_top[i];
+                    printf("  %zu. %-12s 份额 %.3f  来源 %s\n", i + 1,
+                           t && t->name ? t->name : "?", (double)a->brain->att_w[i],
+                           a->brain->att_why[i] ? a->brain->att_why[i] : "?");
+                }
                 continue;
             }
             case CMD_SYM: {

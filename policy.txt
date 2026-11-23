@@ -17,3 +17,7 @@ curious_question_prefix=请问
 curious_question_mark=？
 more_marker_words=还有,其他,别的,再来,再列,更多,接着
 more_tail_words=呢,吗,哪些,几个,再列,更多,接着
+# §7.010 注意力（元认知管的预算/衰减/并发焦点数）
+att_budget=1.0
+att_decay=0.15
+att_topk=5

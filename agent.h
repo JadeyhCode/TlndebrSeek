@@ -9390,6 +9390,8 @@ static inline int agent_fmt_parse(AI *ai, const char *input, char *bare, size_t 
 /* §6.402 **早退也要记住说了什么**：agent_step 里有十几条早退，以前只有末尾那条写 `last_reply`
  * ⇒ 凡走数据行/裸短回话/重复请求的答复，「再说一遍」「没听懂」都复述不出来（§6.401 只补了两条）。
  * 这里收成一个出口：记原文（空串和"……"不记）+ 轮次自增，返回长度。*/
+static inline void agent_attention_update(AI *ai);   /* §7.010 定义在后面 */
+
 static inline size_t agent_say(AI *ai, char *out) {
     if (ai) {
         if (out && out[0] && strcmp(out, "……") != 0) {
@@ -10018,6 +10020,70 @@ static inline int aip_question_shape(const char *s) {
     char qm[16];
     if (!aip_policy_str("curious_question_mark", qm, sizeof qm)) snprintf(qm, sizeof qm, "？");
     return qm[0] && strstr(s, qm) != NULL;
+}
+
+/* §7.010 **元认知管理的注意力**：把焦点环当候选池，按“不确定性 + 证据缺口 + 焦点权重”
+ * 打分，只给 top-k 分配预算；每项记“为什么”（焦点/低置信/缺口）。
+ * 这是**可观测**的：`::att` 看得到预算、份额、来源、衰减；策略在 policy.txt。
+ * 为什么不是固定词表：给谁注意力是策略（元认知），不是词义。 */
+static inline void agent_attention_update(AI *ai) {
+    if (!ai || !ai->pool) return;
+    if (getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0') { ai->att_n = 0; return; }
+    float bmax = aip_policy_float("att_budget", 1.0f);
+    float decay = aip_policy_float("att_decay", 0.15f);
+    int topk = (int)aip_policy_int("att_topk", 5);
+    if (bmax <= 0.0f) bmax = 1.0f;
+    if (decay < 0.0f) decay = 0.0f;
+    if (decay > 0.9f) decay = 0.9f;
+    if (topk < 1) topk = 1;
+    if (topk > 8) topk = 8;
+    ai->att_budget_max = bmax;
+    ai->att_decay = decay;
+    ai->att_budget = bmax;                  /* 每轮刷新预算 */
+    ai->att_spent = 0.0f;
+    ai->att_n = 0;
+    float uncertain = 1.0f - ai->meta.confidence;
+    if (uncertain < 0.0f) uncertain = 0.0f;
+    if (uncertain > 1.0f) uncertain = 1.0f;
+    float gap = (ai->meta.gap_feel > 0.4f) ? 0.25f : 0.0f;
+    typedef struct { Token *t; float s; const char *why; } Cand;
+    Cand cand[AI_MAX_FOCUS];
+    size_t nc = 0;
+    for (size_t i = 0; i < ai->focus_n && nc < AI_MAX_FOCUS; ++i) {
+        Token *t = ai->focus_ring[i];
+        if (!t || t->is_garbage || !t->name) continue;
+        float s = ai->focus_weight[i];
+        const char *why = "焦点";
+        if (uncertain > 0.5f) { s *= (1.0f + 0.5f * uncertain); why = "低置信"; }
+        if (gap > 0.0f) { s += gap; why = "缺口"; }
+        if (s <= 0.0f) continue;
+        cand[nc].t = t; cand[nc].s = s; cand[nc].why = why; nc++;
+    }
+    /* 稳定排序（分数降序；同分保持焦点序） */
+    for (size_t i = 1; i < nc; ++i) {
+        Cand key = cand[i];
+        size_t j = i;
+        while (j > 0 && cand[j - 1].s < key.s) { cand[j] = cand[j - 1]; --j; }
+        cand[j] = key;
+    }
+    size_t take = nc < (size_t)topk ? nc : (size_t)topk;
+    float sum = 0.0f;
+    for (size_t i = 0; i < take; ++i) sum += cand[i].s;
+    for (size_t i = 0; i < take; ++i) {
+        float share = sum > 0.0f ? (cand[i].s / sum) * bmax : bmax / (float)(take ? take : 1);
+        ai->att_top[i] = cand[i].t;
+        ai->att_w[i] = share;
+        ai->att_why[i] = cand[i].why;
+        ai->att_spent += share;
+    }
+    ai->att_n = take;
+    ai->att_rounds++;
+    /* 衰减：没分到注意力的焦点权重按 decay 掉，避免“老焦点永远占位” */
+    for (size_t i = 0; i < ai->focus_n; ++i) {
+        int hit = 0;
+        for (size_t k = 0; k < take; ++k) if (ai->att_top[k] == ai->focus_ring[i]) { hit = 1; break; }
+        if (!hit) ai->focus_weight[i] *= (1.0f - decay);
+    }
 }
 
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {
@@ -10874,6 +10940,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         ai_focus_push(ai, t, 1.0f);
     }
     ai_focus_decay(ai, 0.85f);
+    agent_attention_update(ai);   /* §7.010 感知后立刻按元认知分配注意力（每轮一次） */
 
     /* ---- 微内核：补丁注入 ----
      * 补丁把外部信号变成符号节点交进来，内核只当它们是一批符号节点
