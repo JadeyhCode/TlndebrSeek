@@ -27,3 +27,6 @@ study_ext_help=1
 study_ask_user=1
 # §7.013 自出变式题预算
 study_gen=3
+# §7.017 自学取题的注意力加成（论文来源/论文主题词）
+att_pick_paper_focus=0.25
+att_pick_paper_src=0.50

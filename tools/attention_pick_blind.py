@@ -55,6 +55,20 @@ def main():
     checks.append(("关注意力：退回最早入队（猫）", ("下一题" in out2 and out2.rfind("猫 会 飞 吗") > 0 and "鲸鱼会飞" not in out2.split("下一题")[-1])))
     m2 = re.search(r"下一题（注意力得分 ([\d.]+)）", out2)
     checks.append(("关注意力：得分 0.00", bool(m2) and float(m2.group(1)) == 0.0))
+    # ③ 权重可消融：把两个论文加成置 0，顺序退化成最早入队（猫）
+    fresh()
+    with open(os.path.join(W, "policy.txt"), "w", encoding="utf-8") as f:
+        f.write("att_pick_paper_focus=0\natt_pick_paper_src=0\n")
+    out3 = run("::study pose 猫 会 飞 吗\n::paper roles p.txt\n::paper queue\n::study next\n::quit\n")
+    m3 = re.search(r"下一题（注意力得分 ([\d.]+)）", out3)
+    checks.append(("权重置 0：论文加成消失（得分比默认低 ≥0.7）",
+                   bool(m3) and bool(m) and float(m.group(1)) - float(m3.group(1)) >= 0.7))
+    # ④ 删 policy.txt 回默认
+    fresh()
+    os.remove(os.path.join(W, "policy.txt"))
+    out4 = run("::study pose 猫 会 飞 吗\n::paper roles p.txt\n::paper queue\n::study next\n::quit\n")
+    last4 = out4.split("下一题")[-1] if "下一题" in out4 else ""
+    checks.append(("删 policy.txt 回默认（鲸鱼优先）", ("鲸鱼" in last4)))
     for name, good in checks:
         ok += good
         print("  [%s] %s" % ("OK" if good else "FAIL", name))

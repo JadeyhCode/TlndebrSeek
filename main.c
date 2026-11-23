@@ -2414,12 +2414,13 @@ static int study_is_refusal(const char *ans) {
     return 0;
 }
 
+static double study_score(Agent *a, const char *q, const char *why);   /* §7.017 定义在后面 */
+
 /* §7.016 取题顺序由**注意力**决定：题目里 token 的注意力份额越高越先做；
  * 来源是论文的（why 里带“论文”）再加成——这是“注意力影响行为”的第一处。
  * AIP_ATT=0 时注意力为空 ⇒ 退化成“最早入队优先”。返回 1=取到。 */
 static int study_pick(Agent *a, char *q, size_t cap) {
     if (!a || !a->brain) return 0;
-    AI *ai = a->brain;
     FILE *f = fopen("_t/curious.tsv", "rb");
     if (!f) return 0;
     char line[2048];
@@ -2440,21 +2441,7 @@ static int study_pick(Agent *a, char *q, size_t cap) {
         char cand[512];
         memcpy(cand, qq, ql);
         cand[ql] = 0;
-        double sc = 0.0;
-        if (att_on) {
-            size_t wn = 0;
-            char **w = ai_tokenize(ai, cand, &wn);
-            for (size_t k = 0; k < wn; ++k) {
-                Token *tk = w[k] ? pool_find(ai->pool, w[k]) : NULL;
-                if (!tk) continue;
-                for (size_t i = 0; i < ai->att_n; ++i)
-                    if (ai->att_top[i] == tk) { sc += ai->att_w[i]; break; }
-            }
-            ai_free_words(w, wn);
-            for (size_t k = 0; k < ai->paper_n; ++k)
-                if (strstr(cand, ai->paper_focus[k]->name ? ai->paper_focus[k]->name : "")) { sc += 0.25; break; }
-            if (strstr(why, "论文")) sc += 0.50;
-        }
+        double sc = att_on ? study_score(a, cand, why) : 0.0;
         if (sc > best_score) { best_score = sc; snprintf(best, sizeof best, "%s", cand); }
     }
     fclose(f);
@@ -2864,6 +2851,32 @@ static void study_stats_print(void) {
            nq, solved, rate, failed, hl, he, hu, hs, prop);
 }
 
+/* §7.017 取题打分（注意力份额 + 论文加成）；权重在 policy.txt，可消融 */
+static double study_score(Agent *a, const char *q, const char *why) {
+    if (!a || !a->brain || !q) return 0.0;
+    AI *ai = a->brain;
+    if (getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0') return 0.0;
+    double sc = 0.0;
+    size_t wn = 0;
+    char **w = ai_tokenize(ai, q, &wn);
+    for (size_t k = 0; k < wn; ++k) {
+        Token *tk = w[k] ? pool_find(ai->pool, w[k]) : NULL;
+        if (!tk) continue;
+        for (size_t i = 0; i < ai->att_n; ++i)
+            if (ai->att_top[i] == tk) { sc += ai->att_w[i]; break; }
+    }
+    ai_free_words(w, wn);
+    double wf = (double)aip_policy_float("att_pick_paper_focus", 0.25f);
+    double ws = (double)aip_policy_float("att_pick_paper_src", 0.50f);
+    if (wf > 0.0)
+        for (size_t k = 0; k < ai->paper_n; ++k) {
+            const char *nm = ai->paper_focus[k]->name;
+            if (nm && strstr(q, nm)) { sc += wf; break; }
+        }
+    if (ws > 0.0 && why && strstr(why, "论文")) sc += ws;
+    return sc;
+}
+
 /* §7.013 自出变式题：从已自解的题（proposals）出发，用 `改写:A --改写--> B` 的**方向反过来**
  * （把 B 换成 A）造同义变式，作为 pending 入队。出题也由数据驱动（改写表），不是内置题库。 */
 static int study_gen(Agent *a, int want) {
@@ -2941,20 +2954,23 @@ static void study_cmd(Agent *a, const char *arg) {
     if (arg && !strncmp(arg, "next", 4)) {
         char q[512];
         if (!study_pick(a, q, sizeof q)) { printf("[自学] 没有待学的题\n"); return; }
-        double sc = 0.0;
-        int att_on = !(getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0');
-        if (att_on) {
-            size_t wn = 0;
-            char **w = ai_tokenize(a->brain, q, &wn);
-            for (size_t k = 0; k < wn; ++k) {
-                Token *tk = w[k] ? pool_find(a->brain->pool, w[k]) : NULL;
-                if (!tk) continue;
-                for (size_t i = 0; i < a->brain->att_n; ++i)
-                    if (a->brain->att_top[i] == tk) { sc += a->brain->att_w[i]; break; }
+        char why_sel[256] = {0};
+        {
+            FILE *cf = fopen("_t/curious.tsv", "rb");
+            if (cf) {
+                char cl[2048];
+                while (fgets(cl, sizeof cl, cf)) {
+                    if (!strstr(cl, q)) continue;
+                    char *t1 = strchr(cl, '\t');
+                    char *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
+                    char *t3 = t2 ? strchr(t2 + 1, '\t') : NULL;
+                    if (t3) { *t3 = 0; snprintf(why_sel, sizeof why_sel, "%s", t2 + 1); }
+                    break;
+                }
+                fclose(cf);
             }
-            ai_free_words(w, wn);
         }
-        printf("[自学] 下一题（注意力得分 %.2f）：%s\n", sc, q);
+        printf("[自学] 下一题（注意力得分 %.2f）：%s\n", study_score(a, q, why_sel), q);
         return;
     }
     if (arg && !strncmp(arg, "gen", 3)) {
