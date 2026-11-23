@@ -9904,17 +9904,44 @@ static inline int agent_clarify_reply(AI *ai, const char *input, char *out, size
 
 /* §6.987 「还有呢 / 还有哪些 / 其他的呢」：接着上一次“属于 X 的有…”往后列。
  * 状态：enum_b（宾语）、enum_rid、enum_neg、enum_after（最后列出的 token id）。 */
+static inline int aip_policy_list_has(const char *key, const char *deflist, const char *word) {
+    if (!word || !*word) return 0;
+    char buf[512];
+    if (!aip_policy_str(key, buf, sizeof buf)) snprintf(buf, sizeof buf, "%s", deflist ? deflist : "");
+    char *cur = buf;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (!strcmp(w, word)) return 1;
+    return 0;
+}
+
+static inline int aip_list_word_in(const char *key, const char *deflist, const char *text) {
+    char buf[256];
+    if (!aip_policy_str(key, buf, sizeof buf)) snprintf(buf, sizeof buf, "%s", deflist ? deflist : "");
+    char *cur = buf;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (*w && strstr(text, w)) return 1;
+    return 0;
+}
+
 static inline int agent_more_reply(AI *ai, char *const *words, size_t n, char *out, size_t cap) {
     if (!ai || !ai->enum_pending || !out || cap == 0) return 0;
     if (!words || n == 0 || n > 6) { ai->enum_pending = 0; return 0; }
-    static const char *okw[] = { "还有", "呢", "还有哪些", "哪些", "吗", "其他", "别的",
-                                 "再", "来", "几个", "其他呢", "还有吗", "再列", "列出",
-                                 "更多", "接着", "列", "接", "着", "还", "有",
-                                 "再", "来", "一", "些", "点", "个", NULL };
-    for (size_t i = 0; i < n; ++i) {
-        int ok = 0;
-        for (size_t k = 0; okw[k]; ++k) if (!strcmp(words[i], okw[k])) { ok = 1; break; }
-        if (!ok) { ai->enum_pending = 0; return 0; }
+    /* 词表判断用**拼起来的串**：`还有 哪些` 可能被引导语剥成 `[哪][些]`，
+     * 逐 token 精确比会漏（实测）。拼串后只要命中续列/尾词表任一族就继续。 */
+    char joined[128];
+    size_t jl = 0;
+    for (size_t i = 0; i < n && jl + 8 < sizeof joined; ++i) {
+        if (!words[i]) continue;
+        size_t l = strlen(words[i]);
+        if (jl + l >= sizeof joined) l = sizeof joined - jl - 1;
+        memcpy(joined + jl, words[i], l);
+        jl += l;
+    }
+    joined[jl] = 0;
+    if (!aip_list_word_in("more_tail_words", "呢,吗,哪些,几个,再列,更多,接着", joined) &&
+        !aip_list_word_in("more_marker_words", "还有,其他,别的,再来,再列,更多,接着", joined)) {
+        ai->enum_pending = 0;
+        return 0;
     }
     Token *b = pool_find(ai->pool, ai->enum_b);
     if (!b || !ai->enum_rid) { ai->enum_pending = 0; return 0; }
@@ -9922,7 +9949,6 @@ static inline int agent_more_reply(AI *ai, char *const *words, size_t n, char *o
     size_t off = (size_t)snprintf(buf, sizeof buf, "还 有 ： ");
     size_t hits = 0;
     uint32_t last = ai->enum_after;
-    /* 反查桶按 id 升序取（与首屏同一顺序），只列 id > enum_after 的 */
     uint32_t cand[512];
     size_t ncd = 0;
     for (uint32_t ent = b->rev_head; ent && ncd < (sizeof cand / sizeof cand[0]);
@@ -9943,7 +9969,8 @@ static inline int agent_more_reply(AI *ai, char *const *words, size_t n, char *o
                          : (rel_direct(t, ai->enum_rid, b) == 0)) continue;
         if (strstr(buf, t->name)) continue;   /* 同名去重 */
         off += (size_t)snprintf(buf + off, sizeof buf - off, "%s%s", hits ? " 、 " : "", t->name);
-        hits++; last = t->id;
+        last = t->id;
+        hits++;
     }
     if (hits == 0) {
         snprintf(buf, sizeof buf, "没 有 了 —— 图里 属于 %s 的 就 这些", ai->enum_b);
@@ -9957,31 +9984,40 @@ static inline int agent_more_reply(AI *ai, char *const *words, size_t n, char *o
 }
 
 /* §6.987 字符串级判断「还有呢/还有哪些/其他呢/再来几个」——要在 reply 桶之前拦住它 */
+
 static inline int aip_more_request(const char *in) {
     if (!in) return 0;
     char j[64]; size_t o = 0;
     for (const char *q = in; *q && o + 1 < sizeof j; ++q)
         if (*q != ' ' && *q != '\t') j[o++] = *q;
     j[o] = 0;
-    if (!strstr(j, "还有") && !strstr(j, "其他") && !strstr(j, "别的") && !strstr(j, "再来") &&
-        !strstr(j, "再列") && !strstr(j, "更多") && !strstr(j, "接着")) return 0;
-    return strstr(j, "呢") || strstr(j, "吗") || strstr(j, "哪些") || strstr(j, "几个") ||
-           strstr(j, "再列") || strstr(j, "更多") || strstr(j, "接着");
+    if (!aip_list_word_in("more_marker_words", "还有,其他,别的,再来,再列,更多,接着", j)) return 0;
+    return aip_list_word_in("more_tail_words", "呢,吗,哪些,几个,再列,更多,接着", j);
 }
 
 /* §6.995 答不出时把**具体问题**入好奇心队列（本地先记，不立刻联网）。
  * 只在“图里确实没有”的兜底里调；问句形状才收（陈述/命令不收）。 */
+
+/* 问句形态：尾词/前缀/问号都可由 policy.txt 决定（§7.009 下沉；默认值只在文件缺省时用） */
 static inline int aip_question_shape(const char *s) {
     if (!s) return 0;
     size_t n = strlen(s);
     if (n < 4) return 0;
-    static const char *tail[] = { "吗", "呢", "什么", "谁", "哪", "哪里", "哪儿", "几", "多少",
-                                  "怎么", "怎样", "为什么", "啥", NULL };
-    for (size_t i = 0; tail[i]; ++i) {
-        size_t l = strlen(tail[i]);
-        if (n >= l && strcmp(s + n - l, tail[i]) == 0) return 1;
+    char tails[512];
+    if (!aip_policy_str("curious_question_tail", tails, sizeof tails))
+        snprintf(tails, sizeof tails, "%s",
+                 "吗,呢,什么,谁,哪,哪里,哪儿,几,多少,怎么,怎样,为什么,啥");
+    char *cur = tails;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur)) {
+        size_t l = strlen(w);
+        if (l && n >= l && strcmp(s + n - l, w) == 0) return 1;
     }
-    return strncmp(s, "请问", 6) == 0 || strstr(s, "？") != NULL;
+    char pre[64];
+    if (!aip_policy_str("curious_question_prefix", pre, sizeof pre)) snprintf(pre, sizeof pre, "请问");
+    if (pre[0] && strncmp(s, pre, strlen(pre)) == 0) return 1;
+    char qm[16];
+    if (!aip_policy_str("curious_question_mark", qm, sizeof qm)) snprintf(qm, sizeof qm, "？");
+    return qm[0] && strstr(s, qm) != NULL;
 }
 
 static inline size_t agent_step(Agent *a, const char *input, char *out, size_t out_cap) {

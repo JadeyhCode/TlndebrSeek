@@ -11,3 +11,9 @@ tool_gate_words=网关,gate
 clarify_min_tokens=4
 clarify_max_tokens=6
 clarify_tail_words=吗,呢
+# §7.009 问句/续列词表（“怎么想”的触发词，数据层）
+curious_question_tail=吗,呢,什么,谁,哪,哪里,哪儿,几,多少,怎么,怎样,为什么,啥
+curious_question_prefix=请问
+curious_question_mark=？
+more_marker_words=还有,其他,别的,再来,再列,更多,接着
+more_tail_words=呢,吗,哪些,几个,再列,更多,接着

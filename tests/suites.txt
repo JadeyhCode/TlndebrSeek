@@ -218,6 +218,7 @@ dialogueblind|python3 tools/dialogue_blind.py
 typoblind|python3 tools/typo_blind.py
 clarifyblind|python3 tools/clarify_blind.py
 clarifypolicy|sh tests/clarifypolicy.sh
+policywords|sh tests/policywords.sh
 familysplit|sh tests/familysplit.sh
 matrixfile|sh tests/matrixfile.sh
 shardindex|sh tests/shardindex.sh
