@@ -2414,12 +2414,18 @@ static int study_is_refusal(const char *ans) {
     return 0;
 }
 
-/* 取第一条 pending；返回 1=取到 */
-static int study_pick(char *q, size_t cap) {
+/* §7.016 取题顺序由**注意力**决定：题目里 token 的注意力份额越高越先做；
+ * 来源是论文的（why 里带“论文”）再加成——这是“注意力影响行为”的第一处。
+ * AIP_ATT=0 时注意力为空 ⇒ 退化成“最早入队优先”。返回 1=取到。 */
+static int study_pick(Agent *a, char *q, size_t cap) {
+    if (!a || !a->brain) return 0;
+    AI *ai = a->brain;
     FILE *f = fopen("_t/curious.tsv", "rb");
     if (!f) return 0;
     char line[2048];
-    int got = 0;
+    char best[512] = {0};
+    double best_score = -1.0;
+    int att_on = !(getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0');
     while (fgets(line, sizeof line, f)) {
         char *t1 = strchr(line, '\t');
         if (!t1) continue;
@@ -2427,17 +2433,34 @@ static int study_pick(char *q, size_t cap) {
         char *t2 = strchr(qq, '\t');
         if (!t2) continue;
         char *st = strrchr(line, '\t');
-        if (st && strstr(st, "pending")) {
-            size_t l = (size_t)(t2 - qq);
-            if (l >= cap) l = cap - 1;
-            memcpy(q, qq, l);
-            q[l] = 0;
-            got = 1;
-            break;
+        if (!st || !strstr(st, "pending")) continue;
+        char *why = t2 + 1;
+        size_t ql = (size_t)(t2 - qq);
+        if (ql >= sizeof best) ql = sizeof best - 1;
+        char cand[512];
+        memcpy(cand, qq, ql);
+        cand[ql] = 0;
+        double sc = 0.0;
+        if (att_on) {
+            size_t wn = 0;
+            char **w = ai_tokenize(ai, cand, &wn);
+            for (size_t k = 0; k < wn; ++k) {
+                Token *tk = w[k] ? pool_find(ai->pool, w[k]) : NULL;
+                if (!tk) continue;
+                for (size_t i = 0; i < ai->att_n; ++i)
+                    if (ai->att_top[i] == tk) { sc += ai->att_w[i]; break; }
+            }
+            ai_free_words(w, wn);
+            for (size_t k = 0; k < ai->paper_n; ++k)
+                if (strstr(cand, ai->paper_focus[k]->name ? ai->paper_focus[k]->name : "")) { sc += 0.25; break; }
+            if (strstr(why, "论文")) sc += 0.50;
         }
+        if (sc > best_score) { best_score = sc; snprintf(best, sizeof best, "%s", cand); }
     }
     fclose(f);
-    return got;
+    if (!best[0]) return 0;
+    snprintf(q, cap, "%s", best);
+    return 1;
 }
 
 /* 把同一问题的状态改成 studied（保留其余行，原子替换） */
@@ -2702,7 +2725,7 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
 static int study_round(Agent *a) {
     AI *ai = a->brain;
     char q[512];
-    if (!study_pick(q, sizeof q)) return 0;
+    if (!study_pick(a, q, sizeof q)) return 0;
     g_study.nq++;
     printf("[自学] 出题（来自好奇心队列）：%s\n", q);
     char ans[2048];
@@ -2913,6 +2936,25 @@ static void study_cmd(Agent *a, const char *arg) {
         remove("_t/study/stats.tsv");
         remove("_t/study/proposals.tsv");
         printf("[自学] 统计/待证清零（ask_user/sym_hints 保留，等你处理）\n");
+        return;
+    }
+    if (arg && !strncmp(arg, "next", 4)) {
+        char q[512];
+        if (!study_pick(a, q, sizeof q)) { printf("[自学] 没有待学的题\n"); return; }
+        double sc = 0.0;
+        int att_on = !(getenv("AIP_ATT") && getenv("AIP_ATT")[0] == '0');
+        if (att_on) {
+            size_t wn = 0;
+            char **w = ai_tokenize(a->brain, q, &wn);
+            for (size_t k = 0; k < wn; ++k) {
+                Token *tk = w[k] ? pool_find(a->brain->pool, w[k]) : NULL;
+                if (!tk) continue;
+                for (size_t i = 0; i < a->brain->att_n; ++i)
+                    if (a->brain->att_top[i] == tk) { sc += a->brain->att_w[i]; break; }
+            }
+            ai_free_words(w, wn);
+        }
+        printf("[自学] 下一题（注意力得分 %.2f）：%s\n", sc, q);
         return;
     }
     if (arg && !strncmp(arg, "gen", 3)) {
