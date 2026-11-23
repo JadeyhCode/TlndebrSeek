@@ -1365,6 +1365,8 @@ typedef struct AI {
     const char *att_why[8];
     size_t att_n;
     size_t att_rounds;
+    Token *paper_focus[8];   /* §7.015 论文里提到的候选主题词（注意力来源之一） */
+    size_t paper_n;
 
     Token **trace;
     size_t trace_n, trace_cap;

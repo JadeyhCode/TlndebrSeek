@@ -10077,6 +10077,9 @@ static inline void agent_attention_update(AI *ai) {
         const char *why = "焦点";
         if (uncertain > 0.5f) { s *= (1.0f + 0.5f * uncertain); why = "低置信"; }
         if (gap > 0.0f) { s += gap; why = "缺口"; }
+        /* 论文来源**最后覆盖**：它是比“低置信/缺口”更具体的唤醒来源（别被前两档盖掉） */
+        for (size_t k = 0; k < ai->paper_n; ++k)
+            if (ai->paper_focus[k] == t) { why = "论文"; s += 0.30f; break; }
         if (s <= 0.0f) continue;
         cand[nc].t = t; cand[nc].s = s; cand[nc].why = why; nc++;
     }

@@ -209,6 +209,7 @@ longtext|sh tests/longtext.sh
 kbcats|sh tests/kbcats.sh
 paperblind|python3 tools/paper_blind.py
 paperarg|python3 tools/paper_arg_blind.py
+paperfocus|python3 tools/paper_focus_blind.py
 pyblind|python3 tools/py_blind.py
 learnblind|python3 tools/learn_blind.py
 familyeval|python3 tools/family_eval.py

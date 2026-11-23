@@ -7822,6 +7822,42 @@ int main(int argc, char **argv) {
                     free(tb);
                     continue;
                 }
+                if (!strncmp(r, "queue", 5)) {
+                    /* §7.015 把「主张但无证据」的段落推进好奇心队列（答案仍只进待证） */
+                    FILE *rf = fopen("_t/paper/roles.tsv", "rb");
+                    if (!rf) { printf("[论文] 还没有角色表：先 ::paper roles <文件>\n"); continue; }
+                    int added = 0, seen = 0;
+                    char line[2048];
+                    while (fgets(line, sizeof line, rf)) {
+                        if (strncmp(line, "主张\t", 7) != 0) continue;
+                        seen++;
+                        char *t1 = strchr(line, '\t');
+                        char *t2 = t1 ? strchr(t1 + 1, '\t') : NULL;
+                        if (!t2) continue;
+                        char *sent = t2 + 1;
+                        char *nl = strchr(sent, '\n');
+                        if (nl) *nl = 0;
+                        if (!sent[0]) continue;
+                        /* 去重 */
+                        int dup = 0;
+                        FILE *cf = fopen("_t/curious.tsv", "rb");
+                        if (cf) {
+                            char cl[2048];
+                            while (fgets(cl, sizeof cl, cf)) if (strstr(cl, sent)) { dup = 1; break; }
+                            fclose(cf);
+                        }
+                        if (dup) continue;
+                        FILE *af = fopen("_t/curious.tsv", "ab");
+                        if (!af) break;
+                        fprintf(af, "%ld\t%s\t论文无证据的主张（出处：%.80s）\tpending\n",
+                                (long)time(NULL), sent, t1 + 1);
+                        fclose(af);
+                        added++;
+                    }
+                    fclose(rf);
+                    printf("[论文] 无证据主张 %d 句，推进自学队列 %d 条（去重后）\n", seen, added);
+                    continue;
+                }
                 if (!strncmp(r, "roles", 5)) {
                     /* §7.014 论证结构视图：主张/证据/限定/出处 + 注意力建议（先追问无证据的主张） */
                     const char *fn = r + 5;
@@ -7834,6 +7870,10 @@ int main(int argc, char **argv) {
                     size_t tn = fread(txt, 1, (1 << 20) - 1, pf);
                     txt[tn] = 0;
                     fclose(pf);
+                    mkdir("_t", 0755);
+                    mkdir("_t/paper", 0755);
+                    FILE *rf = fopen("_t/paper/roles.tsv", "wb");
+                    a->brain->paper_n = 0;
                     char *save = NULL;
                     int cnt[5] = {0,0,0,0,0};
                     const char *names[5] = { "主张", "证据", "限定", "出处", "陈述" };
@@ -7849,11 +7889,32 @@ int main(int argc, char **argv) {
                         for (int k = 0; k < 4; ++k) if (!strcmp(role, names[k])) ri = k;
                         cnt[ri]++;
                         printf("  [%s] %.110s\n", role, ln);
+                        if (rf) fprintf(rf, "%s\t%s\t%s\n", role, fn, ln);
+                        /* 论文主题词进注意力候选：取句子里图里认识的 2 字词（最多 8 个） */
+                        {
+                            size_t wn = 0;
+                            char **w = ai_tokenize(a->brain, ln, &wn);
+                            for (size_t k = 0; k < wn && a->brain->paper_n < 8; ++k) {
+                                if (!w[k] || strlen(w[k]) != 6) continue;
+                                Token *tk = pool_find(a->brain->pool, w[k]);
+                                if (!tk || tk->is_garbage) continue;
+                                int dup = 0;
+                                for (size_t q = 0; q < a->brain->paper_n; ++q)
+                                    if (a->brain->paper_focus[q] == tk) { dup = 1; break; }
+                                if (dup) continue;
+                                a->brain->paper_focus[a->brain->paper_n++] = tk;
+                                ai_focus_push(a->brain, tk, 1.2f);
+                            }
+                            ai_free_words(w, wn);
+                        }
                         shown++;
                     }
                     printf("[论文·角色] 共 %d 句：主张 %d / 证据 %d / 限定 %d / 出处 %d / 陈述 %d\n",
                            shown, cnt[0], cnt[1], cnt[2], cnt[3], cnt[4]);
-                    printf("[注意力] 优先追问「主张但无证据」的段落（当前只做角色视图；接 ::study 是下一步）\n");
+                    if (rf) fclose(rf);
+                    agent_attention_update(a->brain);   /* §7.015 读论文后立刻按元认知重分配注意力 */
+                    printf("[注意力] 论文主题词已进焦点（%zu 个）；无证据的主张可 ::paper queue 进自学队列\n",
+                           a->brain->paper_n);
                     free(txt);
                     continue;
                 }
@@ -7872,7 +7933,7 @@ int main(int argc, char **argv) {
                     printf("  确认：::claim accept N    丢掉：::claim reject N\n");
                     continue;
                 }
-                printf("[用法] ::paper read <文件> | ::paper list\n");
+                printf("[用法] ::paper read <文件> | ::paper roles <文件> | ::paper queue | ::paper list\n");
                 continue;
             }
             case CMD_WEB: {
