@@ -567,6 +567,7 @@ typedef enum {
     CMD_SSEG,
     CMD_SYM,
     CMD_ATT,
+    CMD_STUDY,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -768,6 +769,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "study", "自学", 1, "基本",
+      "无人值守自学：::study（做 1 题）| run N | stats | list | ask | clear；取好奇心队列，自答→自检→归因→求助（本地/外部/问用户/::sym 建议）→待证 _t/study/proposals.tsv", CMD_STUDY },
     { "att", "注意力", 1, "基本",
       "元认知管理的注意力：::att 看预算/份额/来源/衰减；::att reset 清计数（策略在 policy.txt：att_budget/att_decay/att_topk）", CMD_ATT },
     { "sym", "符号", 1, "基本",
@@ -2361,6 +2364,355 @@ static void curious_resolve(const char *what) {
     fclose(g);
     remove("_t/curious.tsv");
     rename(tmp, "_t/curious.tsv");
+}
+
+
+/* ============================ §7.011 无人值守自学闭环 ============================
+ * 用户要求（2026-11-22）：给几个题，它自己做；错了会反思、搜索、问 DeepSeek、问用户、用自省工具；
+ * 明确“什么时候该用”。这一版先做**骨架**：
+ *   取题（好奇心队列 pending）→ 自答（走对话流水线）→ 自检（拒答关键词）→ 反思归因
+ *   → 求助链（本地代码合成 → 联网/DuckDuckGo → 问 DeepSeek → 问用户 → ::sym 建议）
+ *   → 答案只进“待证”（proposals.tsv），全程限流/记账；不做任何无审计的写图。
+ * 每轮一条结构改动：本轮只做“出题+自答+归因+求助分类+待证+统计”，外部通道复用既有 tool/web。
+ */
+typedef struct {
+    size_t nq;         /* 本轮/累计出题数 */
+    size_t solved;     /* 自答成功（未外部验证） */
+    size_t failed;     /* 自答失败 */
+    size_t help_local; /* 求助：本地代码合成 */
+    size_t help_ext;   /* 求助：联网/外部大模型 */
+    size_t help_user;  /* 求助：写进“要问用户”队列 */
+    size_t help_sym;   /* 求助：给出 ::sym 建议（不自动写） */
+    size_t propose;    /* 写进待证的条数 */
+} StudyStats;
+static StudyStats g_study;
+
+static void study_log(const char *file, const char *fmt, ...) {
+    mkdir("_t", 0755);
+    mkdir("_t/study", 0755);
+    FILE *f = fopen(file, "ab");
+    if (!f) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fclose(f);
+}
+
+static int study_is_refusal(const char *ans) {
+    if (!ans || !ans[0]) return 1;
+    /* 拒答检测要先**去掉空格**再比：同一句话在不同路径里空格数不同
+     * （“不 知道” vs “不 知 道”），按原串比会漏（实测）。 */
+    char z[512];
+    size_t o = 0;
+    for (const char *p = ans; *p && o + 1 < sizeof z; ++p)
+        if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') z[o++] = *p;
+    z[o] = 0;
+    static const char *bad[] = { "不太懂", "不知道", "没记过", "不认识", "不确定",
+                                 "没匹配", "还没学过", "没有这条", "拒答", "不编", NULL };
+    for (size_t i = 0; bad[i]; ++i) if (strstr(z, bad[i])) return 1;
+    return 0;
+}
+
+/* 取第一条 pending；返回 1=取到 */
+static int study_pick(char *q, size_t cap) {
+    FILE *f = fopen("_t/curious.tsv", "rb");
+    if (!f) return 0;
+    char line[2048];
+    int got = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *t1 = strchr(line, '\t');
+        if (!t1) continue;
+        char *qq = t1 + 1;
+        char *t2 = strchr(qq, '\t');
+        if (!t2) continue;
+        char *st = strrchr(line, '\t');
+        if (st && strstr(st, "pending")) {
+            size_t l = (size_t)(t2 - qq);
+            if (l >= cap) l = cap - 1;
+            memcpy(q, qq, l);
+            q[l] = 0;
+            got = 1;
+            break;
+        }
+    }
+    fclose(f);
+    return got;
+}
+
+/* 把同一问题的状态改成 studied（保留其余行，原子替换） */
+static void study_mark(const char *q, const char *status) {
+    FILE *f = fopen("_t/curious.tsv", "rb");
+    if (!f) return;
+    char tmp[512];
+    snprintf(tmp, sizeof tmp, "_t/curious.%ld.study", (long)getpid());
+    FILE *g = fopen(tmp, "wb");
+    if (!g) { fclose(f); return; }
+    char line[2048];
+    while (fgets(line, sizeof line, f)) {
+        char *t1 = strchr(line, '\t');
+        if (t1) {
+            char *qq = t1 + 1;
+            char *t2 = strchr(qq, '\t');
+            if (t2) {
+                char saved = *t2;
+                *t2 = 0;
+                int same = !strcmp(qq, q);
+                *t2 = saved;
+                if (same) {
+                    size_t l = strlen(line);
+                    while (l && (line[l-1] == '\n' || line[l-1] == '\r')) line[--l] = 0;
+                    char *st = strrchr(line, '\t');
+                    if (st) snprintf(st + 1, sizeof line - (size_t)(st - line) - 1, "%s\n", status);
+                }
+            }
+        }
+        fputs(line, g);
+    }
+    fclose(f);
+    fclose(g);
+    remove("_t/curious.tsv");
+    rename(tmp, "_t/curious.tsv");
+}
+
+/* 归因：图里缺什么？（缺词 / 缺事实 / 缺结构） */
+static void study_reflect(AI *ai, const char *q, char *why, size_t cap) {
+    why[0] = 0;
+    size_t n = 0;
+    char **w = ai_tokenize(ai, q, &n);
+    const char *miss = NULL;
+    uint8_t rid_last = 0;
+    for (size_t i = 0; i < n; ++i) {
+        if (!w[i] || !w[i][0]) continue;
+        if (pool_find(ai->pool, w[i])) {
+            uint8_t r = rel_id_of(ai, w[i], 0);
+            if (r) rid_last = r;
+            continue;
+        }
+        /* 单字虚词不算缺词 */
+        if (strlen(w[i]) <= 3) continue;
+        if (!miss) miss = w[i];
+    }
+    if (miss) snprintf(why, cap, "缺词「%s」（图里没有这个词）", miss);
+    else if (rid_last) snprintf(why, cap, "缺事实（关系「%s」在图里没有这条边）",
+                                rel_name_of(ai, rid_last) ? rel_name_of(ai, rid_last) : "?");
+    else snprintf(why, cap, "缺结构（问法没接住）");
+    ai_free_words(w, n);
+}
+
+/* 从问题里猜一条 ::sym 建议（只建议，不自动写） */
+static void study_sym_hint(AI *ai, const char *q, char *out, size_t cap) {
+    out[0] = 0;
+    size_t n = 0;
+    char **w = ai_tokenize(ai, q, &n);
+    uint8_t rid = 0;
+    size_t ri = 0;
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t r = w[i] ? rel_id_of(ai, w[i], 0) : 0;
+        if (r) { rid = r; ri = i; }
+    }
+    /* 宾语 = 关系词之后、语气词之前的 token 拼起来（中文单字要连写，别只取最后一个字） */
+    char obj[128];
+    size_t ol = 0;
+    for (size_t i = ri + 1; rid && i < n; ++i) {
+        if (!w[i] || !w[i][0]) continue;
+        if (strcmp(w[i], "吗") == 0 || strcmp(w[i], "呢") == 0 || strcmp(w[i], "什么") == 0 ||
+            strcmp(w[i], "谁") == 0 || strcmp(w[i], "哪") == 0) break;
+        size_t l = strlen(w[i]);
+        if (ol + l + 2 >= sizeof obj) break;
+        if (ol && l > 3) obj[ol++] = ' ';
+        memcpy(obj + ol, w[i], l);
+        ol += l;
+    }
+    obj[ol] = 0;
+    if (rid && obj[0] && ri > 0) {
+        snprintf(out, cap, "::sym edge add %s %s %s（先 ::sym write on + ::sym reason 为什么）",
+                 w[0], rel_name_of(ai, rid) ? rel_name_of(ai, rid) : "?", obj);
+    } else {
+        snprintf(out, cap, "::sym active / ::sym links <词>（先看图上有什么）");
+    }
+    ai_free_words(w, n);
+}
+
+/* 一轮自学；返回 1=处理了一道题，0=队列空 */
+static int study_round(Agent *a) {
+    AI *ai = a->brain;
+    char q[512];
+    if (!study_pick(q, sizeof q)) return 0;
+    g_study.nq++;
+    printf("[自学] 出题（来自好奇心队列）：%s\n", q);
+    char ans[2048];
+    ans[0] = 0;
+    (void)agent_step(a, q, ans, sizeof ans);
+    int solved = !study_is_refusal(ans);
+    char why[256];
+    study_reflect(ai, q, why, sizeof why);
+    printf("[自学] 自答：%.120s\n", ans[0] ? ans : "（空）");
+    printf("[自学] 自检：%s；归因：%s\n", solved ? "答出了（**未外部验证**）" : "答不出", why);
+    if (solved) {
+        g_study.solved++;
+        study_log("_t/study/proposals.tsv", "%ld\t自解（未验证）\t%s\t%s\n",
+                  (long)time(NULL), q, ans);
+        g_study.propose++;
+    } else {
+        g_study.failed++;
+        int helped = 0;
+        /* ① 本地检索：像代码题就先走合成器 */
+        if (strstr(q, "写一个") || strstr(q, "实现") || strstr(q, "程序")) {
+            char note[512] = {0};
+            if (code_synth(ai, q, note, sizeof note) == 0) {
+                g_study.help_local++;
+                helped = 1;
+                printf("[自学] 求助①本地合成：成功（%s）→ 待证\n", note[0] ? note : "编过");
+                study_log("_t/study/proposals.tsv", "%ld\t本地合成\t%s\t%s\n",
+                          (long)time(NULL), q, note[0] ? note : "（合成成功）");
+                g_study.propose++;
+            } else {
+                printf("[自学] 求助①本地合成：不成（%s）\n", note[0] ? note : "没匹配");
+            }
+        }
+        /* ② 外部：联网搜索 + 问 DeepSeek（要 ::tool on 且配了 URL；默认不动） */
+        if (!helped && aip_policy_int("study_ext_help", 1) != 0) {
+            ToolCfg tc;
+            tool_load(&tc);
+            if (tc.on && tc.url[0]) {
+                char ext[4096] = {0}, err[256] = {0};
+                char qq[1200];
+                snprintf(qq, sizeof qq, "请回答这个问题，并给出可核对的依据：%s", q);
+                if (tool_ask(&tc, qq, ext, sizeof ext, err, sizeof err) && ext[0]) {
+                    g_study.help_ext++;
+                    helped = 1;
+                    printf("[自学] 求助②外部大模型：拿到答复（**不是我的知识**）→ 待证\n");
+                    study_log("_t/study/proposals.tsv", "%ld\t外部（待证）\t%s\t%.600s\n",
+                              (long)time(NULL), q, ext);
+                    g_study.propose++;
+                } else {
+                    printf("[自学] 求助②外部：没答上来（%s）\n", err[0] ? err : "没原因");
+                }
+            } else {
+                printf("[自学] 求助②外部：没开/没配（::tool on + ::tool set）——不擅自联网\n");
+            }
+        }
+        /* ③ 问用户：写队列表，等用户回来答（不自动当知识） */
+        if (!helped && aip_policy_int("study_ask_user", 1) != 0) {
+            g_study.help_user++;
+            study_log("_t/study/ask_user.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, why);
+            printf("[自学] 求助③问用户：已写进 _t/study/ask_user.tsv（等你答）\n");
+        }
+        /* ④ 自省工具建议：只给命令，不自动改图（改图要理由+写入门） */
+        {
+            char hint[512];
+            study_sym_hint(ai, q, hint, sizeof hint);
+            g_study.help_sym++;
+            study_log("_t/study/sym_hints.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, hint);
+            printf("[自学] 求助④自省工具建议：%s\n", hint);
+        }
+    }
+    /* 统计**落盘**：进程内计数会随每次 REPL 重开清零（实测），所以持久化成 tsv，
+     * `::study stats` 从文件汇总。 */
+    {
+        char flags[64];
+        snprintf(flags, sizeof flags, "%s%s%s%s%s",
+                 solved ? "self" : "-",
+                 (!solved && g_study.help_local) ? ",local" : "",
+                 (!solved && g_study.help_ext) ? ",ext" : "",
+                 (!solved && g_study.help_user) ? ",user" : "",
+                 (!solved && g_study.help_sym) ? ",sym" : "");
+        study_log("_t/study/stats.tsv", "%ld\t%s\t%s\t%s\n",
+                  (long)time(NULL), solved ? "solved" : "failed", flags, q);
+    }
+    study_mark(q, "studied");
+    return 1;
+}
+
+static void study_stats_print(void) {
+    FILE *f = fopen("_t/study/stats.tsv", "rb");
+    size_t nq = 0, solved = 0, failed = 0, hl = 0, he = 0, hu = 0, hs = 0, prop = 0;
+    if (f) {
+        char line[2048];
+        while (fgets(line, sizeof line, f)) {
+            nq++;
+            if (strstr(line, "\tsolved\t")) solved++;
+            else failed++;
+            if (strstr(line, ",local")) hl++;
+            if (strstr(line, ",ext")) he++;
+            if (strstr(line, ",user")) hu++;
+            if (strstr(line, ",sym")) hs++;
+        }
+        fclose(f);
+    }
+    {
+        FILE *pf = fopen("_t/study/proposals.tsv", "rb");
+        if (pf) {
+            char line[2048];
+            while (fgets(line, sizeof line, pf)) prop++;
+            fclose(pf);
+        }
+    }
+    double rate = nq ? (100.0 * (double)solved / (double)nq) : 0.0;
+    printf("[自学统计] 出题 %zu｜自解 %zu（%.1f%%）｜答不出 %zu｜求助分布：本地 %zu / 外部 %zu / 问用户 %zu / ::sym 建议 %zu｜待证 %zu\n",
+           nq, solved, rate, failed, hl, he, hu, hs, prop);
+}
+
+static void study_cmd(Agent *a, const char *arg) {
+    while (arg && *arg == ' ') arg++;
+    if (arg && !strncmp(arg, "stats", 5)) { study_stats_print(); return; }
+    if (arg && !strncmp(arg, "clear", 5)) {
+        memset(&g_study, 0, sizeof g_study);
+        remove("_t/study/stats.tsv");
+        remove("_t/study/proposals.tsv");
+        printf("[自学] 统计/待证清零（ask_user/sym_hints 保留，等你处理）\n");
+        return;
+    }
+    if (arg && !strncmp(arg, "list", 4)) {
+        FILE *f = fopen("_t/curious.tsv", "rb");
+        if (!f) { printf("[自学] 好奇心队列是空的\n"); return; }
+        char line[2048];
+        int i = 0, pend = 0;
+        while (fgets(line, sizeof line, f)) {
+            i++;
+            char *t1 = strchr(line, '\t');
+            if (!t1) continue;
+            char *q = t1 + 1;
+            char *t2 = strchr(q, '\t');
+            if (!t2) continue;
+            char saved = *t2; *t2 = 0;
+            printf("  %d. %s\n", i, q);
+            *t2 = saved;
+            if (strstr(line, "pending")) pend++;
+        }
+        fclose(f);
+        printf("[自学] 共 %d 条，其中 pending %d 条\n", i, pend);
+        return;
+    }
+    if (arg && !strncmp(arg, "ask", 3)) {
+        FILE *f = fopen("_t/study/ask_user.tsv", "rb");
+        if (!f) { printf("[自学] 没有待问用户的问题\n"); return; }
+        char line[2048];
+        while (fgets(line, sizeof line, f)) printf("  %s", line);
+        fclose(f);
+        return;
+    }
+    int want = 1;
+    if (arg && !strncmp(arg, "run", 3)) {
+        const char *n = arg + 3;
+        while (*n == ' ') n++;
+        want = atoi(n);
+        if (want <= 0) want = 1;
+    } else if (arg && *arg) {
+        printf("[自学] 用法：::study [run N|stats|list|ask|clear]\n");
+        return;
+    }
+    long cap = aip_policy_int("study_rounds", 3);
+    if (cap < 1) cap = 1;
+    if (want > cap) want = (int)cap;
+    int done = 0;
+    for (int i = 0; i < want; ++i) {
+        if (!study_round(a)) break;
+        done++;
+    }
+    if (!done) printf("[自学] 没有待学的题（好奇心队列空了）。先问几个我答不出的问题，再来。\n");
+    study_stats_print();
 }
 
 int main(int argc, char **argv) {
@@ -4647,6 +4999,11 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_STUDY: {
+                const char *arg = (cmd[5] == ' ') ? cmd + 6 : NULL;
+                study_cmd(a, arg ? arg : "");
                 continue;
             }
             case CMD_ATT: {

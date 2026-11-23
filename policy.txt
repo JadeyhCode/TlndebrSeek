@@ -21,3 +21,7 @@ more_tail_words=呢,吗,哪些,几个,再列,更多,接着
 att_budget=1.0
 att_decay=0.15
 att_topk=5
+# §7.011 自学循环的预算与求助开关（元认知策略）
+study_rounds=3
+study_ext_help=1
+study_ask_user=1
