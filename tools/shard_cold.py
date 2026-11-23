@@ -161,6 +161,41 @@ def main():
         else:
             print("  [FAIL] 重复占比 ≥5%"); ok = False
 
+    # ⑥ 跨分片去重：重复项故意放到**后面的分片**，先看默认（按片）会不会留，再看 global 模式
+    U2, dup2 = 40000, 4000
+    tcross = os.path.join(W, "cross.triples")
+    with open(tcross, "w", encoding="utf-8") as f:
+        for i in range(U2):
+            f.write("N%d\tP%d\tN%d\n" % (i, i % 20, (i * 7 + 3) % U2))
+        for i in range(dup2):   # 追加在尾部：会落到后面的分片里
+            f.write("N%d\tP%d\tN%d\n" % (i, i % 20, (i * 7 + 3) % U2))
+    dbin = os.path.join(W, "c7bdump")
+    if not os.path.isfile(dbin):
+        sh(["gcc", "-std=c11", "-O2", "-o", dbin, os.path.join(ROOT, "tools", "c7b2dump.c")])
+
+    def build_and_count(tag, extra):
+        cd = os.path.join(W, "cross_" + tag)
+        __import__("shutil").rmtree(cd, ignore_errors=True)
+        os.makedirs(cd, exist_ok=True)
+        r = sh([t2c, tcross, os.path.join(cd, "s"), "--max-edges", "11000"] + extra)
+        tot = 0
+        for fn in sorted(f for f in os.listdir(cd) if f.endswith(".c7b2")):
+            rr = sh([dbin, os.path.join(cd, fn), str(U2 * 4)])
+            tot += len([l for l in rr.stdout.splitlines() if l.strip()])
+        rep = re.search(r"去重 (\d+) 条", (r.stderr or "") + (r.stdout or ""))
+        return tot, (rep.group(1) if rep else "?")
+
+    n_shard, d_shard = build_and_count("shard", [])
+    n_global, d_global = build_and_count("global", ["--dedupe-scope", "global"])
+    print("== ⑥ 跨分片去重：输入 %d 条（其中 %d 条重复落在别的分片） ==" % (U2 + dup2, dup2))
+    print("  默认按片去重：落片 %d 条（写入口报去重 %s 条），重复占比 %.2f%%" %
+          (n_shard, d_shard, max(0.0, (n_shard - U2) / max(1, n_shard)) * 100))
+    if n_global > U2 * 1.05:
+        print("  [FAIL] global 模式重复占比 ≥5%%"); ok = False
+    else:
+        print("  global 模式：落片 %d 条（写入口报去重 %s 条），重复占比 %.2f%% — [OK] <5%%" %
+              (n_global, d_global, max(0.0, (n_global - U2) / max(1, n_global)) * 100))
+
     # ⑥ RSS
     m = re.search(r"RSS: ([\d.]+) MB", r.stdout)
     print("== ⑥ RSS：%s MB（--index 输出里没带就写 ?） ==" % (m.group(1) if m else "?"))

@@ -58,13 +58,15 @@ static uint64_t edge_hash(const char *s, const char *p, const char *o) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "用法: %s <输入.triples> <输出前缀> [--max-edges N]\n", argv[0]); return 2; }
+    if (argc < 3) { fprintf(stderr, "用法: %s <输入.triples> <输出前缀> [--max-edges N] [--dedupe-scope global|shard]\n", argv[0]); return 2; }
     const char *in = argv[1], *prefix = argv[2];
     long max_edges = 5000000;
     const char *skip1 = NULL, *skip2 = NULL;
+    int global_dedupe = 0;   /* 默认按分片去重；global 则跨分片去重（内存按总量增长） */
     for (int i = 3; i + 1 < argc; ++i) {
         if (!strcmp(argv[i], "--max-edges")) max_edges = strtol(argv[i + 1], NULL, 10);
         else if (!strcmp(argv[i], "--skip-rel")) { if (!skip1) skip1 = argv[i + 1]; else skip2 = argv[i + 1]; }
+        else if (!strcmp(argv[i], "--dedupe-scope")) { if (!strcmp(argv[i + 1], "global")) global_dedupe = 1; }
     }
 
     FILE *f = fopen(in, "rb");
@@ -125,8 +127,10 @@ int main(int argc, char **argv) {
             shard++;
             dropped += (long long)w.dropped;
             c7b2w_free(&w);
-            dupset_free(&dset);
-            if (dupset_init(&dset, 1u << 20) != 0) { fprintf(stderr, "内存不够\n"); return 1; }
+            if (!global_dedupe) {
+                dupset_free(&dset);
+                if (dupset_init(&dset, 1u << 20) != 0) { fprintf(stderr, "内存不够\n"); return 1; }
+            }
             if (c7b2w_init(&w, 1 << 20) != 0) { fprintf(stderr, "内存不够\n"); return 1; }
         }
     }
