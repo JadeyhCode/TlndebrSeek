@@ -9729,7 +9729,8 @@ int main(int argc, char **argv) {
         /* **英语问 ⇒ 英语答**：只对"是非问"生效（en_ascii_only 挡住所有中文输入）。
          * "读"已经由 `[syn]` 数据解决（`cat`→`猫`），这里只把答复换成英文。 */
         if (input[0] != ':') {
-            if (!english_rewrite(a->brain, input, out, sizeof out))
+            if (!english_teach(a->brain, input, out, sizeof out) &&
+                !english_rewrite(a->brain, input, out, sizeof out))
                 (void)english_hint(a->brain, input, out, sizeof out);
             /* **语言镜像**：用户说英文就答英文。上面两条都没接住（比如 `hello`）时，
              * 中文流水线可能答了中文 —— 一律换成英文说明，不出现"英文问、中文答"。 */

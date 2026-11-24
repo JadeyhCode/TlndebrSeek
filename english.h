@@ -249,6 +249,90 @@ static inline const Token *en_to_token(AI *ai, const char *w) {
     return NULL;
 }
 
+/* §7.033 英语**陈述句教学**：`X is (not) a Y` / `X can(not) Y` 真正写进图。
+ * 只在两个词都能解析到节点时写（不造垃圾词）；写的是否定边/肯定边，和中文同一条写路径。
+ * 成功返回 1 并给英文确认；否则 0（交回原来的问答/指引路径）。 */
+static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
+    if (!ai || !q || !out || !cap) return 0;
+    if (!en_ascii_only(q)) return 0;
+    for (const char *p = q; *p; ++p) if (*p == '?') return 0;   /* 问句不走这里 */
+    char buf[512];
+    size_t n = 0;
+    for (const char *p = q; *p && n + 1 < sizeof buf; ++p)
+        buf[n++] = (*p == '.' || *p == ',' || *p == '"') ? ' ' : *p;
+    buf[n] = 0;
+    const char *w[64];
+    size_t wl[64];
+    int nw = 0;
+    char *p = buf;
+    while (*p && nw < 64) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        char *st = p;
+        while (*p && *p != ' ' && *p != '\t') p++;
+        w[nw] = st;
+        wl[nw] = (size_t)(p - st);
+        nw++;
+    }
+    if (nw < 3) return 0;
+    int neg = 0, neg_at = -1;
+    for (int i = 0; i < nw; ++i) {
+        if (en_is(w, wl, i, "not") || en_is(w, wl, i, "never")) { neg = 1; neg_at = i; break; }
+    }
+    /* is/are 型：X is [not] a/an Y */
+    {
+        int k = -1;
+        for (int i = 1; i < nw; ++i)
+            if (en_is(w, wl, i, "is") || en_is(w, wl, i, "are")) { k = i; break; }
+        if (k > 0) {
+            int st = k + 1;
+            if (neg_at == st) st++;
+            if (st < nw && (en_is(w, wl, st, "a") || en_is(w, wl, st, "an") || en_is(w, wl, st, "the"))) st++;
+            if (st >= nw) return 0;
+            uint8_t rid = rel_id_of(ai, en_is(w, wl, k, "are") ? "are" : "is", 0);
+            if (!rid) return 0;
+            char A[128], B[200];
+            en_join(w, wl, 0, k, A, sizeof A);
+            en_join(w, wl, st, nw, B, sizeof B);
+            const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
+            if (!ta || !tb) return 0;
+            if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, neg ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
+            ai->n_rel_learned++;
+            char ap[160];
+            en_pretty(A, ap, sizeof ap, 1);
+            snprintf(out, cap, "OK. %s %s %s%s.", ap, neg ? "is not" : "is",
+                     en_starts_vowel(B) ? "an " : "a ", B);
+            return 1;
+        }
+    }
+    /* can 型：X can(not) Y */
+    {
+        int k = -1;
+        for (int i = 1; i < nw; ++i)
+            if (en_is(w, wl, i, "can") || en_is(w, wl, i, "cannot")) { k = i; break; }
+        if (k > 0) {
+            int neg_can = en_is(w, wl, k, "cannot");
+            int st = k + 1;
+            if (neg_at == st) st++;
+            if (st >= nw) return 0;
+            uint8_t rid = rel_id_of(ai, "can", 0);
+            if (!rid) return 0;
+            char A[128], B[200];
+            en_join(w, wl, 0, k, A, sizeof A);
+            en_join(w, wl, st, nw, B, sizeof B);
+            const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
+            if (!ta || !tb) return 0;
+            if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, (neg || neg_can) ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
+            ai->n_rel_learned++;
+            char ap2[160];
+            en_pretty(A, ap2, sizeof ap2, 1);
+            snprintf(out, cap, "OK. %s %s %s.", ap2, (neg || neg_can) ? "cannot" : "can", B);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* 英语问 ⇒ 英语答：成功返回 1（out 被改写），否则 0（out 原样不动）。
  * 判据是 `rel_solve`（不是嗅中文答复的字符串）—— 英文和中文走的是**同一条推理**。 */
 static inline int english_rewrite(AI *ai, const char *q, char *out, size_t cap) {

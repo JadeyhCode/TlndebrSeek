@@ -26,6 +26,7 @@ CASES = [
     ("代词多轮", ["cat is an animal"], "is it an animal?", "refuse"),
     ("未知事实", ["cat is an animal"], "is a dog a reptile?", "refuse"),
     ("倒装否定", ["cat is an animal"], "is an animal a cat?", "refuse"),
+    ("教学-能力", ["cat can fly"], "can a cat fly?", "yes"),
     ("长句疑问", ["cat is an animal"], "is the cat that I saw an animal?", "refuse"),
 ]
 
