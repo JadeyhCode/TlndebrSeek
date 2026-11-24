@@ -68,6 +68,25 @@ o=$(run3 '::study pose 写一个程序：读入一行整数（标准输入），
 printf '%s' "$o" | grep -qa '求助①本地合成：成功' && ok "变式也能自解" || bad "变式解不了" "$(printf '%s' "$o" | grep -a '求助' | tail -3)"
 printf '%s' "$o" | grep -qa '性质「求和」通过' && ok "变式过属性校验" || bad "变式没过校验（或未验证）" "$(printf '%s' "$o" | grep -a '求助①' | tail -2)"
 
+echo "== ⑧ §7.023 求助顺序由策略表决定（缺事实：ext,user,sym；缺词：sym,user） =="
+W4="$ROOT/_t/study_order"; rm -rf "$W4"; mkdir -p "$W4"
+cp build_aip "$W4/build_aip"; cp model.bin "$W4/model.bin"
+cp patterns.txt frames.txt relations.txt "$W4/" 2>/dev/null
+run4() { ( cd "$W4" && printf '%b\n::quit\n' "$1" | ./build_aip --model model.bin 2>&1 ); }
+o=$(run4 '鸟 吃 石头 吗\n::study run 1')
+printf '%s' "$o" | grep -qa '求助②外部' && ok "缺事实：先试外部" || bad "缺事实没先试外部" "$(printf '%s' "$o" | grep -a '求助' | head -3)"
+printf '%s' "$o" | grep -qa '求助③问用户' && ok "缺事实：再问用户" || bad "缺事实没问用户" "$(printf '%s' "$o" | grep -a '求助' | head -3)"
+printf '%s' "$o" | grep -qa '求助④自省工具建议' && ok "缺事实：最后给 ::sym 建议" || bad "缺事实没给建议" "$(printf '%s' "$o" | grep -a '求助' | head -3)"
+printf 'study_order_fact=user\n' > "$W4/policy.txt"
+rm -rf "$W4/_t"
+o=$(run4 '鸟 吃 石头 吗\n::study run 1')
+printf '%s' "$o" | grep -qa '求助③问用户' && ! printf '%s' "$o" | grep -qa '求助②外部' && ! printf '%s' "$o" | grep -qa '求助④' && ok "策略改写：只问用户" || bad "策略改写没生效" "$(printf '%s' "$o" | grep -a '求助' | head -3)"
+rm -f "$W4/policy.txt"
+rm -rf "$W4/_t"
+o=$(run4 '犰狳 属于 动物 吗\n::study run 1')
+printf '%s' "$o" | grep -qa '归因：缺词' && ok "缺词归因" || bad "缺词没归因" "$(printf '%s' "$o" | grep -a '归因' | head -2)"
+printf '%s' "$o" | grep -qa '求助④自省工具建议' && ok "缺词：给 ::sym 建议" || bad "缺词没给建议" "$(printf '%s' "$o" | grep -a '求助' | head -3)"
+
 echo ""
 if [ "$fail" -ne 0 ]; then echo "FAIL study（$pass 过 / $fail 红）"; exit 1; fi
 echo "PASS study（$pass 过 / 0 红）"

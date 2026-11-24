@@ -2491,19 +2491,69 @@ static void study_reflect(AI *ai, const char *q, char *why, size_t cap) {
     size_t n = 0;
     char **w = ai_tokenize(ai, q, &n);
     const char *miss = NULL;
+    char miss_buf[64] = {0};
     uint8_t rid_last = 0;
-    for (size_t i = 0; i < n; ++i) {
-        if (!w[i] || !w[i][0]) continue;
-        if (pool_find(ai->pool, w[i])) {
-            uint8_t r = rel_id_of(ai, w[i], 0);
-            if (r) rid_last = r;
-            continue;
+    size_t run_s = 0;   /* 连续未知单字的起点（多字词被切碎时，合起来算缺词） */
+    for (size_t i = 0; i <= n; ++i) {
+        int unk_single = 0;
+        if (i < n && w[i] && w[i][0]) {
+            if (pool_find(ai->pool, w[i])) {
+                uint8_t r = rel_id_of(ai, w[i], 0);
+                if (r) rid_last = r;
+                /* 刚被对话造出来的“新词”（没有任何边）也按缺词归因：
+                 * 它只是被 intern 了，不是“图里有它的事实”。 */
+                else if (!miss && strlen(w[i]) >= 6) {
+                    /* 只有共现、没有一点关系边的“新词” ⇒ 缺词（对话把它 intern 了，不算图里有） */
+                    Token *tk0 = pool_find(ai->pool, w[i]);
+                    int has_rel_edge = 0;
+                    for (size_t q0 = 0; tk0 && q0 < tk0->count; ++q0)
+                        if (token_assocs_ro(tk0)[q0].main && token_assocs_ro(tk0)[q0].rel) { has_rel_edge = 1; break; }
+                    if (!has_rel_edge) miss = w[i];
+                }
+            } else if (strlen(w[i]) == 3) {
+                unk_single = 1;
+            } else if (!miss) {
+                miss = w[i];
+            }
         }
-        /* 单字虚词不算缺词 */
-        if (strlen(w[i]) <= 3) continue;
-        if (!miss) miss = w[i];
+        if (!unk_single) {
+            if (i - run_s >= 2 && run_s + 1 < i && !miss) {
+                size_t bl = 0;
+                for (size_t k = run_s; k < i && bl + 8 < sizeof miss_buf; ++k) {
+                    size_t l = strlen(w[k]);
+                    memcpy(miss_buf + bl, w[k], l);
+                    bl += l;
+                }
+                miss_buf[bl] = 0;
+                miss = miss_buf;
+            }
+            run_s = i + 1;
+        }
     }
-    if (miss) snprintf(why, cap, "缺词「%s」（图里没有这个词）", miss);
+    if (!miss) {
+        /* 主语里出现“只有共现、没有关系边”的词（多字词被切碎时合起来看）⇒ 缺词 */
+        size_t ri = 0;
+        uint8_t rfirst = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (w[i] && (rfirst = rel_id_of(ai, w[i], 0)) != 0) { ri = i; break; }
+        if (rfirst && ri > 0) {
+            char subj[64];
+            size_t bl = 0;
+            for (size_t k = 0; k < ri && bl + 8 < sizeof subj; ++k) {
+                size_t l = strlen(w[k]);
+                memcpy(subj + bl, w[k], l);
+                bl += l;
+            }
+            subj[bl] = 0;
+            Token *st = pool_find(ai->pool, subj);
+            int has_rel = 0;
+            for (size_t q0 = 0; st && q0 < st->count; ++q0)
+                if (token_assocs_ro(st)[q0].main && token_assocs_ro(st)[q0].rel) { has_rel = 1; break; }
+            if (!st || !has_rel) snprintf(miss_buf, sizeof miss_buf, "%s", subj);
+            if (!st || !has_rel) miss = miss_buf;
+        }
+    }
+    if (miss) snprintf(why, cap, "缺词「%s」（图里没有这个词的关系边）", miss);
     else if (rid_last) snprintf(why, cap, "缺事实（关系「%s」在图里没有这条边）",
                                 rel_name_of(ai, rid_last) ? rel_name_of(ai, rid_last) : "?");
     else snprintf(why, cap, "缺结构（问法没接住）");
@@ -2832,82 +2882,108 @@ static int study_round(Agent *a) {
     } else {
         g_study.failed++;
         int helped = 0;
-        /* ① 本地检索：像代码题就先走合成器 */
-        if (strstr(q, "写一个") || strstr(q, "实现") || strstr(q, "程序")) {
-            char note[512] = {0};
-            /* 合成器要能写候选到 _t/work 才有东西可验；只在**自学这一小段**临时开 act，
-             * 用完立刻还原（不改变用户 ::act 的设置）。写的是候选文件，不是图。 */
-            int saved_act = ai->act_on;
-            ai->act_on = 1;
-            int src_rc = code_synth(ai, q, note, sizeof note);
-            ai->act_on = saved_act;
-            if (src_rc == 0) {
-                /* §7.012 verifier：题目说要“读入/输入/命令行”，产物就必须真的读输入；
-                 * 否则是**演示骨架**（写死数字再打 ok），不能当答案（这条抓过多次误收）。 */
-                char cand[600] = {0};
-                int wants_input = strstr(q, "读入") || strstr(q, "输入") || strstr(q, "命令行");
-                int reads = study_newest_c(cand, sizeof cand) && study_code_reads_input(cand);
-                char vwhy[256] = {0};
-                int vrc = cand[0] ? study_prop_check(ai, q, cand, vwhy, sizeof vwhy) : -1;
-                if (vrc == 0) {
-                    printf("[自学] 求助①本地合成：**性质校验不过** ⇒ 拒收（%s）\n", vwhy);
-                } else if (wants_input && !reads) {
-                    printf("[自学] 求助①本地合成：合成器产物**不读输入**（演示骨架）⇒ 拒收（%s）\n",
-                           cand[0] ? cand : "找不到产物");
-                } else {
-                    g_study.help_local++;
-                    helped = 1;
-                    local_ok = 1;
-                    local_verified = (vrc == 1);
-                    printf("[自学] 求助①本地合成：成功（%s）→ 待证（%s；%s）\n",
-                           note[0] ? note : "编过", cand[0] ? cand : "?",
-                           vrc == 1 ? vwhy : "未验证");
-                    study_log("_t/study/proposals.tsv", "%ld\t本地合成（%s）\t%s\t%s | %s\n",
-                              (long)time(NULL), vrc == 1 ? "已验证" : "未验证", q,
-                              note[0] ? note : "（合成成功）",
-                              cand[0] ? cand : "?");
-                    g_study.propose++;
-                }
-            } else {
-                printf("[自学] 求助①本地合成：不成（%s）\n", note[0] ? note : "没匹配");
-            }
-        }
-        /* ② 外部：联网搜索 + 问 DeepSeek（要 ::tool on 且配了 URL；默认不动） */
-        if (!helped && aip_policy_int("study_ext_help", 1) != 0) {
-            ToolCfg tc;
-            tool_load(&tc);
-            if (tc.on && tc.url[0]) {
-                char ext[4096] = {0}, err[256] = {0};
-                char qq[1200];
-                snprintf(qq, sizeof qq, "请回答这个问题，并给出可核对的依据：%s", q);
-                if (tool_ask(&tc, qq, ext, sizeof ext, err, sizeof err) && ext[0]) {
-                    g_study.help_ext++;
-                    helped = 1;
-                    printf("[自学] 求助②外部大模型：拿到答复（**不是我的知识**）→ 待证\n");
-                    study_log("_t/study/proposals.tsv", "%ld\t外部（待证）\t%s\t%.600s\n",
-                              (long)time(NULL), q, ext);
-                    g_study.propose++;
-                } else {
-                    printf("[自学] 求助②外部：没答上来（%s）\n", err[0] ? err : "没原因");
-                }
-            } else {
-                printf("[自学] 求助②外部：没开/没配（::tool on + ::tool set）——不擅自联网\n");
-            }
-        }
-        /* ③ 问用户：写队列表，等用户回来答（不自动当知识） */
-        if (!helped && aip_policy_int("study_ask_user", 1) != 0) {
-            g_study.help_user++;
-            study_log("_t/study/ask_user.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, why);
-            printf("[自学] 求助③问用户：已写进 _t/study/ask_user.tsv（等你答）\n");
-        }
-        /* ④ 自省工具建议：只给命令，不自动改图（改图要理由+写入门） */
+        int codeish = (strstr(q, "写一个") || strstr(q, "实现") || strstr(q, "程序")) ? 1 : 0;
+        /* §7.023 **什么时候该用哪个工具**由策略表决定，而不是 C 里固定顺序：
+         * `study_order_code / study_order_word / study_order_fact / study_order_struct`
+         * 值形如 `local,ext,user,sym`（未知项忽略）。改数据即可改求助顺序，可消融。 */
+        char cls[16];
+        snprintf(cls, sizeof cls, "%s",
+                 codeish ? "code" :
+                 strstr(why, "缺词") ? "word" :
+                 strstr(why, "缺事实") ? "fact" : "struct");
+        char order[128];
         {
-            char hint[512];
-            study_sym_hint(ai, q, hint, sizeof hint);
-            g_study.help_sym++;
-            study_log("_t/study/sym_hints.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, hint);
-            printf("[自学] 求助④自省工具建议：%s\n", hint);
+            const char *dflt = !strcmp(cls, "code") ? "local,ext,user,sym" :
+                               !strcmp(cls, "word") ? "sym,user" :
+                               !strcmp(cls, "fact") ? "ext,user,sym" : "user,sym";
+            char key[32];
+            snprintf(key, sizeof key, "study_order_%s", cls);
+            if (!aip_policy_str(key, order, sizeof order) || !order[0])
+                snprintf(order, sizeof order, "%s", dflt);
         }
+        int ran_local = 0, ran_ext = 0, ran_user = 0, ran_sym = 0;
+        char *osave = NULL;
+        for (char *step = strtok_r(order, ",，", &osave); step; step = strtok_r(NULL, ",，", &osave)) {
+            while (*step == ' ' || *step == '\t') step++;
+            size_t sl = strlen(step);
+            while (sl && (step[sl-1] == ' ' || step[sl-1] == '\t')) step[--sl] = 0;
+            if (!*step) continue;
+            if (!strcmp(step, "local") && !ran_local) {
+                ran_local = 1;
+                if (!codeish) continue;
+                char note[512] = {0};
+                int saved_act = ai->act_on;
+                ai->act_on = 1;
+                int src_rc = code_synth(ai, q, note, sizeof note);
+                ai->act_on = saved_act;
+                if (src_rc == 0) {
+                    char cand[600] = {0};
+                    int wants_input = strstr(q, "读入") || strstr(q, "输入") || strstr(q, "命令行");
+                    int reads = study_newest_c(cand, sizeof cand) && study_code_reads_input(cand);
+                    char vwhy[256] = {0};
+                    int vrc = cand[0] ? study_prop_check(ai, q, cand, vwhy, sizeof vwhy) : -1;
+                    if (vrc == 0) {
+                        printf("[自学] 求助①本地合成：**性质校验不过** ⇒ 拒收（%s）\n", vwhy);
+                    } else if (wants_input && !reads) {
+                        printf("[自学] 求助①本地合成：合成器产物**不读输入**（演示骨架）⇒ 拒收（%s）\n",
+                               cand[0] ? cand : "找不到产物");
+                    } else {
+                        g_study.help_local++;
+                        helped = 1;
+                        local_ok = 1;
+                        local_verified = (vrc == 1);
+                        printf("[自学] 求助①本地合成：成功（%s）→ 待证（%s；%s）\n",
+                               note[0] ? note : "编过", cand[0] ? cand : "?",
+                               vrc == 1 ? vwhy : "未验证");
+                        study_log("_t/study/proposals.tsv", "%ld\t本地合成（%s）\t%s\t%s | %s\n",
+                                  (long)time(NULL), vrc == 1 ? "已验证" : "未验证", q,
+                                  note[0] ? note : "（合成成功）",
+                                  cand[0] ? cand : "?");
+                        g_study.propose++;
+                    }
+                } else {
+                    printf("[自学] 求助①本地合成：不成（%s）\n", note[0] ? note : "没匹配");
+                }
+            } else if (!strcmp(step, "ext") && !ran_ext) {
+                ran_ext = 1;
+                if (helped || aip_policy_int("study_ext_help", 1) == 0) continue;
+                ToolCfg tc;
+                tool_load(&tc);
+                if (tc.on && tc.url[0]) {
+                    char ext[4096] = {0}, err[256] = {0};
+                    char qq[1200];
+                    snprintf(qq, sizeof qq, "请回答这个问题，并给出可核对的依据：%s", q);
+                    if (tool_ask(&tc, qq, ext, sizeof ext, err, sizeof err) && ext[0]) {
+                        g_study.help_ext++;
+                        helped = 1;
+                        printf("[自学] 求助②外部大模型：拿到答复（**不是我的知识**）→ 待证\n");
+                        study_log("_t/study/proposals.tsv", "%ld\t外部（待证）\t%s\t%.600s\n",
+                                  (long)time(NULL), q, ext);
+                        g_study.propose++;
+                    } else {
+                        printf("[自学] 求助②外部：没答上来（%s）\n", err[0] ? err : "没原因");
+                    }
+                } else {
+                    printf("[自学] 求助②外部：没开/没配（::tool on + ::tool set）——不擅自联网\n");
+                }
+            } else if (!strcmp(step, "user") && !ran_user) {
+                ran_user = 1;
+                if (helped || aip_policy_int("study_ask_user", 1) == 0) continue;
+                g_study.help_user++;
+                study_log("_t/study/ask_user.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, why);
+                printf("[自学] 求助③问用户：已写进 _t/study/ask_user.tsv（等你答）\n");
+            } else if (!strcmp(step, "sym") && !ran_sym) {
+                ran_sym = 1;
+                if (helped) continue;
+                char hint[512];
+                study_sym_hint(ai, q, hint, sizeof hint);
+                g_study.help_sym++;
+                study_log("_t/study/sym_hints.tsv", "%ld\t%s\t%s\n", (long)time(NULL), q, hint);
+                printf("[自学] 求助④自省工具建议：%s\n", hint);
+            }
+        }
+        if (!ran_local && !ran_ext && !ran_user && !ran_sym)
+            printf("[自学] 策略表里没有可用步骤（order=%.40s）\n", order);
     }
     /* 统计**落盘**：进程内计数会随每次 REPL 重开清零（实测），所以持久化成 tsv，
      * `::study stats` 从文件汇总。 */

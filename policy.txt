@@ -32,3 +32,8 @@ att_pick_paper_focus=0.25
 att_pick_paper_src=0.50
 # §7.018 注意力影响列表顺序（默认关：先保证既有逐字顺序不变）
 att_list=0
+# §7.023 自学求助顺序（“什么时候用哪个工具”）：local=本地合成 ext=外部 user=问用户 sym=自省建议
+study_order_code=local,ext,user,sym
+study_order_word=sym,user
+study_order_fact=ext,user,sym
+study_order_struct=user,sym
