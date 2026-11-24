@@ -568,6 +568,7 @@ typedef enum {
     CMD_SYM,
     CMD_ATT,
     CMD_STUDY,
+    CMD_AUTO,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -769,6 +770,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "auto", "自主循环", 1, "基本",
+      "无人值守自学循环：::auto [N]（默认 policy 的 auto_rounds）——反复取题/自答/求助/待证，记账到 _t/auto/ledger.tsv", CMD_AUTO },
     { "study", "自学", 1, "基本",
       "无人值守自学：::study（做 1 题）| run N | stats | list | ask | clear；取好奇心队列，自答→自检→归因→求助（本地/外部/问用户/::sym 建议）→待证 _t/study/proposals.tsv", CMD_STUDY },
     { "att", "注意力", 1, "基本",
@@ -2408,8 +2411,13 @@ static int study_is_refusal(const char *ans) {
     for (const char *p = ans; *p && o + 1 < sizeof z; ++p)
         if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') z[o++] = *p;
     z[o] = 0;
+    /* §7.026 实测补的拒答说法：合成/对话的“想想/答不上/不太会”也是拒答，
+     * 漏掉会把“没答出来”误记成自解（直接抬高自解率、污染误收统计）。 */
     static const char *bad[] = { "不太懂", "不知道", "没记过", "不认识", "不确定",
-                                 "没匹配", "还没学过", "没有这条", "拒答", "不编", NULL };
+                                 "不太确定", "没匹配", "还没学过", "没有这条",
+                                 "拒答", "不编", "答不上", "答不出", "不太会",
+                                 "不会", "想想", "想想再答", "说不清", "说不准",
+                                 "你说给我听", "能告诉我吗", "教教我", NULL };
     for (size_t i = 0; bad[i]; ++i) if (strstr(z, bad[i])) return 1;
     return 0;
 }
@@ -3001,6 +3009,18 @@ static int study_round(Agent *a) {
     }
     study_mark(q, "studied");
     return 1;
+}
+
+static void study_stats_counts(size_t *nq, size_t *solved) {
+    *nq = 0; *solved = 0;
+    FILE *f = fopen("_t/study/stats.tsv", "rb");
+    if (!f) return;
+    char line[2048];
+    while (fgets(line, sizeof line, f)) {
+        (*nq)++;
+        if (strstr(line, "\tsolved\t")) (*solved)++;
+    }
+    fclose(f);
 }
 
 static void study_stats_print(void) {
@@ -5516,6 +5536,34 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_AUTO: {
+                const char *arg = (cmd[4] == ' ') ? cmd + 5 : NULL;
+                while (arg && *arg == ' ') arg++;
+                long cap = aip_policy_int("auto_rounds", 3);
+                int want = (arg && *arg) ? atoi(arg) : (int)cap;
+                if (want <= 0) want = (int)cap;
+                if (want > cap) want = (int)cap;
+                size_t nq0 = 0, sv0 = 0, nq1 = 0, sv1 = 0;
+                study_stats_counts(&nq0, &sv0);
+                int done = 0;
+                for (int i = 0; i < want; ++i) {
+                    if (!study_round(a)) break;
+                    done++;
+                }
+                mkdir("_t", 0755);
+                mkdir("_t/auto", 0755);
+                study_stats_counts(&nq1, &sv1);
+                FILE *lf = fopen("_t/auto/ledger.tsv", "ab");
+                if (lf) {
+                    fprintf(lf, "%ld\t%d\t%zu\t%zu\t%zu\t%zu\n", (long)time(NULL), done,
+                            nq1 - nq0, sv1 - sv0, nq1, sv1);
+                    fclose(lf);
+                }
+                printf("[自主] 本次跑了 %d 题（上限 %ld，剩 %s）\n", done, cap,
+                       done < want ? "可能还有题" : "按预算停");
+                study_stats_print();
                 continue;
             }
             case CMD_STUDY: {
