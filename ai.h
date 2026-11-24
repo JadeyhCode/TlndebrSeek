@@ -1388,6 +1388,12 @@ typedef struct AI {
      * 存**原文**（不做分词/拼接），这样回答里能原样复述用户的说法。 */
     char   hist[6][128];
     size_t hist_n, hist_head;
+    /* §7.038 英文冲突待确认（yes/no 回话闭环） */
+    int    en_pending;
+    char   en_pa[128], en_pb[200];       /* 显示用（英文原串） */
+    char   en_pa_zh[128], en_pb_zh[200]; /* 写图用（映射后的中文节点名） */
+    uint8_t en_prid;
+    int    en_pnew_neg, en_pold_neg;
     char   facts[8][160];   /* §7.034 最近学到的事实（跨轮，长对话回忆用） */
     size_t facts_n, facts_head;
     Token **last_skipped;

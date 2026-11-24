@@ -9693,7 +9693,9 @@ int main(int argc, char **argv) {
         /* §7.037 英文**陈述句**在中文流水线**之前**处理：否则会被当陈述学一遍
          * （把 a/can/fly 登记成动态关系，还静默覆盖旧否定边），冲突就看不见了。 */
         int en_taught = 0;
-        if (input[0] != ':' && !en_ascii_q && en_ascii_only(input))
+        if (input[0] != ':' && en_ascii_only(input))
+            en_taught = english_confirm(a->brain, input, out, sizeof out);
+        if (!en_taught && input[0] != ':' && !en_ascii_q && en_ascii_only(input))
             en_taught = english_teach(a->brain, input, out, sizeof out);
         if (!en_taught && (input[0] == ':' ||
             (!en_ascii_q &&

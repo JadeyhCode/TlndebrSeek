@@ -252,6 +252,55 @@ static inline const Token *en_to_token(AI *ai, const char *w) {
 /* §7.033 英语**陈述句教学**：`X is (not) a Y` / `X can(not) Y` 真正写进图。
  * 只在两个词都能解析到节点时写（不造垃圾词）；写的是否定边/肯定边，和中文同一条写路径。
  * 成功返回 1 并给英文确认；否则 0（交回原来的问答/指引路径）。 */
+/* §7.038 英文冲突回话：上一句是“OK? I also had… Say yes/no”，这一句只认 yes/no。
+ * yes ⇒ 写新值；no ⇒ 保留旧值（不写）。返回 1 表示已处理。 */
+static inline int english_confirm(AI *ai, const char *q, char *out, size_t cap) {
+    if (!ai || !ai->en_pending || !q || !out || !cap) return 0;
+    char z[32]; size_t n = 0;
+    for (const char *p = q; *p && n + 1 < sizeof z; ++p) {
+        if (*p == ' ' || *p == '\t' || *p == '?' || *p == '.' || *p == '!') continue;
+        z[n++] = (char)((*p >= 'A' && *p <= 'Z') ? *p + 32 : *p);
+    }
+    z[n] = 0;
+    int yes = (!strcmp(z, "yes") || !strcmp(z, "y") || !strcmp(z, "yeah") || !strcmp(z, "sure"));
+    int no  = (!strcmp(z, "no") || !strcmp(z, "n") || !strcmp(z, "nope"));
+    if (!yes && !no) return 0;
+    Token *A = pool_token_intern(ai->pool, ai->en_pa_zh[0] ? ai->en_pa_zh : ai->en_pa);
+    Token *B = pool_token_intern(ai->pool, ai->en_pb_zh[0] ? ai->en_pb_zh : ai->en_pb);
+    char ap[160], bp[160];
+    en_pretty(ai->en_pa, ap, sizeof ap, 1);
+    en_pretty(ai->en_pb, bp, sizeof bp, 0);
+    if (yes) {
+        /* 先把这一对的正/负两种存法都清掉，再写新值（负边存在 e->nrel 位里，
+         * 和 e->rel 是两套位，只清一套会留下旧否定的回显——实测）。 */
+        if (ai->en_prid < REL_DYN_BASE) {
+            uint16_t bit = (uint16_t)(1u << (ai->en_prid - 1));
+            for (size_t i = 0; i < A->count; ++i) {
+                AssocEntry *e = &token_assocs(A)[i];
+                if (e->main != B) continue;
+                e->rel &= (uint16_t)~bit;
+                e->nrel &= (uint16_t)~bit;
+            }
+            A->edges_dirty = 1;
+        }
+        int wr = ai_write_rel(ai, A, B, ai->en_prid, ai->en_pnew_neg, AI_WSRC_RELATION);
+        if (wr != 0) { snprintf(out, cap, "Hmm, I couldn't store that."); ai->en_pending = 0; return 1; }
+        agent_teach_mark(ai, A, ai->en_prid, B, ai->en_pnew_neg);
+        const char *rn = rel_name_of(ai, ai->en_prid);
+        if (ai->en_prid == REL_IS_A)
+            snprintf(out, cap, "OK. %s %s %s%s.", ap, ai->en_pnew_neg ? "is not" : "is",
+                     en_starts_vowel(bp) ? "an " : "a ", bp);
+        else
+            snprintf(out, cap, "OK. %s %s %s.", ap, ai->en_pnew_neg ? "cannot" : "can", bp);
+        (void)rn;
+    } else {
+        snprintf(out, cap, "OK. I'll keep: %s %s %s.", ap,
+                 ai->en_pold_neg ? "cannot" : "can", bp);
+    }
+    ai->en_pending = 0;
+    return 1;
+}
+
 static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
     if (!ai || !q || !out || !cap) return 0;
     if (!en_ascii_only(q)) return 0;
@@ -309,6 +358,26 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             int old_neg = (old_truth < 0);
             int old_pos = (old_truth > 0);
             int conflict = (neg ? old_pos : old_neg);
+            int askcf = 1;
+            { FILE *pf = fopen("policy.txt", "rb"); if (pf) { char ln[256];
+                while (fgets(ln, sizeof ln, pf)) { int v = -1;
+                    if (sscanf(ln, "en_ask_conflict = %d", &v) == 1 || sscanf(ln, "en_ask_conflict=%d", &v) == 1) { askcf = v; break; } }
+                fclose(pf); } }
+            if (conflict && askcf) {
+                ai->en_pending = 1;
+                snprintf(ai->en_pa, sizeof ai->en_pa, "%s", A);
+                snprintf(ai->en_pb, sizeof ai->en_pb, "%s", B);
+                snprintf(ai->en_pa_zh, sizeof ai->en_pa_zh, "%s", ta->name ? ta->name : A);
+                snprintf(ai->en_pb_zh, sizeof ai->en_pb_zh, "%s", tb->name ? tb->name : B);
+                ai->en_prid = rid;
+                ai->en_pnew_neg = neg;
+                ai->en_pold_neg = old_neg;
+                char ap2[160];
+                en_pretty(A, ap2, sizeof ap2, 1);
+                snprintf(out, cap, "OK? I also had: %s %s %s%s. Say yes to replace, no to keep.",
+                         ap2, old_neg ? "is not" : "is", en_starts_vowel(B) ? "an " : "a ", B);
+                return 1;
+            }
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, neg ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
             agent_teach_mark(ai, (Token *)ta, rid, (Token *)tb, neg);   /* 来源留痕 + 事实环 */
             ai->n_rel_learned++;
@@ -350,6 +419,26 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             int old_neg = (old_truth2 < 0);
             int old_pos = (old_truth2 > 0);
             int conflict = ((neg || neg_can) ? old_pos : old_neg);
+            int askcf2 = 1;
+            { FILE *pf = fopen("policy.txt", "rb"); if (pf) { char ln[256];
+                while (fgets(ln, sizeof ln, pf)) { int v = -1;
+                    if (sscanf(ln, "en_ask_conflict = %d", &v) == 1 || sscanf(ln, "en_ask_conflict=%d", &v) == 1) { askcf2 = v; break; } }
+                fclose(pf); } }
+            if (conflict && askcf2) {
+                ai->en_pending = 1;
+                snprintf(ai->en_pa, sizeof ai->en_pa, "%s", A);
+                snprintf(ai->en_pb, sizeof ai->en_pb, "%s", B);
+                snprintf(ai->en_pa_zh, sizeof ai->en_pa_zh, "%s", ta->name ? ta->name : A);
+                snprintf(ai->en_pb_zh, sizeof ai->en_pb_zh, "%s", tb->name ? tb->name : B);
+                ai->en_prid = rid;
+                ai->en_pnew_neg = (neg || neg_can);
+                ai->en_pold_neg = old_neg;
+                char ap3[160];
+                en_pretty(A, ap3, sizeof ap3, 1);
+                snprintf(out, cap, "OK? I also had: %s %s %s. Say yes to replace, no to keep.",
+                         ap3, old_neg ? "cannot" : "can", B);
+                return 1;
+            }
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, (neg || neg_can) ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
             agent_teach_mark(ai, (Token *)ta, rid, (Token *)tb, (neg || neg_can));
             ai->n_rel_learned++;

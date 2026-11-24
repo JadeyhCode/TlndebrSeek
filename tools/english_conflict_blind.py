@@ -38,12 +38,14 @@ def run(inp):
 def main():
     checks = []
     fresh()
-    out = run("fish can fly\ncan a fish fly?\n::quit\n")
-    checks.append(("冲突回复里说 I also had", "I also had" in out and "cannot fly" in out))
-    checks.append(("教完再问答 Yes", "Yes. Fish can fly." in out))
+    out = run("fish can fly\nyes\ncan a fish fly?\n::quit\n")
+    checks.append(("冲突时先问（I also had + Say yes）",
+                   "I also had" in out and "Say yes" in out and "cannot fly" in out))
+    checks.append(("回答 yes 后新值生效（再问 Yes）", "Yes. Fish can fly." in out))
     fresh()
-    out2 = run("cat can swim\n::quit\n")
-    checks.append(("另一个冲突也可见（cat can swim）", "also had" in out2 and "cannot swim" in out2))
+    out2 = run("fish can fly\nno\ncan a fish fly?\n::quit\n")
+    checks.append(("回答 no 保留旧值（再问 No）",
+                   "I'll keep" in out2 and "No. Fish cannot fly." in out2))
     ok = sum(1 for _, g in checks if g)
     for name, good in checks:
         print("  [%s] %s" % ("OK" if good else "FAIL", name))
