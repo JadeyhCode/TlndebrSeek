@@ -37,3 +37,5 @@ study_order_code=local,ext,user,sym
 study_order_word=sym,user
 study_order_fact=ext,user,sym
 study_order_struct=user,sym
+# §7.024 外部工具失败重试（0=不重试；只重试临时故障）
+tool_retries=1

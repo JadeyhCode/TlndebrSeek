@@ -16,7 +16,11 @@ def main():
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--reply", default="假端点的答复")
     ap.add_argument("--dump", default="")
+    ap.add_argument("--fail-first", type=int, default=0,
+                    help="前 N 次请求返回 503（测客户端重试）")
     a = ap.parse_args()
+
+    state = {"n": 0}
 
     class H(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -24,6 +28,12 @@ def main():
             body = self.rfile.read(n) if n else b""
             if a.dump:
                 open(a.dump, "wb").write(body)
+            state["n"] += 1
+            if state["n"] <= a.fail_first:
+                self.send_response(503)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             out = json.dumps({"choices": [{"message": {"role": "assistant",
                                                        "content": a.reply}}]},
                              ensure_ascii=False).encode("utf-8")

@@ -205,6 +205,7 @@ reseg|sh tests/reseg.sh
 leadwords|sh tests/leadwords.sh
 symtool|sh tests/symtool.sh
 toolcall|sh tests/toolcall.sh
+toolretry|python3 tools/tool_retry_blind.py
 longtext|sh tests/longtext.sh
 kbcats|sh tests/kbcats.sh
 paperblind|python3 tools/paper_blind.py

@@ -396,10 +396,47 @@ static inline int tool_ask_sys(ToolCfg *c, const char *sys_override, const char 
     return ok;
 }
 
-/* 旧签名：用配置里的系统提示词 */
+/* §7.024 **失败重试**（只重试“像临时故障”的失败：超时/连接/5xx/429）。
+ * 次数来自 policy.txt 的 `tool_retries`（默认 1 次重试，即最多 2 次请求）；0=不重试。
+ * 不重试“没开/没配”这类配置错误（重试也没用，只会吵）。 */
+static inline int tool_transient(const char *err) {
+    if (!err || !*err) return 0;
+    static const char *keys[] = { "timeout", "temporar", "refused", "reset",
+                                  "SSL", "TLS", "502", "503", "504", "429", "连接",
+                                  "超时", "失败", "empty", NULL };
+    for (size_t i = 0; keys[i]; ++i) if (strstr(err, keys[i])) return 1;
+    return 0;
+}
+
 static inline int tool_ask(ToolCfg *c, const char *question, char *out, size_t cap,
                            char *err, size_t errcap) {
-    return tool_ask_sys(c, NULL, question, out, cap, err, errcap);
+    int retries = 1;
+    {
+        FILE *f = fopen("policy.txt", "rb");
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof line, f)) {
+                int v = -1;
+                if (sscanf(line, "tool_retries = %d", &v) == 1 ||
+                    sscanf(line, "tool_retries=%d", &v) == 1) { retries = v; break; }
+            }
+            fclose(f);
+        }
+    }
+    if (retries < 0) retries = 0;
+    if (retries > 5) retries = 5;
+    int attempt = 0;
+    for (;;) {
+        int ok = tool_ask_sys(c, NULL, question, out, cap, err, errcap);
+        if (ok || attempt >= retries || !tool_transient(err)) {
+            if (attempt > 0)
+                tool_log_line(c, question, 0, ok, ok ? "（重试后成功）" : "（重试用尽）");
+            return ok;
+        }
+        attempt++;
+        struct timespec ts = { 0, 200000000L };
+        nanosleep(&ts, NULL);
+    }
 }
 
 #endif /* TOOL_H */
