@@ -120,6 +120,15 @@ static inline int en_parse(AI *ai, const char *q, char *A, size_t acap, char *B,
         nw++;
     }
     if (nw < 3) return 0;
+    /* §7.032 关系从句/复杂修饰（that/which/who…）不认，交给指引拒绝：
+     * 否则 `is the cat that I saw an animal?` 会被当成简单是非问答 Yes（实测误答）。 */
+    for (int i = 1; i < nw; ++i) {
+        char wd[32];
+        size_t l = wl[i] < sizeof wd - 1 ? wl[i] : sizeof wd - 1;
+        memcpy(wd, w[i], l);
+        wd[l] = 0;
+        if (aip_class_has("en_clauseword", wd)) return 0;
+    }
     /* 带疑问词的**不是是非问**（`What is a cat?`）：直接不认 ⇒ 交给 english_hint 给英文指引 */
     {
         const char *qw[] = {"what", "which", "who", "whom", "whose", "where",

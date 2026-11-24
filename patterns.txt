@@ -48,6 +48,7 @@
 [class] evidenceword=根据,数据显示,实验表明,统计显示,证据,实测
 [class] qualifierword=可能,或许,通常,一般来说,大概,也许,往往
 [class] sourceword=参考文献,据…报道,引用,来源,出自
+[class] en_clauseword=that,which,who,whom,whose,where,when
 [class] timeword=今天,现在,明天,昨天,今年,当前,后天,前天,今晚,明早,本周,这周
 [reply] @weather , @timeword|未来|外面|会不会|吗|查|看看|怎么样|如何|预报=天气 我 不 知道 —— 我 没有 天气 数据，也 连 不 上 网。（这 类 问题 我 只 能 说 不 会，不 编。）
 [reply] @timepart , @timeword=我 没有 时 钟，也 不 联 网 —— 具体 几 号/几 点 我 不 知道（你 看 一下 手机 更 准）。
