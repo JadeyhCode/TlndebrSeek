@@ -91,6 +91,25 @@ def main():
         print("  [FAIL] 事实冷读 p95 > 200ms"); ok = False
     else:
         print("  [OK]   事实冷读 p95 ≤ 200ms")
+    # ③b §7.028 分层抽检**答案正确率**（1%）：名字找得到还不够，宾语+关系也要对
+    r = sh([bench, "--answers", W, trip, "1"], env=env)
+    outa = r.stdout
+    ma = re.search(r"检查 (\d+) 条 / 正确 (\d+)（([\d.]+)%） / p95 ([\d.]+) ms", outa)
+    if not ma:
+        print("FAIL: 答案抽检没输出读数\n" + outa[:300]); return 1
+    checked, right, acc = int(ma.group(1)), int(ma.group(2)), float(ma.group(3))
+    p95a = float(ma.group(4))
+    print("== ③b 答案抽检（1%% 分层抽样）：检查 %d 条 / 正确 %d（%.2f%%） / p95 %.2f ms ==" %
+          (checked, right, acc, p95a))
+    if checked < 100 or acc < 95.0:
+        print("  [FAIL] 答案正确率 < 95%%（或样本太少）"); ok = False
+    else:
+        print("  [OK]   答案正确率 ≥ 95%")
+    if p95a > 200.0:
+        print("  [FAIL] 答案抽检 p95 > 200ms"); ok = False
+    else:
+        print("  [OK]   答案抽检 p95 ≤ 200ms")
+
     # ④ 多分片 + 全局桶索引的路由冷读
     sharddir = os.path.join(W, "many")
     os.makedirs(sharddir, exist_ok=True)

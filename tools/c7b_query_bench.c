@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
 #ifndef POSIX_FADV_DONTNEED
 #define POSIX_FADV_DONTNEED 4   /* Linux 常量；glibc 在 -std=c11 下可能不暴露 */
 #endif
@@ -513,7 +514,73 @@ static int bench_facts(const char *path, int nq) {
     return 0;
 }
 
+/* §7.028 分层抽检**答案正确率**：从写入口径的三元组里按 1% 抽样，
+ * 先按名字找到主语节点，再读事实，核对“宾语+关系”是否真的在。
+ * 这和“命中率”不同：命中的是名字，答案对不对才是数据没丢/没串。 */
+static int bench_answers(const char *shard, const char *triples, int pct) {
+    /* shard 可以是单个分片，也可以是目录：目录模式按“哪个片有这个名字”路由，
+     * 这样 1% 抽样的答案核对才覆盖全库（否则只查一片会大面积 not_found）。 */
+    C7B *cs[32]; int nc = 0;
+    DIR *dp = opendir(shard);
+    if (dp) {
+        struct dirent *de;
+        while ((de = readdir(dp)) && nc < 32) {
+            size_t l = strlen(de->d_name);
+            if (l < 6 || strcmp(de->d_name + l - 5, ".c7b2") != 0) continue;
+            char fp[512];
+            snprintf(fp, sizeof fp, "%s/%s", shard, de->d_name);
+            char e2[256];
+            C7B *c2 = c7b_open(fp, e2, sizeof e2);
+            if (c2) cs[nc++] = c2;
+        }
+        closedir(dp);
+    }
+    if (!nc) {
+        char err[256] = {0};
+        C7B *c = c7b_open(shard, err, sizeof err);
+        if (!c) { fprintf(stderr, "打开失败: %s\n", err); return 1; }
+        cs[nc++] = c;
+    }
+    FILE *tf = fopen(triples, "rb");
+    if (!tf) { fprintf(stderr, "读不开三元组: %s\n", triples); return 1; }
+    if (pct < 1) pct = 1;
+    if (pct > 100) pct = 100;
+    long step = 100 / pct;
+    if (step < 1) step = 1;
+    char s[64], p[64], o[64];
+    long line = 0, checked = 0, right = 0;
+    double lat[4096];
+    int nl = 0;
+    while (fscanf(tf, "%63s %63s %63s", s, p, o) == 3) {
+        line++;
+        if (step > 1 && (line % step) != 0) continue;
+        double t0 = now_us();
+        uint32_t nid = 0;
+        int ok = 0;
+        for (int si = 0; si < nc && !ok; ++si) {
+            if (c7b2_find_node(cs[si], s, &nid) != 0) continue;
+            C7B2Fact f[16];
+            int k = c7b2_facts(cs[si], nid, f, 16);
+            for (int i = 0; i < k; ++i)
+                if (!strcmp(f[i].obj, o) && !strcmp(f[i].prop, p)) { ok = 1; break; }
+        }
+        double dt = now_us() - t0;
+        if (nl < (int)(sizeof lat / sizeof lat[0])) lat[nl++] = dt;
+        checked++;
+        right += ok;
+    }
+    fclose(tf);
+    if (nl) qsort(lat, (size_t)nl, sizeof(double), cmp_double);
+    double p95 = nl ? lat[(int)((double)nl * 0.95)] / 1000.0 : 0.0;
+    printf("答案抽检（%d%% 分层抽样，%s）\n", pct, shard);
+    printf("检查 %ld 条 / 正确 %ld（%.2f%%） / p95 %.2f ms\n",
+           checked, right, checked ? 100.0 * (double)right / (double)checked : 0.0, p95);
+    for (int i = 0; i < nc; ++i) c7b_close(cs[i]);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 5 && !strcmp(argv[1], "--answers")) return bench_answers(argv[2], argv[3], atoi(argv[4]));
     if (argc >= 4 && !strcmp(argv[1], "--facts")) return bench_facts(argv[2], atoi(argv[3]));
     if (argc >= 4 && !strcmp(argv[1], "--bucket")) return bench_buckets(argv[2], atoi(argv[3]));
     if (argc >= 6 && !strcmp(argv[1], "--e2e")) return bench_e2e(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
