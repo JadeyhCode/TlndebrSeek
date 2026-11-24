@@ -194,6 +194,7 @@ curious|sh tests/curious.sh
 shard|sh tests/shard.sh
 shardquery|sh tests/shardquery.sh
 shardcold|python3 tools/shard_cold.py
+shard1m|AIP_SHARD_EDGES=1000000 python3 tools/shard_cold.py
 hardcode|sh tests/hardcode.sh
 shapewords|sh tests/shapewords.sh
 multivar|sh tests/multivar.sh
