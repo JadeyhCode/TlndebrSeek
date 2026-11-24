@@ -9081,6 +9081,26 @@ static inline int agent_correct_reply(AI *ai, const char *input, char *out, size
  * （看法/并列/地点/关系/造词）；只有**全部子句都学下来**才算成功（有问句或学不动就整句回落）。 */
 static inline char *agent_learn_multi(AI *ai, char *const *words, size_t n, float *out_conf) {
     if (!ai || ai->rel_off || !words || n < 5 || n > 24) return NULL;
+    /* §7.036 数据里的连词（`并且/而且…`）可能不在池子里 ⇒ 分词器切成单字
+     * （并/且）。这里把相邻两字拼起来查 `conj_sep`，命中就合成一个 token，后续分句才认得出。 */
+    char mbuf[24][64];
+    char *mw[24];
+    size_t mn = 0;
+    for (size_t i = 0; i < n && mn < 24; ++i) {
+        if (!words[i]) continue;
+        snprintf(mbuf[mn], sizeof mbuf[mn], "%s", words[i]);
+        if (i + 1 < n && words[i + 1] && strlen(words[i]) == 3 && strlen(words[i + 1]) == 3) {
+            char j[16];
+            snprintf(j, sizeof j, "%s%s", words[i], words[i + 1]);
+            if (aip_class_has("conj_sep", j)) {
+                snprintf(mbuf[mn], sizeof mbuf[mn], "%s", j);
+                i++;
+            }
+        }
+        mw[mn] = mbuf[mn];
+        mn++;
+    }
+    if (mn >= 2) { words = mw; n = mn; }
     size_t seg[9]; size_t nseg = 0;
     seg[0] = 0;
     /* §6.605 **标点只在"两边都够一句"时才算分句**：`麒麟，属于 神兽` 里的逗号
@@ -9093,14 +9113,18 @@ static inline char *agent_learn_multi(AI *ai, char *const *words, size_t n, floa
         for (size_t i = 0; i < n; ++i) {
             const char *t = words[i];
             if (!t) continue;
-            int is_sep = (!strcmp(t, "，") || !strcmp(t, ",") || !strcmp(t, "；") ||
-                          !strcmp(t, ";") || !strcmp(t, "。") || !strcmp(t, "."));
+            int is_punct = (!strcmp(t, "，") || !strcmp(t, ",") || !strcmp(t, "；") ||
+                            !strcmp(t, ";") || !strcmp(t, "。") || !strcmp(t, "."));
+            int is_conj = aip_class_has("conj_sep", t);   /* §7.036 连词也能分句（数据类） */
+            int is_sep = is_punct || is_conj;
             if (!is_sep) continue;
             /* 数一数左边/右边各有多少**非标点**词 */
             size_t left = 0, right = 0;
             for (size_t k = 0; k < i; ++k) if (words[k]) { char c[64]; (void)aip_strip_punct_chars(words[k], c, sizeof c); if (c[0]) left++; }
             for (size_t k = i + 1; k < n; ++k) if (words[k]) { char c[64]; (void)aip_strip_punct_chars(words[k], c, sizeof c); if (c[0]) right++; }
-            if (left < 3 || right < 3) continue;
+            /* 标点按“两边都够一句(≥3)”判；连词分句放宽到 ≥2（`喜欢水边` 这种短句） */
+            if (is_punct && (left < 3 || right < 3)) continue;
+            if (is_conj && (left < 2 || right < 2)) continue;
             if (nseg + 1 >= sizeof seg / sizeof seg[0]) return NULL;
             seg[++nseg] = i + 1;
         }
