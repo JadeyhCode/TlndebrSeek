@@ -9452,6 +9452,70 @@ static inline int agent_fmt_parse(AI *ai, const char *input, char *bare, size_t 
  * 这里收成一个出口：记原文（空串和"……"不记）+ 轮次自增，返回长度。*/
 static inline void agent_attention_update(AI *ai);   /* §7.010 定义在后面 */
 
+static inline size_t agent_say(AI *ai, char *out);   /* §7.029 前向声明 */
+
+/* §7.029 未解问题也是注意力来源：这一轮没答上来，就把问题里的主题词
+ * 推进焦点（来源标「未解」）并记一行 `_t/unsolved.tsv`；下轮/自学取题会优先它。
+ * 拒答判据和自学同一张 policy 表（refuse_words），不另写词表。 */
+static inline int agent_refusal_like(AI *ai, const char *out) {
+    (void)ai;
+    if (!out || !out[0]) return 1;
+    char z[512]; size_t o = 0;
+    for (const char *q = out; *q && o + 1 < sizeof z; ++q)
+        if (*q != ' ' && *q != '\t' && *q != '\n' && *q != '\r') z[o++] = *q;
+    z[o] = 0;
+    char list[1024];
+    if (!aip_policy_str("refuse_words", list, sizeof list) || !list[0])
+        snprintf(list, sizeof list, "%s", "不知道,不太懂,没记过,不确定,答不上,没匹配,不编");
+    char *cur = list;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (w[0] && strstr(z, w)) return 1;
+    return 0;
+}
+
+static inline void agent_note_unsolved(AI *ai, const char *out) {
+    if (!ai || !ai->last_ask[0] || !agent_refusal_like(ai, out)) return;
+    const char *ask = ai->last_ask;
+    if (strstr(ask, "::")) return;
+    size_t wn = 0;
+    char **w = ai_tokenize(ai, ask, &wn);
+    /* 主题 = 第一个关系词之前的那段（多字词被切碎时合起来） */
+    char subj[64]; size_t bl = 0, take = 0;
+    for (size_t i = 0; i < wn; ++i) {
+        if (!w[i] || !w[i][0]) continue;
+        if (rel_id_of(ai, w[i], 0) != 0) { take = i; break; }
+        if (bl + strlen(w[i]) + 1 < sizeof subj) { memcpy(subj + bl, w[i], strlen(w[i])); bl += strlen(w[i]); }
+        take = i + 1;
+    }
+    subj[bl] = 0;
+    Token *tk = subj[0] ? pool_find(ai->pool, subj) : NULL;
+    if (!tk) {
+        for (size_t i = 0; i < take && i < wn; ++i) {
+            if (w[i] && strlen(w[i]) >= 3) { tk = pool_find(ai->pool, w[i]); if (tk) break; }
+        }
+    }
+    /* 主题整词可能不在词表里（被切碎）：把**组成它的词**都记上，注意力才对得上 */
+    for (size_t i = 0; i < take && i < wn; ++i) {
+        if (!w[i] || !w[i][0] || rel_id_of(ai, w[i], 0) != 0) continue;
+        Token *tw = pool_find(ai->pool, w[i]);
+        if (!tw) continue;
+        int dup = 0;
+        for (size_t k = 0; k < ai->unsolved_n; ++k) if (ai->unsolved[k] == tw) dup = 1;
+        if (!dup && ai->unsolved_n < 8) ai->unsolved[ai->unsolved_n++] = tw;
+        ai_focus_push(ai, tw, 1.5f);
+    }
+    if (tk) ai_focus_push(ai, tk, 1.5f);
+    ai_free_words(w, wn);
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/unsolved.tsv", "ab");
+    if (f) { fprintf(f, "%ld\t%s\t%.80s\n", (long)time(NULL), ask, out); fclose(f); }
+}
+
+static inline size_t agent_turn_end(AI *ai, char *out) {
+    agent_note_unsolved(ai, out);
+    return agent_say(ai, out);
+}
+
 static inline size_t agent_say(AI *ai, char *out) {
     if (ai) {
         if (out && out[0] && strcmp(out, "……") != 0) {
@@ -10116,9 +10180,11 @@ static inline void agent_attention_update(AI *ai) {
         const char *why = "焦点";
         if (uncertain > 0.5f) { s *= (1.0f + 0.5f * uncertain); why = "低置信"; }
         if (gap > 0.0f) { s += gap; why = "缺口"; }
-        /* 论文来源**最后覆盖**：它是比“低置信/缺口”更具体的唤醒来源（别被前两档盖掉） */
+        /* 论文来源覆盖“低置信/缺口”；**未解问题**再覆盖论文（最具体的唤醒来源） */
         for (size_t k = 0; k < ai->paper_n; ++k)
             if (ai->paper_focus[k] == t) { why = "论文"; s += 0.30f; break; }
+        for (size_t k = 0; k < ai->unsolved_n; ++k)
+            if (ai->unsolved[k] == t) { why = "未解"; s += 0.40f; break; }
         if (s <= 0.0f) continue;
         cand[nc].t = t; cand[nc].s = s; cand[nc].why = why; nc++;
     }
@@ -10157,6 +10223,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     ai->fmt_out_cap = out_cap;  /* 第 5 步：agent_say 套格式时要知道调用方缓冲多大 */
     ai_reward_tick(ai);         /* §6.634 奖励每轮 ×0.9 衰减（空轮也衰减） */
     ai->learn_note[0] = 0;      /* §6.607 每轮重置："混句里学到的"只在本轮内有效 */
+    snprintf(ai->last_ask, sizeof ai->last_ask, "%s", input);   /* §7.029 未解归因用 */
     ai->learn_note_only = 0;
     ai->pool->current_tick++;
     a->cycle++;
@@ -10180,7 +10247,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                 memcpy(out, tb, tl);
                 out[tl] = 0;
             }
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.217 记"用户说了什么"——但**元问题本身不记**（「我刚才说了什么」不是内容，
@@ -10193,7 +10260,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         char cb[320];
         if (agent_clarify_reply(ai, input, cb, sizeof cb)) {
             snprintf(out, out_cap, "%s", cb);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* 第 5 步 · 回答格式：先认「用X回答：…」/「以后用X回答」/「以后按这个格式回答：…」。
@@ -10202,12 +10269,12 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     char fmt_bare[512];
     {
         int fmt_rc = agent_fmt_parse(ai, input, fmt_bare, sizeof fmt_bare, out, out_cap);
-        if (fmt_rc == 1) return agent_say(ai, out);
+        if (fmt_rc == 1) return agent_turn_end(ai, out);
         if (fmt_rc == 2) input = fmt_bare;
     }
     /* §6.586 待确认的"要改掉旧的吗"优先（它只在我们刚问过的时候存在）*/
     if (agent_retract_pending(ai) && !empty_turn) {
-        if (agent_retract_reply(ai, input, out, out_cap)) return agent_say(ai, out);
+        if (agent_retract_reply(ai, input, out, out_cap)) return agent_turn_end(ai, out);
     }
     if (ai->ask_pending && !empty_turn) {
         if (ai->askback) {
@@ -10215,13 +10282,13 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             int done = (ai->ask_kind == 2) ? agent_correct_reply(ai, input, out, out_cap)
                                            : agent_askback_reply(ai, input, out, out_cap);
             if (done) {
-                return agent_say(ai, out);
+                return agent_turn_end(ai, out);
             }
         }
         agent_ask_drop(ai);
     }
     /* §6.593 「我刚才教了你什么」：从本会话的修改账里答 */
-    if (!empty_turn && agent_taught_review(ai, input, out, out_cap)) return agent_say(ai, out);
+    if (!empty_turn && agent_taught_review(ai, input, out, out_cap)) return agent_turn_end(ai, out);
     /* §6.217 「刚才聊了什么 / 我刚才说了什么」：从最近几轮**用户原话**里答（不用生成）*/
     {
         int hk = agent_history_kind(input);
@@ -10254,7 +10321,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                     }
                 }
             }
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.284/§6.285 **[reply] 桶**（patterns.txt）：关键词行命中就给一句现成答复。
@@ -10267,7 +10334,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         float pc = 0.5f;
         if (agent_prov_pred_raw(ai, input, pb, sizeof pb, &pc)) {
             snprintf(out, out_cap, "%.*s", (int)(out_cap ? out_cap - 1 : 0), pb);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.636 **待证**：`听说/据说/…` 这种**带来源前缀**的话 —— reply 桶里那条
@@ -10277,7 +10344,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         char cb[512] = {0};
         if (agent_claim_from_text(ai, input, cb, sizeof cb)) {
             snprintf(out, out_cap, "%.*s", (int)(out_cap ? out_cap - 1 : 0), cb);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.626b 亲属句（`小明 是 我 的 表弟`）：reply 桶会先答"我是你的朋友"，所以这里先接 */
@@ -10285,7 +10352,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         char kb[512] = {0};
         if (agent_learn_kinship_raw(ai, input, kb, sizeof kb)) {
             snprintf(out, out_cap, "%.*s", (int)(out_cap ? out_cap - 1 : 0), kb);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.616b 明确在教"属性句"（`我 教 你 ， 南极 很 冷`）⇒ 照实说学不进（别回聊天）*/
@@ -10293,7 +10360,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         char ab[512];
         if (agent_attr_teach_raw(ai, input, ab, sizeof ab)) {
             snprintf(out, out_cap, "%.*s", (int)(out_cap ? out_cap - 1 : 0), ab);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     if (!ai->ask_pending && !(ai->enum_pending && aip_more_request(input))) {
@@ -10301,7 +10368,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         if (dr) {
             g_last_src = AI_SRC_REPLY;   /* §6.420 */
             snprintf(out, out_cap, "%s", dr);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     /* §6.261 **"自我/能力"类问题统一路由**（以前是散在 agent_step 里的 6 个 if 块）。
@@ -10309,7 +10376,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
      * 先抢走。现在顺序写在一处、带编号，加新判据时看这张表就知道该插在哪。 */
     {
         const char *sr = agent_self_route(input, out, out_cap);
-        if (sr) { g_last_src = AI_SRC_SELF; return agent_say(ai, out); }
+        if (sr) { g_last_src = AI_SRC_SELF; return agent_turn_end(ai, out); }
     }
     /* §6.203 没有挂着的追问时，裸短回话给一句实话（别掉进流水线出词串） */
     if (!ai->ask_pending) {
@@ -10606,7 +10673,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
                 const char *const a[2] = { subj, adj };
                 der_filln(out, out_cap, t ? t : "记下 了 ： $1 很 $2（属性）", a, 2);
                 ai_free_words(ww, wn);
-                return agent_say(ai, out);
+                return agent_turn_end(ai, out);
             }
         }
         ai_free_words(ww, wn);
@@ -10624,7 +10691,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         if (dr2) {
             g_last_src = AI_SRC_REPLY;
             snprintf(out, out_cap, "%s", dr2);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
         /* §6.449 「没听懂/不对」这类**裸答复**也只认原文（`agent_bare_reply(input)`）；
          * 剥掉引导语后要再判一次，否则 `难道我不明白你说什么` 掉兜底、
@@ -10641,7 +10708,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         snprintf(out, out_cap, "%s",
                  t ? t : "这 是 一 条 规则（「…的…是…」），我 只 学 事 实：「A 关系 B」。"
                          "你 先 教「鸟 会 飞」和「鸟 属于 动物」，多 跳 推 理 会 用 上 它 们。");
-        return agent_say(ai, out);
+        return agent_turn_end(ai, out);
     }
     {   /* §6.288 形状表（`patterns.txt` 的 `[shape]` 桶）：整句等长的语序改写。
          * 以前这里是写死的 `agent_rewrite_topic`；现在规则在数据里（加一种语序 = 加一行）。 */
@@ -10659,7 +10726,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (!ai->ask_pending && agent_repeat_request(input_eff)) {
         if (ai->last_reply[0]) snprintf(out, out_cap, "我 刚才 说 的 是 ： %s", ai->last_reply);
         else                   snprintf(out, out_cap, "我 还 没 说 过 什么");
-        return agent_say(ai, out);
+        return agent_turn_end(ai, out);
     }
     {   /* §6.278 句中指代：「猫 属于 动物，它 会 飞 吗」⇒ 「猫 会 飞 吗」*/
         char cf[224];
@@ -10690,7 +10757,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         char ab[256];
         if (agent_self_ability(ai, input_eff, ab, sizeof ab)) {
             snprintf(out, out_cap, "%s", ab);
-            return agent_say(ai, out);
+            return agent_turn_end(ai, out);
         }
     }
     char **words = ai->char_stream ? ai_char_tokenize(ai, input_eff, &n)
@@ -10707,7 +10774,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (!ai->char_stream && words) n = agent_repair_rel_typo(ai, words, n);
     /* §6.987 「还有呢」：接着上一次列表往后列 */
     if (words && n <= 6 && agent_more_reply(ai, words, n, out, out_cap))
-        return agent_say(ai, out);
+        return agent_turn_end(ai, out);
     /* §6.967 滑动切分的兜底：图里还没有这个词（比如刚开的新脑）时，滑分会把
      * 「窗户」拆成字，三词关系解析就失败。这时**换回最长匹配**再解析一次：
      * 只在这句确实解析不出关系时回退，不是全局开关。 */
@@ -10878,7 +10945,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     /* 第 4 步 · 手法层：先认「这不是字面」，再走学习/答复（命中就不写关系事实/共现） */
     if (words && n > 0) {
         int rhet = agent_rhetoric_step(ai, words, n, out, out_cap);
-        if (rhet) { ai_free_words(words, n); return agent_say(ai, out); }
+        if (rhet) { ai_free_words(words, n); return agent_turn_end(ai, out); }
     }
     /* §6.591 备注：**不**在这里删孤立的「类」。试过（把 `神兽类` 收成 `神兽`），
      * 但分词把 `人类` 切成 人/类 时会把宾语削成「人」（tokenop 的多脑回读当场红）。
@@ -11899,6 +11966,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         }
     }
     ai->fmt_once[0] = 0;
+    agent_note_unsolved(ai, out);   /* §7.029 主出口也要记（早退走 agent_turn_end） */
     return strlen(out);
 }
 

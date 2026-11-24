@@ -569,6 +569,7 @@ typedef enum {
     CMD_ATT,
     CMD_STUDY,
     CMD_AUTO,
+    CMD_UNSOLVED,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -770,6 +771,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "unsolved", NULL, 0, "基本",
+      "未解问题（§7.029）：::unsolved 看最近答不出问题的记录（_t/unsolved.tsv）；它们也是注意力来源，来源标「未解」", CMD_UNSOLVED },
     { "auto", "自主循环", 1, "基本",
       "无人值守自学循环：::auto [N]（默认 policy 的 auto_rounds）——反复取题/自答/求助/待证，记账到 _t/auto/ledger.tsv", CMD_AUTO },
     { "study", "自学", 1, "基本",
@@ -5539,6 +5542,16 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_UNSOLVED: {
+                FILE *uf = fopen("_t/unsolved.tsv", "rb");
+                if (!uf) { printf("[未解] 还没有记录（没答上来的问题会写进 _t/unsolved.tsv）\n"); continue; }
+                char line[2048];
+                int n = 0;
+                while (fgets(line, sizeof line, uf) && n < 10) { printf("  %s", line); n++; }
+                fclose(uf);
+                printf("[未解] 共显示 %d 条（也是「::att」里来源「未解」的那批主题）\n", n);
                 continue;
             }
             case CMD_AUTO: {
