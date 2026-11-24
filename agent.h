@@ -10220,6 +10220,8 @@ static inline void agent_attention_update(AI *ai) {
         const char *why = "焦点";
         if (uncertain > 0.5f) { s *= (1.0f + 0.5f * uncertain); why = "低置信"; }
         if (gap > 0.0f) { s += gap; why = "缺口"; }
+        for (size_t k = 0; k < ai->long_n; ++k)
+            if (ai->long_tok[k] == t) { why = "长句"; s += 0.35f; break; }
         /* 论文来源覆盖“低置信/缺口”；**未解问题**再覆盖论文（最具体的唤醒来源） */
         for (size_t k = 0; k < ai->paper_n; ++k)
             if (ai->paper_focus[k] == t) { why = "论文"; s += 0.30f; break; }
@@ -11124,6 +11126,25 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     for (size_t i = 0; i < n; ++i) {
         Token *t = pool_token_intern(ai->pool, words[i]);
         ai_focus_push(ai, t, 1.0f);
+    }
+    /* §7.035 长文长句也是唤醒源：输入够长时，把里面的内容词抬到更高权重（来源「长句」），
+     * 阈值在 policy.txt（`long_sentence_chars`），关掉=阈值调到很大。 */
+    ai->long_n = 0;
+    {
+        size_t blen = input ? strlen(input) : 0;
+        long thr = (long)aip_policy_int("long_sentence_chars", 60);
+        if ((long)blen >= thr && thr > 0) {
+            for (size_t i = 0; i < n && ai->long_n < 4; ++i) {
+                if (!words[i] || strlen(words[i]) < 6) continue;
+                Token *t = pool_token_intern(ai->pool, words[i]);
+                int has_rel = 0;
+                for (size_t q = 0; q < t->count; ++q)
+                    if (token_assocs_ro(t)[q].main && token_assocs_ro(t)[q].rel) { has_rel = 1; break; }
+                if (!has_rel) continue;
+                ai->long_tok[ai->long_n++] = t;
+                ai_focus_push(ai, t, 2.2f);
+            }
+        }
     }
     ai_focus_decay(ai, 0.85f);
     agent_attention_update(ai);   /* §7.010 感知后立刻按元认知分配注意力（每轮一次） */

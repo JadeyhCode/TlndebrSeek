@@ -230,6 +230,7 @@ unsolved|python3 tools/unsolved_blind.py
 conflictattn|python3 tools/conflict_attn_blind.py
 englishblind|python3 tools/english_blind.py
 longconv|python3 tools/longconv_blind.py
+longsent|python3 tools/longsentence_blind.py
 focuscap|python3 tools/focus_capacity_blind.py
 study|sh tests/study.sh
 autoloop|python3 tools/auto_blind.py
