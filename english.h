@@ -296,13 +296,30 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             en_join(w, wl, st, nw, B, sizeof B);
             const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
             if (!ta || !tb) return 0;
+            /* §7.037 冲突可见：要写的肯定边和已有否定边打架（或反过来）时，把旧的也说出来 */
+            /* 用和回答同一条推理（rel_solve）判“旧知识是什么极性”，别只查一条边：
+             * 否定/推导都可能让“旧值”不在直边上（实测 oldpos 假阳性）。 */
+            Proof oldp; int old_truth = 0;
+            rel_solve(ai, (Token *)ta, rid, (Token *)tb, 0, &oldp);
+            old_truth = oldp.status;
+            if (old_truth == 0) {
+                rel_solve(ai, (Token *)ta, rid, (Token *)tb, 1, &oldp);
+                if (oldp.status != 0) old_truth = -1;
+            }
+            int old_neg = (old_truth < 0);
+            int old_pos = (old_truth > 0);
+            int conflict = (neg ? old_pos : old_neg);
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, neg ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
-            agent_note_fact(ai, (Token *)ta, rid, (Token *)tb, neg);
+            agent_teach_mark(ai, (Token *)ta, rid, (Token *)tb, neg);   /* 来源留痕 + 事实环 */
             ai->n_rel_learned++;
             char ap[160];
             en_pretty(A, ap, sizeof ap, 1);
-            snprintf(out, cap, "OK. %s %s %s%s.", ap, neg ? "is not" : "is",
-                     en_starts_vowel(B) ? "an " : "a ", B);
+            char tail[512] = "";
+            if (conflict)
+                snprintf(tail, sizeof tail, " (I also had: %s %s %s%s.)", ap,
+                         neg ? "is" : "is not", en_starts_vowel(B) ? "an " : "a ", B);
+            snprintf(out, cap, "OK. %s %s %s%s.%s", ap, neg ? "is not" : "is",
+                     en_starts_vowel(B) ? "an " : "a ", B, tail);
             return 1;
         }
     }
@@ -323,12 +340,26 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             en_join(w, wl, st, nw, B, sizeof B);
             const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
             if (!ta || !tb) return 0;
+            Proof oldp2; int old_truth2 = 0;
+            rel_solve(ai, (Token *)ta, rid, (Token *)tb, 0, &oldp2);
+            old_truth2 = oldp2.status;
+            if (old_truth2 == 0) {
+                rel_solve(ai, (Token *)ta, rid, (Token *)tb, 1, &oldp2);
+                if (oldp2.status != 0) old_truth2 = -1;
+            }
+            int old_neg = (old_truth2 < 0);
+            int old_pos = (old_truth2 > 0);
+            int conflict = ((neg || neg_can) ? old_pos : old_neg);
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, (neg || neg_can) ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
-            agent_note_fact(ai, (Token *)ta, rid, (Token *)tb, (neg || neg_can));
+            agent_teach_mark(ai, (Token *)ta, rid, (Token *)tb, (neg || neg_can));
             ai->n_rel_learned++;
             char ap2[160];
             en_pretty(A, ap2, sizeof ap2, 1);
-            snprintf(out, cap, "OK. %s %s %s.", ap2, (neg || neg_can) ? "cannot" : "can", B);
+            char tail2[512] = "";
+            if (conflict)
+                snprintf(tail2, sizeof tail2, " (I also had: %s %s %s.)", ap2,
+                         (neg || neg_can) ? "can" : "cannot", B);
+            snprintf(out, cap, "OK. %s %s %s.%s", ap2, (neg || neg_can) ? "cannot" : "can", B, tail2);
             return 1;
         }
     }

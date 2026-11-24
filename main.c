@@ -9690,7 +9690,12 @@ int main(int argc, char **argv) {
          * 理由：流水线会把英文句当陈述去学（实测把 `a` 登记成了动态关系，第三轮就答崩），
          * 而英文问句本来就不需要中文答复 —— 交给 english.h 用 rel_solve 直接算。 */
         int en_ascii_q = en_ascii_only(input) && strchr(input, '?') != NULL;
-        if (input[0] == ':' ||
+        /* §7.037 英文**陈述句**在中文流水线**之前**处理：否则会被当陈述学一遍
+         * （把 a/can/fly 登记成动态关系，还静默覆盖旧否定边），冲突就看不见了。 */
+        int en_taught = 0;
+        if (input[0] != ':' && !en_ascii_q && en_ascii_only(input))
+            en_taught = english_teach(a->brain, input, out, sizeof out);
+        if (!en_taught && (input[0] == ':' ||
             (!en_ascii_q &&
              !date_answer(input, out, sizeof out) &&       /* 日期运算排最前：句子里全是数字，别被算式抢走 */
              !speed_answer(input, out, sizeof out) &&      /* 速率/单价：量纲的乘除，排在换算前面 */
@@ -9703,7 +9708,7 @@ int main(int argc, char **argv) {
              !units_sum(input, out, sizeof out) &&         /* 「3 米 + 20 厘米」不能被当成"换算成厘米" */
              !units_answer(input, out, sizeof out) &&
              !percent_answer(input, out, sizeof out) &&
-             !calc_answer(input, out, sizeof out)))
+             !calc_answer(input, out, sizeof out))))
             agent_step(a, input, out, sizeof out);
         /* §6.421 `AIP_SRC_ECHO=1`：把这一轮答复的**来源标签**打到 stderr，
          * 供 shell 断言检查（答案本身照常走 stdout）。*/
@@ -9741,9 +9746,8 @@ int main(int argc, char **argv) {
         }
         /* **英语问 ⇒ 英语答**：只对"是非问"生效（en_ascii_only 挡住所有中文输入）。
          * "读"已经由 `[syn]` 数据解决（`cat`→`猫`），这里只把答复换成英文。 */
-        if (input[0] != ':') {
-            if (!english_teach(a->brain, input, out, sizeof out) &&
-                !english_rewrite(a->brain, input, out, sizeof out))
+        if (input[0] != ':' && !en_taught) {
+            if (!english_rewrite(a->brain, input, out, sizeof out))
                 (void)english_hint(a->brain, input, out, sizeof out);
             /* **语言镜像**：用户说英文就答英文。上面两条都没接住（比如 `hello`）时，
              * 中文流水线可能答了中文 —— 一律换成英文说明，不出现"英文问、中文答"。 */
