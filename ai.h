@@ -193,7 +193,7 @@ static inline const char *ai_say_tpl(const char *key) {
 #define AI_MAX_SENT      24     /* 整句检索：一句话最多几个词 */
 #define AI_SLOT_SIG       8     /* 同位槽类签名长度：左边最多 4 个、右边最多 4 个邻居 */
 #define AI_MAX_SLOTS   1024     /* 同位槽类的上限 */
-#define AI_MAX_FOCUS      4     /* 一次「注意」最多几个焦点词 */
+#define AI_MAX_FOCUS      8     /* §7.030 一次「注意」最多几个焦点词（v17 起存档按 8 存，v16 按 4 读） */
 #define AI_MAX_PATH      64     /* 逐词游走的路径上限（联想链最长走多少步） */
 #define AI_MAX_OTHERS     8     /* 最多维护几个「他者」模型 */
 #define AI_MAX_BELIEF    24     /* 每个「他」名下最多记几条信念 */

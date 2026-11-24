@@ -47,7 +47,7 @@
  *     文件与内存各瘦一圈（内存里那 64 字节/条也从 AssocEntry 里删了）。
  *     v9 及以前照样读得回来：按 has_ctx 把那两段跳过去，读进来的边当**普通边**
  *     （旧文件里实测一条带语境的都没有；手工造过的那种会**少一层条件**，登记在案 —— 见 §6.50）。 */
-#define MODEL_VERSION 16u  /* v16: 边打包 + 变长编码 + 边独立成段（M2-3，2026-11-13） */  /* v15: 尾部加"因为"表（§6.630，AI.reasons[16]）—— 旧档没有这一段 ⇒ 空表 */  /* v14: 删掉 hv/hv_prev（VSA 绑定代数整套撤销，§6.299）；读 v13 时按旧布局丢弃 */  /* v13: 他者**改口历史**（BelHist，§6.112） */  /* v12: 边存**时刻集合**（tset/n_tset，§6.111） */  /* v11: **N1 思考对象**持久化（摘要：结论/缺口/复没复核，§6.110） */  /* v7: 边增加**否定**关系与**动态**关系字节（L2 完整逻辑链） */
+#define MODEL_VERSION 17u  /* v16: 边打包 + 变长编码 + 边独立成段（M2-3，2026-11-13） */  /* v15: 尾部加"因为"表（§6.630，AI.reasons[16]）—— 旧档没有这一段 ⇒ 空表 */  /* v14: 删掉 hv/hv_prev（VSA 绑定代数整套撤销，§6.299）；读 v13 时按旧布局丢弃 */  /* v13: 他者**改口历史**（BelHist，§6.112） */  /* v12: 边存**时刻集合**（tset/n_tset，§6.111） */  /* v11: **N1 思考对象**持久化（摘要：结论/缺口/复没复核，§6.110） */  /* v7: 边增加**否定**关系与**动态**关系字节（L2 完整逻辑链） */
 
 /* ---------------------------------------------------------------- 字节流 */
 
@@ -1023,9 +1023,20 @@ v16_loaded:
     if (r.err) goto fail_ai;
     if (!ai->self || !ai->good || !ai->bad || !ai->unknowing || !ai->causal) goto fail_ai;
 
-    for (size_t i = 0; i < AI_MAX_FOCUS; ++i) {
-        ai->focus_ring[i]   = mio_tok(np, mr_u32(&r));
-        ai->focus_weight[i] = mr_f32(&r);
+    /* §7.030 v17 起焦点环按 AI_MAX_FOCUS(8) 存；v16 及更早只存了 4 项，
+     * 按 4 读、其余清零（否则后面的图数据会整体错位——§7.018 踩过）。 */
+    {
+        size_t stored = (mver >= 17u) ? AI_MAX_FOCUS : 4;
+        if (stored > AI_MAX_FOCUS) stored = AI_MAX_FOCUS;
+        for (size_t i = 0; i < AI_MAX_FOCUS; ++i) {
+            if (i < stored) {
+                ai->focus_ring[i]   = mio_tok(np, mr_u32(&r));
+                ai->focus_weight[i] = mr_f32(&r);
+            } else {
+                ai->focus_ring[i] = NULL;
+                ai->focus_weight[i] = 0.0f;
+            }
+        }
     }
     ai->focus_n = mr_u32(&r);
     if (ai->focus_n > AI_MAX_FOCUS) goto fail_ai;
