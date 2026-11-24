@@ -5386,9 +5386,30 @@ static inline void agent_retract_arm(AI *ai, Token *a, Token *old, uint8_t rid);
  *   · 否则挂上待确认、在答复后面追一句"还记着旧值，要改吗"（返回 0）。
  * 以前这段只在 `agent_learn_relation` 里，而新词句子（`麒麟 属于 神兽`）走的是 natcoin ⇒
  * 冲突**看不见**（实测「不对，猫 属于 猫科」两条都留着）。 */
+/* §7.031 冲突也是注意力来源：新学的值和旧值打架时，把主语推进焦点（来源「冲突」），
+ * 并记一行 `_t/conflict.tsv`（主语/关系/新值/旧值）。冲突比“未解”更该被追问。 */
+static inline void agent_note_conflict(AI *ai, Token *A, uint8_t rid, Token *newB, Token *oldB) {
+    if (!ai || !A) return;
+    int dup = 0;
+    for (size_t i = 0; i < ai->conflict_n; ++i) if (ai->conflict_tok[i] == A) dup = 1;
+    if (!dup && ai->conflict_n < 8) ai->conflict_tok[ai->conflict_n++] = A;
+    ai_focus_push(ai, A, 2.0f);
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/conflict.tsv", "ab");
+    if (f) {
+        fprintf(f, "%ld\t%s\t%s\t%s\t%s\n", (long)time(NULL),
+                A->name ? A->name : "?",
+                rel_name_of(ai, rid) ? rel_name_of(ai, rid) : "?",
+                newB && newB->name ? newB->name : "?",
+                oldB && oldB->name ? oldB->name : "?");
+        fclose(f);
+    }
+}
+
 static inline int agent_conflict_after(AI *ai, Token *A, uint8_t rid, Token *B, Token *conflict,
                                       char *resp, size_t cap, const char *aw, const char *rw) {
     if (!conflict || !A || !conflict || conflict == B) return 0;
+    agent_note_conflict(ai, A, rid, B, conflict);   /* §7.031 冲突进注意力 */
     if (g_input_corrected && agent_retract_clear(A, rid, conflict)) {
         ai_modlog_note_retract(ai, A, conflict, rid, AI_WSRC_RELATION);
         ai->n_revised++;
@@ -10185,6 +10206,8 @@ static inline void agent_attention_update(AI *ai) {
             if (ai->paper_focus[k] == t) { why = "论文"; s += 0.30f; break; }
         for (size_t k = 0; k < ai->unsolved_n; ++k)
             if (ai->unsolved[k] == t) { why = "未解"; s += 0.40f; break; }
+        for (size_t k = 0; k < ai->conflict_n; ++k)
+            if (ai->conflict_tok[k] == t) { why = "冲突"; s += 0.50f; break; }
         if (s <= 0.0f) continue;
         cand[nc].t = t; cand[nc].s = s; cand[nc].why = why; nc++;
     }

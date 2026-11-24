@@ -1369,6 +1369,8 @@ typedef struct AI {
     size_t paper_n;
     Token *unsolved[8];      /* §7.029 没答上来的问题主题词（注意力来源：未解问题） */
     size_t unsolved_n;
+    Token *conflict_tok[8];  /* §7.031 冲突涉及的主语（注意力来源：冲突） */
+    size_t conflict_n;
     char last_ask[512];      /* 本轮问题（仅供“未解”归因，不持久化） */
 
     Token **trace;

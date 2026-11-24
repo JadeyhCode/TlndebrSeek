@@ -570,6 +570,7 @@ typedef enum {
     CMD_STUDY,
     CMD_AUTO,
     CMD_UNSOLVED,
+    CMD_CONFLICT,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -771,6 +772,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "conflict", NULL, 0, "基本",
+      "冲突记录（§7.031）：::conflict 看最近学到的冲突（_t/conflict.tsv）；冲突主语也是注意力来源，来源标「冲突」", CMD_CONFLICT },
     { "unsolved", NULL, 0, "基本",
       "未解问题（§7.029）：::unsolved 看最近答不出问题的记录（_t/unsolved.tsv）；它们也是注意力来源，来源标「未解」", CMD_UNSOLVED },
     { "auto", "自主循环", 1, "基本",
@@ -5542,6 +5545,17 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_CONFLICT: {
+                FILE *cf = fopen("_t/conflict.tsv", "rb");
+                if (!cf) { printf("[冲突] 还没有记录（学到和旧值打架的事会写进 _t/conflict.tsv）\n"); continue; }
+                char line[2048];
+                int n = 0;
+                printf("[冲突] 主语\t关系\t新值\t旧值\n");
+                while (fgets(line, sizeof line, cf) && n < 10) { printf("  %s", line); n++; }
+                fclose(cf);
+                printf("[冲突] 共显示 %d 条（也是「::att」里来源「冲突」的那批主语）\n", n);
                 continue;
             }
             case CMD_UNSOLVED: {
