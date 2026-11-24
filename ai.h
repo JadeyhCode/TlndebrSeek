@@ -1394,6 +1394,10 @@ typedef struct AI {
     char   en_pa_zh[128], en_pb_zh[200]; /* 写图用（映射后的中文节点名） */
     uint8_t en_prid;
     int    en_pnew_neg, en_pold_neg;
+    /* §7.040 最近主语环（带来源：0=问句主语 1=陈述/教学主语），多轮指代用 */
+    char   subj_hist[4][64];
+    uint8_t subj_hist_kind[4];
+    size_t subj_hist_n;
     char   facts[8][160];   /* §7.034 最近学到的事实（跨轮，长对话回忆用） */
     size_t facts_n, facts_head;
     Token **last_skipped;

@@ -234,6 +234,7 @@ enconflict|python3 tools/english_conflict_blind.py
 longconv|python3 tools/longconv_blind.py
 longsent|python3 tools/longsentence_blind.py
 nospace|python3 tools/nospace_blind.py
+pronoun|python3 tools/pronoun_blind.py
 focuscap|python3 tools/focus_capacity_blind.py
 study|sh tests/study.sh
 autoloop|python3 tools/auto_blind.py

@@ -448,14 +448,44 @@ static inline void ai_reward_tick(AI *ai) {
     if (ai->reward > -0.05f && ai->reward < 0.05f) ai->reward = 0.0f;
 }
 
+/* §7.040 记录主语（去重并挪到最前；kind 0=问句/1=陈述教学）。
+ * 多轮指代：上一句是问句时，“他/它”更可能指**上一个陈述的主语**，而不是问题里的主语。 */
+static inline void ai_note_subject(AI *ai, const char *name, int kind) {
+    if (!ai || !name || !name[0]) return;
+    size_t pos = ai->subj_hist_n;
+    for (size_t i = 0; i < ai->subj_hist_n; ++i)
+        if (!strcmp(ai->subj_hist[i], name)) { pos = i; break; }
+    if (pos == ai->subj_hist_n) {
+        if (ai->subj_hist_n < 4) ai->subj_hist_n++;
+        pos = ai->subj_hist_n - 1;
+    }
+    for (size_t i = pos; i > 0; --i) {
+        snprintf(ai->subj_hist[i], sizeof ai->subj_hist[i], "%s", ai->subj_hist[i - 1]);
+        ai->subj_hist_kind[i] = ai->subj_hist_kind[i - 1];
+    }
+    snprintf(ai->subj_hist[0], sizeof ai->subj_hist[0], "%s", name);
+    ai->subj_hist_kind[0] = (uint8_t)(kind ? 1 : 0);
+}
+
+/* 指代该指谁：上一主语来自问句时，回退到最近一个**陈述主语**；否则用上一主语。 */
+static inline const char *ai_pronoun_subject(AI *ai) {
+    if (!ai || !ai->last_subject[0]) return NULL;
+    if (ai->subj_hist_n == 0 || ai->subj_hist_kind[0] == 1) return ai->last_subject;
+    for (size_t i = 0; i < ai->subj_hist_n; ++i)
+        if (ai->subj_hist_kind[i] == 1) return ai->subj_hist[i];
+    return ai->last_subject;
+}
+
 static inline void aip_note_fact(AI *ai, const char *a, const char *r, const char *b) {
     if (!ai) return;
     /* §6.582 存在 `AI` 上（不是全局）：多脑/多线程各记各的 */
     if (a) snprintf(ai->lf_a, sizeof ai->lf_a, "%s", a);
     /* §6.624 指代要用**拼好的主语**：`小明 喜欢 游泳` 分词是 小/明，学成功后才成 `小明` ——
      * 以前 last_subject 记的是分词首词（`小`），下一句「他 喜欢 什么」就指到「小」上。 */
-    if (a && a[0] && strlen(a) < sizeof ai->last_subject)
+    if (a && a[0] && strlen(a) < sizeof ai->last_subject) {
         snprintf(ai->last_subject, sizeof ai->last_subject, "%s", a);
+        ai_note_subject(ai, a, 1);          /* §7.040 陈述/教学主语 */
+    }
     if (r) snprintf(ai->lf_r, sizeof ai->lf_r, "%s", r);
     if (b) snprintf(ai->lf_b, sizeof ai->lf_b, "%s", b);
 }
@@ -10600,13 +10630,14 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         if (q && ai->last_subject[0]) {
             const char *pw = NULL;
             size_t pl = aip_pron_prefix_w(1, q, &pw);   /* §6.535 组 1 = 省略指代 */
+            const char *psubj = ai_pronoun_subject(ai);
             /* §6.301 无空格也要认「它」（真人输入不带空格）。
              * 只对 它/它们 放宽：`这个/那个` 放宽会把「那个猫」替换成「猫猫」——
              * 所以"须分隔"本身也是数据（组 3），不是写死这两个词。 */
             if (pl && pw && aip_pron_eq(3, pw) && q[pl] && q[pl] != ' ' && q[pl] != '\t') pl = 0;
             if (pl) {
                 const char *rest = q + pl;
-                snprintf(decl_in, sizeof decl_in, "%s%s", ai->last_subject, rest);
+                snprintf(decl_in, sizeof decl_in, "%s%s", psubj, rest);
                 input_eff = decl_in;
             }
         }
@@ -10634,7 +10665,8 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             const char *rest = q0 + 3;          /* 「他」是 3 字节 */
             if (*rest == ' ' || *rest == '\t') rest++;
             if (*rest) {
-                snprintf(decl_in, sizeof decl_in, "%s%s%s", ai->last_subject,
+                const char *ps2 = ai_pronoun_subject(ai);
+                snprintf(decl_in, sizeof decl_in, "%s%s%s", ps2 ? ps2 : ai->last_subject,
                          (input_eff && input_eff[0] ? " " : ""), rest);
                 input_eff = decl_in;
             }
@@ -12046,8 +12078,10 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         /* §6.624 别把学习时记下的**完整主语**覆盖回分词碎片：
          * 现在 last_subject 是 `小明`、words[0] 是 `小` ⇒ 前缀关系，就不覆盖。 */
         if (!skip && pool_find(ai->pool, words[0]) && strlen(words[0]) < sizeof ai->last_subject &&
-            strncmp(ai->last_subject, words[0], strlen(words[0])) != 0)
+            strncmp(ai->last_subject, words[0], strlen(words[0])) != 0) {
             snprintf(ai->last_subject, sizeof ai->last_subject, "%s", words[0]);
+            ai_note_subject(ai, words[0], aip_questionish(input) ? 0 : 1);
+        }
     }
     free(resp);
     ai_free_words(words_alloc, n_alloc);
