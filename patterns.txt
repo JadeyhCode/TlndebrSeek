@@ -1178,6 +1178,11 @@
 # ⚠ 子串替换的代价：`cat` 会命中 `cattle`。所以只收**不嵌套**的词；
 #    判据 tests/english.sh 里有一条"没教过的英文词不许瞎认"。
 [syn] cat=猫
+[syn] rabbit=兔
+[syn] kangaroo=袋鼠
+[syn] whale=鲸鱼
+[syn] panda=熊猫
+[syn] jump=跳
 [syn] dog=狗
 [syn] bird=鸟
 [syn] fish=鱼
@@ -1222,7 +1227,6 @@
 [syn] drink=饮料
 [syn] fly=飞
 [syn] run=跑
-[syn] jump=跳
 # ---- 英文关系符号 → 核心关系（一行一条；**关系身份是数据**，english.h 只留语法变形）----
 [alias] en=can=会,is=属于,are=属于,eat=吃,eats=吃,have=有,has=有,like=喜欢,likes=喜欢,need=需要,needs=需要,fear=怕,fears=怕
 
