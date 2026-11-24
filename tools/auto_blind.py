@@ -57,6 +57,15 @@ def main():
     m2 = re.search(r"本次跑了 (\d+) 题", out2)
     checks.append(("auto_rounds=1 ⇒ 只跑 1 题", bool(m2) and m2.group(1) == "1"))
 
+    # ⑤ 拒答词表下沉 policy：默认判“答不出”；词表砍到只剩“不太懂”后同一句变“答出了”
+    fresh()
+    out4 = run("鸟 吃 石头 吗\n::study run 1\n::quit\n")
+    checks.append(("默认拒答词表：答不出", "自检：答不出" in out4))
+    fresh("refuse_words=不太懂\n")
+    out5 = run("鸟 吃 石头 吗\n::study run 1\n::quit\n")
+    checks.append(("词表砍短：同一句被误判成答出了（说明检测由数据决定）",
+                   "自检：答出了" in out5))
+
     fresh()
     out3 = run("::auto\n::quit\n")
     m3 = re.search(r"本次跑了 (\d+) 题", out3)

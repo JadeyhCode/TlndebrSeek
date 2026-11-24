@@ -2411,14 +2411,17 @@ static int study_is_refusal(const char *ans) {
     for (const char *p = ans; *p && o + 1 < sizeof z; ++p)
         if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') z[o++] = *p;
     z[o] = 0;
-    /* §7.026 实测补的拒答说法：合成/对话的“想想/答不上/不太会”也是拒答，
-     * 漏掉会把“没答出来”误记成自解（直接抬高自解率、污染误收统计）。 */
-    static const char *bad[] = { "不太懂", "不知道", "没记过", "不认识", "不确定",
-                                 "不太确定", "没匹配", "还没学过", "没有这条",
-                                 "拒答", "不编", "答不上", "答不出", "不太会",
-                                 "不会", "想想", "想想再答", "说不清", "说不准",
-                                 "你说给我听", "能告诉我吗", "教教我", NULL };
-    for (size_t i = 0; bad[i]; ++i) if (strstr(z, bad[i])) return 1;
+    /* §7.027 拒答词表**下沉 policy**：这是“什么算答不出来”的证据标准，不是代码。
+     * 实测补过的说法（想想/答不上/不太会/不太确定…）漏掉会把拒答误记成自解。 */
+    char list[1024];
+    if (!aip_policy_str("refuse_words", list, sizeof list) || !list[0])
+        snprintf(list, sizeof list, "%s",
+                 "不太懂,不知道,没记过,不认识,不确定,不太确定,没匹配,还没学过,"
+                 "没有这条,拒答,不编,答不上,答不出,不太会,不会,想想,说不清,说不准,"
+                 "你说给我听,能告诉我吗,教教我");
+    char *cur = list;
+    for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+        if (w[0] && strstr(z, w)) return 1;
     return 0;
 }
 
