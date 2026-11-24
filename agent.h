@@ -59,8 +59,22 @@ static inline size_t ai_teach_evict(AI *ai);   /* §6.597 定义在下面（教�
 /* §6.595 **「你教我的」要能跨会话认**：用户教会一条关系事实时留一个 `[教:…]` 标记节点
  * （走受审通道、当场过安全点）。它随图存盘 ⇒ 重开之后 `你 怎么 知道` 仍答得出"你教我的"。
  * 只给**学习路径**用（语料/推论不标）。`mod_off` 时不留（跟 `[修正:…]` 同一个规矩）。 */
+/* §7.034 最近学到的事实环（跨轮）：长对话里“最近学了什么”靠它，不只靠最近一句用户原话。
+ * 存格式化后的字符串（不存 Token 指针：GC 会搬/删）。 */
+static inline void agent_note_fact(AI *ai, Token *A, uint8_t rid, Token *B, int neg) {
+    if (!ai || !A || !B || !rid || !A->name || !B->name) return;
+    const char *rn = rel_name_of(ai, rid);
+    if (!rn) return;
+    size_t slot = ai->facts_head;
+    snprintf(ai->facts[slot], sizeof ai->facts[slot], "%s %s%s %s",
+             A->name, neg ? "不 " : "", rn, B->name);
+    ai->facts_head = (ai->facts_head + 1) % 8;
+    if (ai->facts_n < 8) ai->facts_n++;
+}
+
 static inline void agent_teach_mark(AI *ai, Token *A, uint8_t rid, Token *B, int neg) {
     if (!ai || !A || !B || rid == 0 || rid >= REL_DYN_BASE) return;
+    agent_note_fact(ai, A, rid, B, neg);
     if (micro_of(ai)->safe.mod_off) return;
     ModIntent in;
     memset(&in, 0, sizeof in);
@@ -6375,6 +6389,11 @@ static inline int agent_history_kind(const char *input) {
         if (strstr(j, "不明白") || strstr(j, "听不懂") || strstr(j, "没听懂") ||
             strstr(j, "没听清")) fam = 0;
         /* §6.982 「刚才 说 的 是 什么」/「上一句 说 的 什么」：中间多了「的/是」，不是 "说什么" 连续串 */
+        /* §7.034 “最近 学 了 什么 / 学到 什么 / 教 了 我 什么”：问**学到的事实**，不是聊天记录 */
+        if ((strstr(j, "最近") || strstr(j, "刚才") || strstr(j, "这些")) &&
+            (strstr(j, "学到") || strstr(j, "学了") || strstr(j, "教了") || strstr(j, "教给我")) &&
+            (strstr(j, "什么") || strstr(j, "啥")))
+            return 3;
         if (!fam && (strstr(j, "刚才") || strstr(j, "上一") || strstr(j, "上句") || strstr(j, "前面")) &&
             (strstr(j, "什么") || strstr(j, "啥")) &&
             (strstr(j, "说") || strstr(j, "讲") || strstr(j, "问") || strstr(j, "聊")))
@@ -10316,6 +10335,20 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     {
         int hk = agent_history_kind(input);
         if (hk) {
+            if (hk == 3) {
+                if (ai->facts_n == 0) {
+                    snprintf(out, out_cap, "最近 还 没 学 到 什么 事实");
+                } else {
+                    size_t off = (size_t)snprintf(out, out_cap, "最近 学 到 的 事实 ： ");
+                    size_t n_list = ai->facts_n < 5 ? ai->facts_n : 5;
+                    for (size_t k = 0; k < n_list && off + 1 < out_cap; ++k) {
+                        size_t idx = (ai->facts_head + 8 - n_list + k) % 8;
+                        off += (size_t)snprintf(out + off, out_cap - off, "%s%s",
+                                                k ? " ； " : "", ai->facts[idx]);
+                    }
+                }
+                return agent_turn_end(ai, out);
+            }
             if (hk == 2) {
                 /* §6.543 历史回顾的措辞也进数据（`历史.*`） */
                 if (ai->hist_n == 0) {

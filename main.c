@@ -571,6 +571,7 @@ typedef enum {
     CMD_AUTO,
     CMD_UNSOLVED,
     CMD_CONFLICT,
+    CMD_RECENT,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -772,6 +773,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "recent", NULL, 0, "基本",
+      "最近学到的事实（§7.034，跨轮 8 条环）：::recent 看最近 8 条；长对话回忆用", CMD_RECENT },
     { "conflict", NULL, 0, "基本",
       "冲突记录（§7.031）：::conflict 看最近学到的冲突（_t/conflict.tsv）；冲突主语也是注意力来源，来源标「冲突」", CMD_CONFLICT },
     { "unsolved", NULL, 0, "基本",
@@ -5545,6 +5548,16 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_RECENT: {
+                if (a->brain->facts_n == 0) { printf("[最近] 还没学到什么事实\n"); continue; }
+                printf("[最近] 学到 %zu 条（最多留 8）：\n", a->brain->facts_n);
+                size_t n = a->brain->facts_n;
+                for (size_t k = 0; k < n; ++k) {
+                    size_t idx = (a->brain->facts_head + 8 - n + k) % 8;
+                    printf("  %zu. %s\n", k + 1, a->brain->facts[idx]);
+                }
                 continue;
             }
             case CMD_CONFLICT: {

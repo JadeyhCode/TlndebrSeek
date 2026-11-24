@@ -1386,6 +1386,8 @@ typedef struct AI {
      * 存**原文**（不做分词/拼接），这样回答里能原样复述用户的说法。 */
     char   hist[6][128];
     size_t hist_n, hist_head;
+    char   facts[8][160];   /* §7.034 最近学到的事实（跨轮，长对话回忆用） */
+    size_t facts_n, facts_head;
     Token **last_skipped;
     size_t last_skipped_n, last_skipped_cap;
 

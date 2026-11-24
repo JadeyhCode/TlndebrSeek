@@ -297,6 +297,7 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
             if (!ta || !tb) return 0;
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, neg ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
+            agent_note_fact(ai, (Token *)ta, rid, (Token *)tb, neg);
             ai->n_rel_learned++;
             char ap[160];
             en_pretty(A, ap, sizeof ap, 1);
@@ -323,6 +324,7 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             const Token *ta = en_to_token(ai, A), *tb = en_to_token(ai, B);
             if (!ta || !tb) return 0;
             if (ai_write_rel(ai, (Token *)ta, (Token *)tb, rid, (neg || neg_can) ? 1 : 0, AI_WSRC_RELATION) != 0) return 0;
+            agent_note_fact(ai, (Token *)ta, rid, (Token *)tb, (neg || neg_can));
             ai->n_rel_learned++;
             char ap2[160];
             en_pretty(A, ap2, sizeof ap2, 1);

@@ -285,10 +285,10 @@ if [ -f agent.h ]; then
     n_say=$(grep -c 'agent_say(ai, out)' agent.h || true)
     n_turn=$(grep -c 'agent_turn_end(ai, out)' agent.h || true)   # §7.029 早退统一走这（记未解再 say）
     n_raw=$(grep -c 'return strlen(out);' agent.h || true)
-    if [ "$n_say" = "2" ] && [ "$n_turn" = "20" ] && [ "$n_raw" = "3" ]; then
-        say OK "早退出口核对：agent_say 2 处 / agent_turn_end 20 处 / 裸 return 3 处（与注释一致）"
+    if [ "$n_say" = "2" ] && [ "$n_turn" = "21" ] && [ "$n_raw" = "3" ]; then
+        say OK "早退出口核对：agent_say 2 处 / agent_turn_end 21 处 / 裸 return 3 处（与注释一致）"
     else
-        say FAIL "早退出口变了：agent_say=$n_say（期望 2）/ turn_end=$n_turn（期望 20）/ 裸 return=$n_raw（期望 3）—— 新早退请走 agent_turn_end，或改注释并同步这里"
+        say FAIL "早退出口变了：agent_say=$n_say（期望 2）/ turn_end=$n_turn（期望 21）/ 裸 return=$n_raw（期望 3）—— 新早退请走 agent_turn_end，或改注释并同步这里"
         bad=1
     fi
 else
