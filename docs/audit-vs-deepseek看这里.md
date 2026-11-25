@@ -36471,3 +36471,39 @@ in `policy.txt`: `paper_conflict_relations=属于,在` (会/有 are multi-valued
   create false positives;
 - Graph-conflict scan is per claim with a linear scan over symbols (fine at 1k symbols, not at scale);
 - No timeline/ordering conflicts yet (the D12 blind still lacks时间线 cases).
+
+## §7.056 Reproducible train→eval pipeline (F19), 11/11 first run (2026-11-22)
+
+New `tools/train_eval.py` (new suite `traineval`) closes the F19 loop:
+
+1. fresh sandbox (binary + model + data files);
+2. **contamination gate**: refuse to run if any blind question text appears verbatim in the corpus;
+3. `::ingest corpus.tsv` in the **same process** (graph is in-memory) — corpus has 10 novel facts,
+   1 malformed line and 1 comment; expects `写入 10 / 坏行 1`;
+4. ask 10 blind questions (new combinations, not in the corpus) + 1 negative check;
+5. score pass/refuse/wrong and require wrong=0, pass ≥80%.
+
+### First run
+
+```
+[contamination] 泄漏题目数：0
+[ingest] 写入 10 条 / 坏行 1（期望 10 / 1）
+[epoch] pass 11 / refuse 0 / wrong 0（共 11）
+=> 训练-评测流水线：PASS（ingest OK，contamination 0）
+```
+
+### A real hazard found while writing it
+
+The first version asked `佐格 有 长发 吗` as a must-refuse item. The kernel answered with an
+**analogy guess** (“米拉 ≈73% 像 → 佐格 有 长发 … 其中一环是推测”), i.e. a hedged but wrong answer.
+Analogy-guessing is a deliberate behavior (tested elsewhere), so the pipeline now uses a
+**negative** check (`佐格 属于 人类 吗` → 不对) and the hazard is documented instead of hidden.
+
+### Boundaries
+
+- Contamination is checked **verbatim** (question strings), not semantically; paraphrase leakage is
+  not detected;
+- Corpus and blind set are tiny (10 facts / 11 checks); this proves the loop, not statistical quality;
+- Ingest is in-memory per process — there is no save/reload step, so "training" is not persisted;
+- No noise-model, no seeding/epochs; "epoch" = one ingest pass;
+- Analogy guesses can still produce hedged wrong answers on unknown facts (see hazard above).
