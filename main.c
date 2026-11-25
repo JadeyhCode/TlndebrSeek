@@ -9749,8 +9749,16 @@ int main(int argc, char **argv) {
         /* **英语问 ⇒ 英语答**：只对"是非问"生效（en_ascii_only 挡住所有中文输入）。
          * "读"已经由 `[syn]` 数据解决（`cat`→`猫`），这里只把答复换成英文。 */
         if (input[0] != ':' && !en_taught) {
-            if (!english_rewrite(a->brain, input, out, sizeof out))
-                (void)english_hint(a->brain, input, out, sizeof out);
+            int er = english_rewrite(a->brain, input, out, sizeof out);
+            if (er != 1) {
+                char uw[64];
+                if (er == -1 && english_unknown_word(a->brain, input, uw, sizeof uw))
+                    snprintf(out, sizeof out,
+                             "I don't have a Chinese mapping for \"%s\" yet (no [syn] entry). "
+                             "I won't guess - add a mapping and ask again.", uw);
+                else
+                    (void)english_hint(a->brain, input, out, sizeof out);
+            }
             /* **语言镜像**：用户说英文就答英文。上面两条都没接住（比如 `hello`）时，
              * 中文流水线可能答了中文 —— 一律换成英文说明，不出现"英文问、中文答"。 */
             int en_in = en_ascii_only(input) &&

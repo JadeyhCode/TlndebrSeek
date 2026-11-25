@@ -252,6 +252,36 @@ static inline const Token *en_to_token(AI *ai, const char *w) {
 /* §7.033 英语**陈述句教学**：`X is (not) a Y` / `X can(not) Y` 真正写进图。
  * 只在两个词都能解析到节点时写（不造垃圾词）；写的是否定边/肯定边，和中文同一条写路径。
  * 成功返回 1 并给英文确认；否则 0（交回原来的问答/指引路径）。 */
+/* §7.042 英文问句里**没有映射**的词：明确告诉用户，而不是含糊说“只答是非问”。
+ * 只查内容词：冠词/助动词/疑问词/关系词/否定词都跳过；复数先剥 s/es 再查。 */
+static inline const char *english_unknown_word(AI *ai, const char *q, char *buf, size_t cap) {
+    if (!ai || !q || !en_ascii_only(q) || !buf) return NULL;
+    const char *skip[] = { "a", "an", "the", "is", "are", "am", "was", "were", "do", "does",
+                           "did", "can", "could", "cannot", "not", "no", "yes", "what", "who",
+                           "whom", "whose", "which", "where", "when", "why", "how", "it", "its",
+                           "this", "that", "these", "those", "i", "you", "he", "she", "they",
+                           "we", "me", "my", "your", "his", "her", "their", "of", "to", "in",
+                           "on", "at", "and", "or", "please", NULL };
+    char tmp[512];
+    snprintf(tmp, sizeof tmp, "%s", q);
+    for (char *p = tmp; *p; ++p) if (*p == '?' || *p == ',' || *p == '.' || *p == '!') *p = ' ';
+    char *save = NULL;
+    for (char *w = strtok_r(tmp, " \t", &save); w; w = strtok_r(NULL, " \t", &save)) {
+        char lw[64]; size_t n = 0;
+        for (const char *p = w; *p && n + 1 < sizeof lw; ++p) lw[n++] = (char)((*p >= 'A' && *p <= 'Z') ? *p + 32 : *p);
+        lw[n] = 0;
+        int sk = 0;
+        for (size_t i = 0; skip[i]; ++i) if (!strcmp(lw, skip[i])) { sk = 1; break; }
+        if (sk || n < 2) continue;
+        if (en_to_token(ai, lw)) continue;
+        if (n > 3 && lw[n - 1] == 's') { lw[n - 1] = 0; if (en_to_token(ai, lw)) continue; lw[n - 1] = 's'; }
+        if (n > 4 && !strcmp(lw + n - 2, "es")) { lw[n - 2] = 0; if (en_to_token(ai, lw)) continue; }
+        snprintf(buf, cap, "%s", w);
+        return buf;
+    }
+    return NULL;
+}
+
 /* §7.038 英文冲突回话：上一句是“OK? I also had… Say yes/no”，这一句只认 yes/no。
  * yes ⇒ 写新值；no ⇒ 保留旧值（不写）。返回 1 表示已处理。 */
 static inline int english_confirm(AI *ai, const char *q, char *out, size_t cap) {
@@ -457,6 +487,9 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
 
 /* 英语问 ⇒ 英语答：成功返回 1（out 被改写），否则 0（out 原样不动）。
  * 判据是 `rel_solve`（不是嗅中文答复的字符串）—— 英文和中文走的是**同一条推理**。 */
+static inline const char *english_unknown_word(AI *ai, const char *q, char *buf, size_t cap);  /* §7.042 */
+
+/* 返回：1=答了 / -1=是非问解析成功但词没映射 / 0=不是简单是非问 */
 static inline int english_rewrite(AI *ai, const char *q, char *out, size_t cap) {
     char A[128], B[200];
     uint8_t rid = 0;
@@ -473,6 +506,10 @@ static inline int english_rewrite(AI *ai, const char *q, char *out, size_t cap) 
             rel_solve(ai, ta, rid, tb, 1, &pf);
             if (pf.status != 0) truth = -1;   /* 推得出"不 R" ⇒ 这句话是假的 */
         }
+    }
+    if ((!ta || !tb)) {
+        char uw[64];
+        if (english_unknown_word(ai, q, uw, sizeof uw)) return -1;
     }
     char a[128], b[200], ph[24];
     en_pretty(A, a, sizeof a, 1);

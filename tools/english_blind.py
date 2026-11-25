@@ -31,7 +31,7 @@ CASES = [
 ]
 
 REFUSE = ("don't know", "do not know", "sorry", "only answer", "not in my graph",
-          "不知道", "不 知道", "没记过")
+          "no [syn]", "won't guess", "不知道", "不 知道", "没记过")
 
 
 def clean(s):

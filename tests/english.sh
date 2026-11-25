@@ -62,12 +62,17 @@ chk() {
     *)  bad "$1" "期望：$2　实际：$a" ;;
     esac
 }
+
+chkf() {
+    a=$(ask "$1")
+    if [ "$a" = "$2" ]; then ok "$1 ⇒ $a"; else bad "$1" "期望：$2　实际：$a"; fi
+}
 chk 'Is a cat an animal?' 'Yes. Cat is an animal.'
 chk 'Can a bird fly?'      'Yes. Bird can fly.'
 chk 'Is a cat a plant?'    'No. Cat is not a plant.'
 chk 'Can a fish fly?'      'No. Fish cannot fly.'
 chk 'Does a cat eat fish?' 'Yes. Cat eats fish.'
-chk 'Does a zebra eat meat?' "I don't know whether Zebra eats meat."
+chkf 'Does a zebra eat meat?' 'I don'"'"'t have a Chinese mapping for "zebra" yet (no [syn] entry). I won'"'"'t guess - add a mapping and ask again.'
 
 chk 'What is a cat?' 'Sorry, I only answer yes/no questions about what is in my graph.*'
 chk 'Who is a cat?'   'Sorry, I only answer yes/no questions about what is in my graph.*'
