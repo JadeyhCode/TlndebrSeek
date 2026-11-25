@@ -36371,3 +36371,37 @@ Both are documented; the pizza one is a straightforward priority fix (sub beats 
 - One clause = one operation; nested clauses (“after buying 3 of each of 2 kinds”) unsupported;
 - Templates remain C constants; no equation setup/verification;
 - 90% is on 20 locally authored items, **not official GSM8K**.
+
+## §7.053 Priority + semantic inversion; GSM8K v4 blind 100% (with strong caveats) (2026-11-22)
+
+Two fixes in `english_wordmath`:
+
+1. **Priority**: `cut into N slices and M eaten/left/used/lost` is subtraction, not division
+   (the divide cue used to win);
+2. **Semantic inversion**: asks girls/states boys (and vice versa), asks taken/states free
+   (and vice versa) ⇒ subtract, even though no operation word appears.
+
+### Blind set v4 (`tools/gsm8k4_blind.py`, new suite `gsm8k4`)
+
+20 new locally written problems, first run:
+
+```
+=> GSM8K-v4 首跑：pass 20 / refuse 0 / wrong 0（共 20，准确率 100.0%）
+```
+
+Post-fix regression (disclosed, non-blind): v3 also 20/20.
+
+### Why this 100% must not be over-read
+
+- The 20 items were **written after** the fixes and all follow the supported shapes
+  (1–2 operations, one actor, explicit numbers); a self-authored set that matches the template
+  space is not evidence of general word-problem ability;
+- Official GSM8K (or any independently authored set) remains untested; expect much lower;
+- Nested/multi-actor problems (“3 kinds × 4 each, then 2 returned”), decimals, units in operands,
+  and semantic relations beyond gender/free-taken are unsupported;
+- The score is useful as a **regression ceiling** for the template family, not as a benchmark claim.
+
+### Next honestly-harder set
+
+v5 should include nested clauses, two actors, decimals/units, and unstated operations; target is to
+find where it breaks, not to raise the self-authored average.

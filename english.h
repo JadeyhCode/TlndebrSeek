@@ -398,6 +398,18 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
                      strstr(cl, "remain") || strstr(cl, "taken") || strstr(cl, "been read");
         int is_speed = (nn == 2 && strstr(low, "speed")) ||
                        strstr(cl, "per hour") || strstr(cl, "km/h") || strstr(cl, "mph");
+        /* §7.053 Priority: "cut into N slices and M eaten/left" is subtraction, not division. */
+        if (is_div && (strstr(cl, "eaten") || strstr(cl, "left") || strstr(cl, "remain") ||
+                       strstr(cl, "used") || strstr(cl, "lost")))
+            is_div = 0, is_sub = 1;
+        /* Semantic inversion: asks girls but states boys (or vice versa) => subtract. */
+        if ((strstr(low, "girls") && strstr(cl, "boys")) ||
+            (strstr(low, "boys") && strstr(cl, "girls")) ||
+            (strstr(low, "women") && strstr(cl, "men")) ||
+            (strstr(low, "men") && strstr(cl, "women")) ||
+            (strstr(low, "taken") && strstr(cl, "free")) ||
+            (strstr(low, "free") && strstr(cl, "taken")))
+            is_sub = 1, is_div = 0, is_mul = 0;
         if (!is_div && !is_mul && !is_sub) {
             /* 同一子句没线索时，看全句里的 each/rows/...（如 “each box has 9 ...” 的首子句） */
             if (strstr(low, " each") || strstr(low, " every") || !strncmp(low, "each", 4) || !strncmp(low, "every", 5) ||
