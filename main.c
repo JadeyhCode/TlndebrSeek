@@ -572,6 +572,7 @@ typedef enum {
     CMD_UNSOLVED,
     CMD_CONFLICT,
     CMD_RECENT,
+    CMD_KNOW,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -773,6 +774,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "know", "<self|relations|rules|symbol 名字>", 1, "基本",
+      "自我认识（§7.044）：::know self 看自己的规模/规则数；relations 看核心关系边数；rules 看校验/改写规则；symbol 看单个符号的关系卡", CMD_KNOW },
     { "recent", NULL, 0, "基本",
       "最近学到的事实（§7.034，跨轮 8 条环）：::recent 看最近 8 条；长对话回忆用", CMD_RECENT },
     { "conflict", NULL, 0, "基本",
@@ -5548,6 +5551,96 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_KNOW: {
+                const char *arg = (cmd[4] == ' ') ? cmd + 5 : NULL;
+                while (arg && *arg == ' ') arg++;
+                AI *ai = a->brain;
+                if (!arg || !*arg || !strncmp(arg, "self", 4)) {
+                    size_t edges = 0, neg = 0, ncur = 0, nrew = 0, act = 0;
+                    for (uint32_t i = 0; i < ai->pool->count; ++i) {
+                        Token *t = ai->pool->tokens[i];
+                        if (!t || t->is_garbage) continue;
+                        if (t->mem_state == MEM_ACTIVE) act++;
+                        if (!t->name) continue;
+                        if (!strncmp(t->name, "校验:", 7) && ai->pool->tokens[i]->count >= 1) ncur++;
+                        if (!strncmp(t->name, "改写:", 7)) nrew++;
+                        for (size_t j = 0; j < t->count; ++j) {
+                            const AssocEntry *e = &token_assocs_ro(t)[j];
+                            if (!e->main || !e->rel) continue;
+                            edges++;
+                            if (e->nrel) neg++;
+                        }
+                    }
+                    printf("[自我] 符号 %zu（活跃 %zu）｜边 %zu（带否定位 %zu）｜核心关系 9｜校验规则 %zu｜改写规则 %zu｜类词表 %zu\n",
+                           ai->pool->count, act, edges, neg, ncur, nrew, g_class_n);
+                    printf("       来源档：教学/观测/推论/改口都在边的 role 与 [教:]/[修正:] 标记里（::sym links 可逐条看）\n");
+                    continue;
+                }
+                if (!strncmp(arg, "relations", 9)) {
+                    printf("[自我] 核心关系（正边/否定边 计数；全图扫描）：\n");
+                    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+                        const char *rn = rel_name_of(ai, rid);
+                        if (!rn) continue;
+                        size_t pc = 0, nc = 0;
+                        for (uint32_t i = 0; i < ai->pool->count; ++i) {
+                            Token *t = ai->pool->tokens[i];
+                            if (!t || t->is_garbage) continue;
+                            for (size_t j = 0; j < t->count; ++j) {
+                                const AssocEntry *e = &token_assocs_ro(t)[j];
+                                if (!e->main) continue;
+                                uint16_t bit = (uint16_t)(1u << (rid - 1));
+                                if (e->rel & bit) pc++;
+                                if (e->nrel & bit) nc++;
+                            }
+                        }
+                        printf("  %-6s 正 %zu / 否定 %zu\n", rn, pc, nc);
+                    }
+                    continue;
+                }
+                if (!strncmp(arg, "rules", 5)) {
+                    printf("[自我] 规则清单（名字前缀在数据里）：\n");
+                    int n1 = 0, n2 = 0;
+                    for (uint32_t i = 0; i < ai->pool->count; ++i) {
+                        Token *t = ai->pool->tokens[i];
+                        if (!t || t->is_garbage || !t->name) continue;
+                        if (!strncmp(t->name, "校验:", 7)) {
+                            if (n1 < 12) printf("  校验 %s\n", t->name + 7);
+                            n1++;
+                        } else if (!strncmp(t->name, "改写:", 7)) {
+                            if (n2 < 12) printf("  改写 %s\n", t->name + 7);
+                            n2++;
+                        }
+                    }
+                    printf("  （共 校验 %d 条 / 改写 %d 条；完整列表用 ::rel 校验:<名字>）\n", n1, n2);
+                    continue;
+                }
+                if (!strncmp(arg, "symbol", 6)) {
+                    const char *nm = arg + 6;
+                    while (*nm == ' ') nm++;
+                    Token *t = *nm ? pool_find(ai->pool, nm) : NULL;
+                    if (!t) { printf("[自我] 图里没有「%s」\n", nm); continue; }
+                    size_t relc = 0;
+                    for (size_t j = 0; j < t->count; ++j)
+                        if (token_assocs_ro(t)[j].main && token_assocs_ro(t)[j].rel) relc++;
+                    printf("[自我] 符号「%s」：度 %zu（关系边 %zu）\n", t->name, t->count, relc);
+                    int shown = 0;
+                    for (size_t j = 0; j < t->count && shown < 12; ++j) {
+                        const AssocEntry *e = &token_assocs_ro(t)[j];
+                        if (!e->main || !e->rel) continue;
+                        uint8_t rid0 = 0;
+                        for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
+                            if (e->rel & (uint16_t)(1u << (r - 1))) { rid0 = r; break; }
+                        printf("  %s%s --[%s]--> %s\n",
+                               (e->nrel ? "不 " : ""), t->name,
+                               rid0 ? rel_name_of(ai, rid0) : "?", e->main->name);
+                        shown++;
+                    }
+                    if (!shown) printf("  （没有关系边）\n");
+                    continue;
+                }
+                printf("[用法] ::know self|relations|rules|symbol <名字>\n");
                 continue;
             }
             case CMD_RECENT: {

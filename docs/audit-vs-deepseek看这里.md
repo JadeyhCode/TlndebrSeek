@@ -36006,3 +36006,35 @@ must-refuse case.
 - This is a **structured** long document (one claim per line). Free-form prose extraction is §7.014/§7.028
   work and remains much weaker; the summary question is still refused, not summarized.
 - No cross-paragraph contradiction/timeline case yet; next long-text blind should add them.
+
+## §7.044 Self-symbol knowledge: `::know` (D13), 5/5 first run (2026-11-22)
+
+D13 asks for the model to query **its own** entities/relations/rules and know their evidence.
+New command `::know` (124 → 125 commands):
+
+- `::know self` — symbol count (active), edges, negative-flag count, core relations, rule counts, class tables;
+- `::know relations` — per core relation: positive vs negative edge counts (full-graph scan);
+- `::know rules` — rule names with `校验:` / `改写:` prefix (data-carried rules; the code brain holds them);
+- `::know symbol <name>` — degree, relation-edge count, up to 12 `[not] A --[rel]--> B` lines.
+
+### Readings (`tools/selfknow_blind.py`, new suite `selfknow`)
+
+```
+=> 自我符号认识首跑：5/5
+```
+
+| Check | Result |
+|---|---|
+| `self` reports scale + rule counters | OK |
+| `relations` lists 属于 with positive edges > 0 | OK |
+| `symbol 猫` has degree 268 / 13 relation edges | OK |
+| unknown symbol says not in graph | OK |
+| `rules` on the **code brain** finds 校验 rules (>0) | OK |
+
+### Boundaries
+
+- Rule inventories live in the **code model** (`code/code_model.bin`), not the language model; `::know rules`
+  on `model.bin` correctly prints 0 — the blind set points it at the code brain.
+- Edge counts distinguish co-occurrence (`::stats` 41k) from **relation** edges (~200); `::know` reports relation ones.
+- "Evidence source" is still only per-edge role/flags and `[教:]/[修正:]` markers; no aggregated provenance view yet.
+- This is the observation half of D13; the generalization half (unseen symbol combinations → refuse) is next.
