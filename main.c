@@ -8503,6 +8503,43 @@ int main(int argc, char **argv) {
                 /* §6.638 `::paper read <文件>` / `::paper list` */
                 const char *r = carg ? carg : "";
                 while (*r == ' ' || *r == '\t') r++;
+                if (!strncmp(r, "timeline", 8)) {
+                    /* §7.058 时间线：按文档顺序列出带时间标记的句子（数据类 time_marker）。
+                     * 只做**抽取+排序**，不做矛盾判定（下一步再比对前后关系）。 */
+                    const char *fn = r + 8;
+                    while (*fn == ' ' || *fn == '\t') fn++;
+                    if (!*fn) { printf("[论文] 用法：::paper timeline <文件>\n"); continue; }
+                    FILE *tf = fopen(fn, "rb");
+                    if (!tf) { printf("[论文] 读不开 %s\n", fn); continue; }
+                    char *txt = (char *)malloc(1 << 20);
+                    if (!txt) { fclose(tf); printf("[论文] 内存不够\n"); continue; }
+                    size_t tn = fread(txt, 1, (1 << 20) - 1, tf);
+                    txt[tn] = 0;
+                    fclose(tf);
+                    char *save = NULL;
+                    int idx = 0, shown = 0;
+                    printf("[论文·时间线] %s（按文档顺序）：\n", fn);
+                    for (char *ln = strtok_r(txt, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+                        while (*ln == ' ' || *ln == '\t') ln++;
+                        if (!*ln) continue;
+                        idx++;
+                        const char *hit = NULL;
+                        char mlist[256];
+                        if (!aip_policy_str("time_marker", mlist, sizeof mlist) || !mlist[0])
+                            snprintf(mlist, sizeof mlist, "%s",
+                                     "之前,之后,以前,以后,先,再,然后,接着,最后,起初,后来");
+                        char *mcur = mlist;
+                        for (char *mw = aip_policy_next(&mcur); mw && !hit; mw = aip_policy_next(&mcur))
+                            if (mw[0] && strstr(ln, mw)) hit = mw;
+                        if (!hit) continue;
+                        printf("  %d. [%s] %.110s\n", idx, hit, ln);
+                        shown++;
+                    }
+                    if (!shown) printf("  （没有带时间标记的句子）\n");
+                    printf("[论文·时间线] 共 %d 个时间标记句（只列，不判定矛盾）\n", shown);
+                    free(txt);
+                    continue;
+                }
                 if (!strncmp(r, "conflicts", 9)) {
                     /* §7.055 待证之间的冲突 + 与图冲突：同主语同关系不同宾语（属于/在 这类独占更明显）。
                      * 只报告，不自动裁决（人来决定 accept/reject）。 */

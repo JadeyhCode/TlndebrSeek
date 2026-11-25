@@ -58,3 +58,5 @@ wordmath_unsupported=half,twice,double,percent,%,respectively,each of,containing
 wordmath_max_numbers=3
 # §7.055 论文待证冲突：只对独占类关系报冲突（会/有 可多值，不算冲突）
 paper_conflict_relations=属于,在
+# §7.058 论文时间线：哪些词算时间标记（数据）
+time_marker=之前,之后,以前,以后,先,再,然后,接着,最后,起初,后来

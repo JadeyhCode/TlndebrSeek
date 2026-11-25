@@ -36532,3 +36532,67 @@ Analogy-guessing is a deliberate behavior (tested elsewhere), so the pipeline no
   larger-than-memory graphs;
 - Epoch 2 uses the same blind set, so it measures persistence, not generalization;
 - Save time/disk for large graphs is not measured here (see S1 scale work for that dimension).
+
+## §7.058 `::paper timeline`: temporal markers in document order (D12), 5/5 (2026-11-22)
+
+New subcommand `::paper timeline <file>`: splits the document into lines, keeps lines containing a
+temporal marker, prints them **in document order** with the marker and line number, and reports the
+count. It only extracts/orders; contradiction detection is explicitly not done yet.
+
+Markers are **data**: `policy.txt` → `time_marker=之前,之后,以前,以后,先,再,然后,接着,最后,起初,后来`
+(registered in 硬编码登记, ablation included in the blind set).
+
+### Readings (`tools/timeline_blind.py`, new suite `timeline`)
+
+```
+=> 论文时间线首跑：5/5
+```
+
+| Check | Result |
+|---|---|
+| 5 marked sentences in a 6-line doc | OK |
+| order preserved (起初 < 之后 < 先 < 然后 < 最后) | OK |
+| non-temporal doc → 0 | OK |
+| missing file → explicit error | OK |
+| ablation: change marker list → 0 (data-driven) | OK |
+
+### Boundaries
+
+- Markers are surface words; “之前” in a non-temporal sense (“在此之前”) will match too;
+- Line-based: a sentence spanning two lines is judged line by line;
+- Order is document order, not verified event order; no interval/date arithmetic;
+- No contradiction check across timeline entries yet (next step for D12).
+
+## §7.059 S1 scale tier 25M edges (delegated run) — 297 s, 842 MB, all green (2026-11-22)
+
+The standing subagent ran `AIP_SHARD_EDGES=25000000 python3 tools/shard_cold.py` (no other jobs):
+
+```
+=> S1 冷读压测：25000000 边 / 1% 抽样 / 命中 100.00% / 名字 p95 0.61 ms / 事实 p95 1.41 ms / 路由 p95 0.60 ms / 去重 0.00%
+```
+
+- 0 `[FAIL]`, exit 0;
+- hit 100% (250000 samples), answer sample **250000/250000 = 100%**;
+- p95 essentially identical to 200k/5M (0.61 / 1.41 / 0.60 ms);
+- wall clock **297 s (4 min 57 s)**, `_t/shardcold` = **842 MB**.
+
+### Scale ladder so far
+
+| edges | wall clock | dir size | p95 (name/fact/route) | answer sample |
+|---|---|---|---|---|
+| 200k | seconds | 183 MB (5M dir) | 0.60 / 1.05–1.56 / 0.6 ms | 2000/2000 |
+| 5M | 63 s | 183 MB | 0.61 / 1.04 / 0.62 ms | 50000/50000 |
+| 25M | **297 s** | **842 MB** | 0.61 / 1.41 / 0.60 ms | **250000/250000** |
+
+### Extrapolation to 2.5B (still not run)
+
+- Time: 25M→2.5B is 100×, so ≈ **8–9 hours** single-threaded (if throughput stays linear);
+- Temp disk: 842 MB × 100 ≈ **84 GB** (raw triples + work files); compressed shard itself is far smaller;
+- Name lookup is still a linear scan per shard, and the 32-bit/route assumptions need a real 2.5B test;
+- The 1% sample at 2.5B = 25M checks (100× this run) — ~8 hours of checking alone.
+
+### Boundaries
+
+- Same synthetic unique facts (`N{i} 属于 N{hash}`), not real corpus distribution;
+- Still one shard at 25M (no forced sharding); the multi-shard path is exercised only at small sizes;
+- RSS remains `?` in the bench output; memory at 25M was not measured.
