@@ -575,6 +575,7 @@ typedef enum {
     CMD_KNOW,
     CMD_CHAIN,
     CMD_GAP,
+    CMD_PLAN,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -776,6 +777,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "plan", "[run] <问句>", 1, "基本",
+      "流程策略（§7.048）：按任务类型选步骤顺序（gap/local/paper/ask/sym/refuse…），::plan run 只执行安全的本地一步并记账 _t/plans.tsv", CMD_PLAN },
     { "gap", "<问句>", 1, "基本",
       "缺口检测（§7.047）：::gap 问句 —— 判缺词/缺事实/缺结构/已能回答，并给可执行的下一步（查论文/自学/::chain/::sym/::ask），记 _t/gaps.tsv", CMD_GAP },
     { "chain", "条件 ; 条件 => 问句", 1, "基本",
@@ -3190,7 +3193,7 @@ static int solve_do(Agent *a, const char *arg) {
 
 
 /* §7.047 `::gap`：**自己哪里不明白 + 下一步查什么**。
- * 对一个问句做干跑（不回答、不写图）：分词 → 找缺词/缺关系/缺事实/已能回答，
+ * 对一个问句做干跑（不回答、不写图）：找缺词/缺结构/缺事实/已能回答，
  * 然后给出**可执行的下一步命令序列**，并记 `_t/gaps.tsv`（可审计）。 */
 /* 去掉首尾空白/标点/语气词（不破坏词内字节） */
 static void gap_trim(char *s) {
@@ -3208,6 +3211,100 @@ static void gap_trim(char *s) {
             while (l >= tl && !strcmp(s + l - tl, tail[i])) { s[l - tl] = 0; l -= tl; changed = 1; }
         }
     }
+}
+
+
+/* §7.048 `::plan`：**流程策略化**——按任务类型选“检索/提问/求证/放弃”的顺序，
+ * 可观测（打印计划）、可执行（`run` 只跑安全的本地一步）、可审计（_t/plans.tsv）。
+ * 步骤表在 policy.txt：plan_steps_fact / code / math / paper / other（逗号分隔的步骤名）。 */
+static const char *plan_label(const char *step) {
+    if (!strcmp(step, "gap"))    return "::gap <问句>（先定位缺口）";
+    if (!strcmp(step, "local"))  return "本地图检索/推理（能答就停）";
+    if (!strcmp(step, "paper"))  return "::paper search <关键词>（找出处）";
+    if (!strcmp(step, "ask"))    return "::ask <问句>（外部；需 ::tool on）";
+    if (!strcmp(step, "sym"))    return "::sym edge add …（理由+开门）";
+    if (!strcmp(step, "code"))   return "::act on + ::code synth（本地合成/验证）";
+    if (!strcmp(step, "calc"))   return "计算/单位/百分比（精确函数，不猜）";
+    if (!strcmp(step, "refuse")) return "放弃并明说（不编；记未解）";
+    return step;
+}
+
+static int plan_do(Agent *a, const char *arg) {
+    if (!a || !a->brain || !arg) return 0;
+    AI *ai = a->brain;
+    int run = 0;
+    const char *q = arg;
+    if (!strncmp(q, "run", 3) && (q[3] == ' ' || q[3] == 0)) {
+        run = 1; q += 3;
+        while (*q == ' ') q++;
+    }
+    if (!*q) { printf("[计划] 用法：::plan [run] <问句>\n"); return 1; }
+
+    const char *type = "other";
+    if (strstr(q, "写一个") || strstr(q, "程序") || strstr(q, "实现") || strstr(q, "函数") ||
+        strstr(q, "代码")) type = "code";
+    else if (strstr(q, "论文") || strstr(q, "文档") || strstr(q, "段落") || strstr(q, "文中"))
+        type = "paper";
+    else {
+        int digit = 0;
+        for (const char *p = q; *p; ++p) if (*p >= '0' && *p <= '9') { digit = 1; break; }
+        if (digit || strstr(q, "换算") || strstr(q, "百分比") || strstr(q, "多少"))
+            type = "math";
+        else if (strstr(q, "吗") || strstr(q, "什么") || strstr(q, "谁") || strstr(q, "哪"))
+            type = "fact";
+    }
+
+    char key[32];
+    snprintf(key, sizeof key, "plan_steps_%s", type);
+    char steps[256];
+    if (!aip_policy_str(key, steps, sizeof steps) || !steps[0]) {
+        const char *dflt = !strcmp(type, "fact") ? "gap,local,paper,ask,sym,refuse" :
+                           !strcmp(type, "code") ? "code,gap,local,paper,refuse" :
+                           !strcmp(type, "math") ? "calc,gap,local,refuse" :
+                           !strcmp(type, "paper") ? "paper,gap,local,ask,refuse" : "gap,local,refuse";
+        snprintf(steps, sizeof steps, "%s", dflt);
+    }
+    printf("[计划] 任务类型：%s｜步骤：\n", type);
+    int idx = 0;
+    char *cur = steps;
+    for (char *s = aip_policy_next(&cur); s; s = aip_policy_next(&cur)) {
+        printf("  %d) %s\n", ++idx, plan_label(s));
+    }
+
+    const char *outcome = "只出计划（未执行）";
+    if (run) {
+        /* 只跑“本地一步”：按字符串找关系词，词/边在就报能答，否则拒；不发外部请求。 */
+        const char *rpos = NULL; char rel[32] = {0};
+        for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+            const char *rn = rel_name_of(ai, rid);
+            if (!rn || !rn[0]) continue;
+            const char *p = strstr(q, rn);
+            if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+        }
+        int can = 0, neg = 0;
+        if (rpos) {
+            char sbj[64] = {0}, obj[64] = {0};
+            size_t sl = (size_t)(rpos - q);
+            if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+            memcpy(sbj, q, sl); sbj[sl] = 0;
+            snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
+            gap_trim(sbj); gap_trim(obj);
+            Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
+            Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
+            uint8_t rid = rel_id_of(ai, rel, 0);
+            if (A && B && rid) {
+                if (rel_direct(A, rid, B)) can = 1;
+                else if (rel_direct_neg(A, rid, B)) neg = 1;
+            }
+        }
+        if (can) { printf("[执行] 本地一步：**能答**（图里有直边）→ 停\n"); outcome = "能答"; }
+        else if (neg) { printf("[执行] 本地一步：**能答（否定）**\n"); outcome = "能答（否定）"; }
+        else { printf("[执行] 本地一步：答不出 → 按上面步骤继续（不擅自联网/不问用户）\n"); outcome = "拒"; }
+    }
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/plans.tsv", "ab");
+    if (f) { fprintf(f, "%ld\t%s\t%d\t%s\t%s\n", (long)time(NULL), type, idx, run ? "run" : "dry", outcome); fclose(f); }
+    return 1;
 }
 
 static int gap_do(Agent *a, const char *q) {
@@ -5810,6 +5907,13 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_PLAN: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                if (!arg || !*arg) { printf("[用法] ::plan [run] <问句>\n"); continue; }
+                plan_do(a, arg);
                 continue;
             }
             case CMD_GAP: {

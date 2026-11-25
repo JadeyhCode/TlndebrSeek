@@ -237,6 +237,7 @@ selfknow|python3 tools/selfknow_blind.py
 symgen|python3 tools/symgen_blind.py
 chain|python3 tools/chain_blind.py
 gap|python3 tools/gap_blind.py
+planblind|python3 tools/plan_blind.py
 longsent|python3 tools/longsentence_blind.py
 nospace|python3 tools/nospace_blind.py
 pronoun|python3 tools/pronoun_blind.py

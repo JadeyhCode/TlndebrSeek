@@ -47,3 +47,9 @@ refuse_words=不太懂,不知道,没记过,不认识,不确定,不太确定,没�
 long_sentence_chars=60
 # §7.038 英文教学遇到冲突时先问 yes/no（0=直接覆盖并只说旧值）
 en_ask_conflict=1
+# §7.048 流程策略：按任务类型排步骤（gap/local/paper/ask/sym/code/calc/refuse）
+plan_steps_fact=gap,local,paper,ask,sym,refuse
+plan_steps_code=code,gap,local,paper,refuse
+plan_steps_math=calc,gap,local,refuse
+plan_steps_paper=paper,gap,local,ask,refuse
+plan_steps_other=gap,local,refuse

@@ -36143,3 +36143,44 @@ executable plan. It does not answer, does not write the graph, and appends one l
 - The plan is suggestions, not execution — `::gap` never runs `::ask`/`::paper` itself;
 - 已能回答 means "an edge exists", not "the answer is correct" (negation/derivation still go through normal QA);
 - Ledger is append-only, no dedupe/rotation yet.
+
+## §7.048 `::plan`: strategy over search/ask/verify/give-up (E17), 7/7 (2026-11-22)
+
+New command `::plan [run] <question>` (127 → 128): picks a **step order by task type** and prints it;
+`run` executes only the safe local step. Ledger: `_t/plans.tsv`.
+
+- Type detection: code (写一个/程序/实现/函数/代码), paper (论文/文档/段落/文中),
+  math (digits/换算/百分比/多少), fact (问句词), else other;
+- Step table is **data** in `policy.txt`: `plan_steps_fact|code|math|paper|other`
+  (steps: gap/local/paper/ask/sym/code/calc/refuse), default values registered in 硬编码登记;
+- `::plan run` does local only: finds the relation by string, checks direct/negative edges,
+  prints 能答/答不出 and stops — **never** calls `::ask`/`::paper`/`::study` itself;
+- Every call appends one line to `_t/plans.tsv` (type, step count, dry/run, outcome).
+
+### Readings (`tools/plan_blind.py`, new suite `plan`)
+
+```
+=> 流程策略首跑：7/7
+```
+
+| Check | Result |
+|---|---|
+| fact order: gap → local → paper → ask → sym → refuse | OK |
+| code: synth first, then gap/refuse | OK |
+| math: exact calc first | OK |
+| paper: paper search first | OK |
+| run: local answer → stop | OK |
+| run: no local answer → continue plan, no network | OK |
+| plans.tsv ledger (dry + run) | OK |
+
+### Subagent audit of §7.047 (reused agent)
+
+The standing read-only auditor checked 7 claims for `::gap` against code: **7/7 PASS**, with one
+comment-only typo (`缺关系` in a C comment vs emitted 缺结构), fixed this round.
+
+### Boundaries
+
+- Type detection is keyword-based, not semantic; a mixed question gets one type;
+- `run` executes only the local step; external/paper/ask steps are suggestions, not auto-run;
+- Plans are linear (no branching/retry budgets yet); no per-plan time limits;
+- Step labels are code strings; only the **order** is data (`plan_steps_*`).
