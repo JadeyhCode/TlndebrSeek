@@ -35976,3 +35976,33 @@ refuse_words=不太懂,不知道,没记过,不认识,不确定,不太确定,没�
 4. `englishblind` 的拒答词表补 `no [syn]` / `won't guess`（这确实是拒答）。
 
 最终：`english` 25/25、`englishblind` 11/11、`enmissing` 4/4，整包 179 套全绿。
+
+## §7.043 Long-document blind set (D12): 9/9 first run (2026-11-22)
+
+New blind `tools/longdoc_blind.py` (new suite `longdoc`): a 9-paragraph document
+(8 triple-form claims over 4 entities + one 100+ byte paragraph with no punctuation).
+
+Flow: `::paper read` → 8 `::claim accept 1` → cross-paragraph questions → provenance search → the
+must-refuse case.
+
+```
+=> 长文档首跑：pass 9 / refuse 0 / wrong 0（共 9）
+```
+
+| Check | Result |
+|---|---|
+| 8 claims extracted; long paragraph does not break extraction | PASS |
+| after accepting, pending claims = 0 | PASS |
+| paragraph 1 / 4 / 5 / 8 facts (long-range) | PASS |
+| a fact not in the document ⇒ refuse | PASS |
+| provenance: `::paper search 甲片` finds the file | PASS |
+| summary question ⇒ allowed to refuse (no invention) | PASS |
+
+### Notes
+
+- `::paper search` only scans `papers/` and `papers/cache/`; the test writes the document there
+  (first run failed because the file was in the working directory — fixed in the test).
+- "pending = 0" prints `没有待证的说法`, not `共 0 条`; the check accepts both.
+- This is a **structured** long document (one claim per line). Free-form prose extraction is §7.014/§7.028
+  work and remains much weaker; the summary question is still refused, not summarized.
+- No cross-paragraph contradiction/timeline case yet; next long-text blind should add them.
