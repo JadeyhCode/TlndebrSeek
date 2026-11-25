@@ -344,12 +344,12 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
         !strncasecmp(q, "can ", 4) || !strncasecmp(q, "do ", 3) ||
         !strncasecmp(q, "does ", 5)) return 0;
 
-    long nums[8]; int nn = 0;
+    long nums[8]; int nn = 0; long npos[8];
     for (const char *p = q; *p && nn < 8; ) {
         if (*p >= '0' && *p <= '9') {
-            long v = 0;
+            long v = 0; const char *st = p;
             while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
-            nums[nn++] = v;
+            nums[nn] = v; npos[nn] = (long)(st - q); nn++;
         } else p++;
     }
     if (nn < 2) return 0;
@@ -357,38 +357,50 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
     snprintf(low, sizeof low, "%s", q);
     for (char *p = low; *p; ++p) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);
 
-    long long ans = 0; int ok = 0; const char *op = NULL;
-    int has_each = strstr(low, "each") || strstr(low, " per ") || strstr(low, "every");
-    int sub = strstr(low, "sold") || strstr(low, "lost") || strstr(low, "ate") ||
-              strstr(low, "used") || strstr(low, "gave away") || strstr(low, "left") ||
-              strstr(low, "leak") || strstr(low, "eaten") || strstr(low, "cut into");
-    int add = strstr(low, "bought") || strstr(low, "buys") || strstr(low, "gets") ||
-              strstr(low, "found") || strstr(low, "receives") || strstr(low, "more") ||
-              strstr(low, "total") || strstr(low, "altogether") || strstr(low, "in all");
-    int speed = strstr(low, "per hour") || strstr(low, "km/h") || strstr(low, "mph");
-    int each_total = strstr(low, "each") && (strstr(low, "has") || strstr(low, "holds") ||
-                                              strstr(low, "pack") || strstr(low, "box") ||
-                                              strstr(low, "row") || strstr(low, "cake") ||
-                                              strstr(low, "toy") || strstr(low, "egg"));
-    int rate_period = (strstr(low, "for") &&
-                       (strstr(low, "week") || strstr(low, "day") || strstr(low, "hour") ||
-                        strstr(low, "month") || strstr(low, "year"))) ||
-                      strstr(low, "per week") || strstr(low, "per day") || strstr(low, "a week");
-    if (strstr(low, "cut into") && nn >= 2) {           /* A cut into B equal pieces */
-        ans = nums[0] / nums[1]; ok = 1; op = "divide";
-    } else if ((strstr(low, "shared") || strstr(low, "among") || strstr(low, "split")) && nn >= 2) {
-        ans = nums[0] / nums[1]; ok = 1; op = "divide";   /* 先于 add（"gets" 会误命中 add） */
-    } else if (rate_period && nn >= 2) {                /* rate × period */
-        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
-    } else if (speed && nn >= 2) {                      /* speed * time */
-        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
-    } else if (has_each && each_total && nn >= 2) {     /* each/rows/boxes: multiply */
-        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
-    } else if (sub && nn >= 2) {                        /* subtract */
-        ans = (long long)nums[0] - nums[1]; ok = 1; op = "subtract";
-    } else if (add && nn >= 2) {                        /* add */
-        ans = (long long)nums[0] + nums[1]; ok = 1; op = "add";
+    /* §7.051 Multi-step decomposition: left-to-right accumulator.
+     * For each adjacent pair of numbers, classify the operation from the words **between**
+     * them plus a short look-ahead after the second number. Handles two-step problems
+     * (12 +9 -4 / 40 -12 +9) without equations. */
+    size_t ll = strlen(low);
+    long long acc = nums[0];
+    int ok = 1;
+    for (int i = 0; i + 1 < nn; ++i) {
+        long a = npos[i] + (long)snprintf(NULL, 0, "%ld", nums[i]);
+        long b = npos[i + 1];
+        char win[160]; size_t wl = 0;
+        for (long k = a; k < b && wl + 1 < sizeof win && k < (long)ll; ++k) win[wl++] = low[k];
+        win[wl] = 0;
+        long look_end = b + (long)snprintf(NULL, 0, "%ld", nums[i + 1]) + 12;
+        char look[64]; size_t kl = 0;
+        for (long k = b; k < look_end && kl + 1 < sizeof look && k < (long)ll; ++k) look[kl++] = low[k];
+        look[kl] = 0;
+        char both[240];
+        snprintf(both, sizeof both, "%s %s", win, look);
+
+        int is_div = strstr(both, "cut into") || strstr(both, "shared") || strstr(both, "among") ||
+                     strstr(both, "split") || strstr(both, "divided") || strstr(both, "each piece") ||
+                     strstr(both, "equal part");
+        int is_mul = strstr(both, " each") || strstr(both, " per ") || strstr(both, "every") ||
+                     strstr(both, "rows of") || strstr(both, "boxes of") || strstr(both, "packs of") ||
+                     strstr(both, "trays of") || strstr(both, "shelves with") ||
+                     strstr(both, "a week") || strstr(both, "a day") || strstr(both, "a hour") ||
+                     strstr(both, "per hour") || strstr(both, "per minute") ||
+                     strstr(both, "for") ;
+        int is_speed = (nn == 2 && strstr(low, "speed")) ||
+                       strstr(both, "per hour") ||
+                       strstr(both, "km/h") || strstr(both, "mph");
+        int is_sub = strstr(both, "sold") || strstr(both, "sells") || strstr(both, "lost") ||
+                     strstr(both, "loses") || strstr(both, "ate") || strstr(both, "eaten") ||
+                     strstr(both, "used") || strstr(both, "gives") || strstr(both, "gave") ||
+                     strstr(both, "leak") || strstr(both, "sells") || strstr(both, "left") ||
+                     strstr(both, "remain") || strstr(both, "cut into") || strstr(both, "taken");
+        if (is_div) { if (nums[i + 1] == 0) { ok = 0; break; } acc /= nums[i + 1]; }
+        else if (is_speed && strstr(both, "in ")) { if (nums[i + 1] == 0) { ok = 0; break; } acc /= nums[i + 1]; }
+        else if (is_mul) acc *= nums[i + 1];
+        else if (is_sub) acc -= nums[i + 1];
+        else acc += nums[i + 1];
     }
+    long long ans = acc; const char *op = "step";
     if (!ok) return 0;
     snprintf(out, cap, "The answer is %lld.", ans);
     (void)op;

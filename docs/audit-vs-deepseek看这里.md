@@ -36295,3 +36295,40 @@ when no template matches. It runs before the English mapping/refusal path.
 
 Multi-step decomposition is the real gap: a plan → equation(s) → calculate → verify loop
 (candidate: extend `::chain` toward quantities, or add a template-composition layer).
+
+## §7.051 GSM8K-style v2 blind: 80% first run (multi-step accumulator) (2026-11-22)
+
+`english_wordmath` now uses a **left-to-right accumulator** (not single templates): for each adjacent
+number pair it classifies the operation from the words between/around them (divide: cut into/shared/among;
+multiply: each/per/rows of/rate; speed: ÷ when asked; subtract: sold/lost/ate/used/gave/left;
+default: add). This handles two-operation problems such as `12 + 9 − 4` and `40 − 12 + 9`.
+
+### Fresh blind set v2 (`tools/gsm8k2_blind.py`, new suite `gsm8k2`)
+
+20 **new** locally written problems (v1 was used during development, so it is no longer a blind set):
+
+```
+=> GSM8K-v2 首跑：pass 16 / refuse 0 / wrong 4（共 20，准确率 80.0%）
+```
+
+v1 after the change (disclosed: **not blind**, tuned on it): 85.0% (17/20), up from 70.0% first run.
+
+### Remaining failures (v2, 4/20)
+
+| Problem | Expected | Got | Cause |
+|---|---|---|---|
+| Ana 14 + 6 − 5 | 15 | 3 | look-ahead window crossed into the next clause; first op misread as subtract |
+| class 27, 13 girls → boys | 14 | 40 | needs “girls = subtract” semantics (not a stated operation) |
+| tank 90, 36 used | 54 | 126 | “used” fell outside the local window |
+| Mia 33 + 8 − 12 | 29 | 13 | same window-boundary issue as Ana |
+
+All four are **operation-scoping** errors, not arithmetic errors — the fix is clause-based splitting
+(each clause = one operation), then a **v3** blind set for the honest reading.
+
+### Boundaries
+
+- v2 is locally authored, not official GSM8K; 80% cannot be quoted as a GSM8K score;
+- Multi-step is strictly left-to-right; no equations, parentheses, or planning;
+- Semantic ops (“how many boys” from girls) are unsupported;
+- Template keywords are still C constants (technical debt), though now concentrated in one place;
+- v1 is contaminated from this round onward; use v2/v3 for future readings.
