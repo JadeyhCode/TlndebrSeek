@@ -344,6 +344,22 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
         !strncasecmp(q, "can ", 4) || !strncasecmp(q, "do ", 3) ||
         !strncasecmp(q, "does ", 5)) return 0;
 
+    /* §7.054 Calibration guards: refuse (fall through) when the problem is outside the template
+     * family. Words are data (`wordmath_unsupported`), count limit is policy too. */
+    {
+        char lowq[512];
+        snprintf(lowq, sizeof lowq, "%s", q);
+        for (char *p = lowq; *p; ++p) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);
+        for (size_t i = 0; i + 2 < strlen(lowq); ++i)
+            if (lowq[i] >= '0' && lowq[i] <= '9' && lowq[i + 1] == '.' &&
+                lowq[i + 2] >= '0' && lowq[i + 2] <= '9') return 2;   /* decimals: explicit refusal */
+        char ulist[512];
+        if (aip_policy_str("wordmath_unsupported", ulist, sizeof ulist) && ulist[0]) {
+            char *cur = ulist;
+            for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+                if (w[0] && strstr(lowq, w)) return 2;   /* unsupported phrase: explicit refusal */
+        }
+    }
     long nums[8]; int nn = 0; long npos[8];
     for (const char *p = q; *p && nn < 8; ) {
         if (*p >= '0' && *p <= '9') {
@@ -353,6 +369,7 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
         } else p++;
     }
     if (nn < 2) return 0;
+    if (nn > aip_policy_int("wordmath_max_numbers", 3)) return 2;   /* 4+ numbers: explicit refusal */
     char low[512];
     snprintf(low, sizeof low, "%s", q);
     for (char *p = low; *p; ++p) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);

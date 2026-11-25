@@ -36405,3 +36405,34 @@ Post-fix regression (disclosed, non-blind): v3 also 20/20.
 
 v5 should include nested clauses, two actors, decimals/units, and unstated operations; target is to
 find where it breaks, not to raise the self-authored average.
+
+## §7.054 Hard/adversarial GSM8K v5: 85% (calibration focus), 3 confident wrongs (2026-11-22)
+
+Added **calibration guards** to `english_wordmath` so unsupported problems refuse instead of guessing:
+
+- `wordmath_unsupported` (policy, 15 phrases: twice/percent/respectively/average/half/…)
+  → explicit refusal: “I can't solve this word problem reliably yet… I won't guess.”;
+- `wordmath_max_numbers=3` → 4+ numbers refuse; decimals detect → refuse;
+- Ablation check: clearing the phrase list makes the same problem stop refusing (data-driven ✅).
+
+### Blind v5 (`tools/gsm8k5_blind.py`, new suite `gsm8k5`)
+
+20 items: 6 inside the family (must answer), 14 outside (must refuse or, where honestly computable, answer).
+
+```
+=> GSM8K-v5 首跑：correct 17 / wrong 3（共 20，85.0%）
+   消融（清空 unsupported 词表）：不再拒答 ✅
+```
+
+| Failure | Expected | Got | Note |
+|---|---|---|---|
+| Two workers each earn 12/h for 3h | refuse | 36 | multi-actor not guarded (“two workers” phrase missing) |
+| If 3 pens cost 12, 5 pens cost? | refuse | 20 | answer is numerically **correct**; item is outside the declared family, so this is a labeling ambiguity, not a wrong answer |
+| recipe 2 eggs/cake for 3 cakes, and 4 cakes | refuse | 24 | nested “for N cakes, and M cakes” not guarded |
+
+### Boundaries
+
+- 85% here is mostly **refusal calibration** on a self-authored adversarial set, not benchmark accuracy;
+- 2 real confident wrongs remain (multi-actor, nested recipe); the pens item is a labeling ambiguity;
+- Guards are phrase lists (data) but brittle: paraphrases evade them;
+- Still no units/decimals/ratios/percent in the solver; official GSM8K untested.
