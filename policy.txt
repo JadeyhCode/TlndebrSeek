@@ -56,3 +56,5 @@ plan_steps_other=gap,local,refuse
 # §7.054 英文应用题：超出模板族就拒答（数据词表 + 数字个数上限）
 wordmath_unsupported=half,twice,double,percent,%,respectively,each of,containing,average,ratio,older than,younger than,how many more,1/,2/,3/,4/
 wordmath_max_numbers=3
+# §7.055 论文待证冲突：只对独占类关系报冲突（会/有 可多值，不算冲突）
+paper_conflict_relations=属于,在

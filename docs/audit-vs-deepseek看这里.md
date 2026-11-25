@@ -36436,3 +36436,38 @@ Added **calibration guards** to `english_wordmath` so unsupported problems refus
 - 2 real confident wrongs remain (multi-actor, nested recipe); the pens item is a labeling ambiguity;
 - Guards are phrase lists (data) but brittle: paraphrases evade them;
 - Still no units/decimals/ratios/percent in the solver; official GSM8K untested.
+
+## §7.055 `::paper conflicts`: cross-paragraph claim conflicts (D12 extension), 5/5 (2026-11-22)
+
+Long documents can contain contradictory claims. New subcommand `::paper conflicts` reports:
+
+- **待证间冲突**: same subject + same relation + different object (e.g. 猫 属于 动物 vs 猫 属于 猫科),
+  with each side's source;
+- **与图冲突**: a pending claim whose subject has a different object for an exclusive relation in
+  the graph (e.g. claim 猫 属于 猫科 while the graph has 猫 属于 动物);
+- It only **reports**; accept/reject stays human. Counts are printed and sources are shown.
+
+To avoid false positives, conflicts are only reported for **exclusive relations** — the list is data
+in `policy.txt`: `paper_conflict_relations=属于,在` (会/有 are multi-valued and are skipped).
+
+### Readings (`tools/paper_conflict_blind.py`, new suite `paperconflict`)
+
+```
+=> 论文冲突检测首跑：5/5
+```
+
+| Check | Result |
+|---|---|
+| conflicting doc → 1 pair (+1 graph conflict) | OK |
+| conflict lines show source 论文 | OK |
+| consistent doc → 0 pairs | OK |
+| after `::claim reject 1` → 0 pairs | OK |
+| no pending claims → 0 / 0 | OK |
+
+### Boundaries
+
+- Only same-relation conflicts; cross-relation contradictions (属于 vs 不属于) are not compared;
+- Exclusivity is a static data list, not measured per relation; adding a relation to the list can
+  create false positives;
+- Graph-conflict scan is per claim with a linear scan over symbols (fine at 1k symbols, not at scale);
+- No timeline/ordering conflicts yet (the D12 blind still lacks时间线 cases).

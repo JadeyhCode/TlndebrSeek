@@ -8503,7 +8503,45 @@ int main(int argc, char **argv) {
                 /* §6.638 `::paper read <文件>` / `::paper list` */
                 const char *r = carg ? carg : "";
                 while (*r == ' ' || *r == '\t') r++;
-                if (!strncmp(r, "list", 4) || !*r) {
+                if (!strncmp(r, "conflicts", 9)) {
+                    /* §7.055 待证之间的冲突 + 与图冲突：同主语同关系不同宾语（属于/在 这类独占更明显）。
+                     * 只报告，不自动裁决（人来决定 accept/reject）。 */
+                    Claim cl[64];
+                    size_t n = claim_list(a->brain, cl, 64);
+                    int pair = 0, gconf = 0;
+                    printf("[论文·冲突] 待证 %zu 条：\n", n);
+                    for (size_t i = 0; i < n; ++i) {
+                        /* 只有**独占类**关系才算冲突（会/有 可以多值；数据表在 policy） */
+                        if (!aip_policy_list_has("paper_conflict_relations", "属于,在", cl[i].r))
+                            continue;
+                        for (size_t j = i + 1; j < n; ++j) {
+                            if (strcmp(cl[i].a, cl[j].a) != 0) continue;
+                            if (strcmp(cl[i].r, cl[j].r) != 0) continue;
+                            if (strcmp(cl[i].b, cl[j].b) == 0) continue;
+                            printf("  待证间冲突：%s %s %s（来源 %s） vs %s %s %s（来源 %s）\n",
+                                   cl[i].a, cl[i].r, cl[i].b, cl[i].src,
+                                   cl[j].a, cl[j].r, cl[j].b, cl[j].src);
+                            pair++;
+                        }
+                        /* 与图冲突：图里已有同 A 同 R 的**不同** B，或已有否定边 */
+                        Token *A = pool_find(a->brain->pool, cl[i].a);
+                        uint8_t rid = rel_id_of(a->brain, cl[i].r, 0);
+                        if (!A || !rid) continue;
+                        for (uint32_t ti = 0; ti < a->brain->pool->count; ++ti) {
+                            Token *B = a->brain->pool->tokens[ti];
+                            if (!B || B->is_garbage || !B->name || !strcmp(B->name, cl[i].b)) continue;
+                            if (rel_direct(A, rid, B)) {
+                                printf("  与图冲突：图里有 %s %s %s（待证：%s，来源 %s）\n",
+                                       cl[i].a, cl[i].r, B->name, cl[i].b, cl[i].src);
+                                gconf++;
+                                break;
+                            }
+                        }
+                    }
+                    printf("[论文·冲突] 待证间 %d 对 / 与图 %d 条（都不自动裁决）\n", pair, gconf);
+                    continue;
+                }
+                if (r[0] == 0 || (r[0] == 'l' && r[1] == 'i' && r[2] == 's' && r[3] == 't')) {
                     /* §6.666 真的列目录（原来只打一行提示） */
                     const char *dirs[2] = { "papers", "papers/cache" };
                     for (int d = 0; d < 2; ++d) {
@@ -9113,7 +9151,7 @@ int main(int argc, char **argv) {
                 /* §6.635 `::rule list` / `::rule add 祖先($x,$z) :- 父($x,$y), 祖先($y,$z)` */
                 const char *r = carg ? carg : "";
                 while (*r == ' ' || *r == '\t') r++;
-                if (!strncmp(r, "list", 4) || !*r) {
+                if (!strncmp(r, "list", 4) || r[0] == 0) {
                     Token *rs[64];
                     size_t n = rule_list(a->brain, rs, 64);
                     if (n == 0) { printf("[规则] 还没有（::rule add 结论($x) :- 前提($x)）\n"); continue; }
