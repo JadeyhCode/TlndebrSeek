@@ -37,7 +37,7 @@ def main():
     ok_tsv = False
     if os.path.isfile(tsv):
         row = open(tsv, encoding="utf-8").read().strip().splitlines()[-1].split("\t")
-        ok_tsv = len(row) == 3 and row[1] == "10" and row[2] == "0"
+        ok_tsv = len(row) >= 3 and row[1] == "10" and row[2] == "0"
     checks.append(("selftest.tsv 记账 10/0", ok_tsv))
     ok = sum(1 for _, g in checks if g)
     for name, good in checks:

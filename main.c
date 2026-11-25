@@ -778,8 +778,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
-    { "selftest", NULL, 0, "基本",
-      "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项，记账 _t/selftest.tsv", CMD_SELFTEST },
+    { "selftest", "[repair]", 1, "基本",
+      "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
     { "plan", "[run] <问句>", 1, "基本",
       "流程策略（§7.048）：按任务类型选步骤顺序（gap/local/paper/ask/sym/refuse…），::plan run 只执行安全的本地一步并记账 _t/plans.tsv", CMD_PLAN },
     { "gap", "<问句>", 1, "基本",
@@ -3313,9 +3313,15 @@ static int plan_do(Agent *a, const char *arg) {
 
 /* §7.060 `::selftest`：**自检 10 项**（E18 自举前的健康检查）。
  * 只读内存 + 一次 /tmp 存读往返；不改图、不改文件（除 /tmp 临时档）。 */
-static int selftest_run(Agent *a) {
+static int selftest_run(Agent *a, int repair) {
     if (!a || !a->brain) return 1;
     AI *ai = a->brain;
+    if (getenv("AIP_SELFTEST_BREAK") && !strcmp(getenv("AIP_SELFTEST_BREAK"), "budget")) {
+        /* 测试钩子：造一个“注意力超预算”的状态（att_n=3、各 1.0、预算 0.01） */
+        ai->att_n = 3;
+        for (size_t i = 0; i < 3; ++i) ai->att_w[i] = 1.0f;
+        ai->att_budget = 0.01f;
+    }
     int pass = 0, fail = 0;
     #define ST(name, cond) do { \
         int _ok = (cond) ? 1 : 0; \
@@ -3350,10 +3356,37 @@ static int selftest_run(Agent *a) {
         if (ld) ai_free(ld);
         remove(path);
     }
+    if (repair && fail > 0) {
+        printf("[修复] 尝试修可安全自动修的项目：\n");
+        int fixed = 0;
+        float sum2 = 0.0f;
+        for (size_t i = 0; i < ai->att_n; ++i) sum2 += ai->att_w[i];
+        if (ai->att_n && sum2 > ai->att_budget + 0.01f) {
+            float scale = ai->att_budget / sum2;
+            for (size_t i = 0; i < ai->att_n; ++i) ai->att_w[i] *= scale;
+            printf("  [修复] 注意力权重按 %.3f 缩放（和 %.3f → ≤ %.3f）\n",
+                   scale, sum2, ai->att_budget);
+            fixed++;
+        }
+        if (ai->focus_n > AI_MAX_FOCUS) { ai->focus_n = AI_MAX_FOCUS; printf("  [修复] 焦点环截断到 %d\n", AI_MAX_FOCUS); fixed++; }
+        if (ai->unsolved_n > 8) { ai->unsolved_n = 8; printf("  [修复] 未解列表截断到 8\n"); fixed++; }
+        if (ai->conflict_n > 8) { ai->conflict_n = 8; printf("  [修复] 冲突列表截断到 8\n"); fixed++; }
+        if (ai->paper_n > 8) { ai->paper_n = 8; printf("  [修复] 论文列表截断到 8\n"); fixed++; }
+        printf("[修复] 实际修了 %d 项；复检：\n", fixed);
+        pass = 0; fail = 0;
+        ST("焦点环不超过容量", ai->focus_n <= AI_MAX_FOCUS);
+        float sum3 = 0.0f;
+        for (size_t i = 0; i < ai->att_n; ++i) sum3 += ai->att_w[i];
+        ST("注意力分配不超预算", ai->att_n == 0 || sum3 <= ai->att_budget + 0.01f);
+        ST("未解/冲突/论文列表不越界",
+           ai->unsolved_n <= 8 && ai->conflict_n <= 8 && ai->paper_n <= 8);
+    } else if (repair) {
+        printf("[修复] 没有需要修的项目\n");
+    }
     printf("[自检] 结果：%d 过 / %d 红（共 %d）\n", pass, fail, pass + fail);
     mkdir("_t", 0755);
     FILE *f = fopen("_t/selftest.tsv", "ab");
-    if (f) { fprintf(f, "%ld\t%d\t%d\n", (long)time(NULL), pass, fail); fclose(f); }
+    if (f) { fprintf(f, "%ld\t%d\t%d\t%s\n", (long)time(NULL), pass, fail, repair ? "repair" : "check"); fclose(f); }
     #undef ST
     return fail == 0 ? 0 : 1;
 }
@@ -5961,7 +5994,9 @@ int main(int argc, char **argv) {
                 continue;
             }
             case CMD_SELFTEST: {
-                selftest_run(a);
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                selftest_run(a, arg && !strncmp(arg, "repair", 6));
                 continue;
             }
             case CMD_PLAN: {

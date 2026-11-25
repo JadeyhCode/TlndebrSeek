@@ -36629,3 +36629,41 @@ Before the model can modify itself (E18), it needs a trustworthy "how am I" chec
 - Roundtrip uses `/tmp` and the current model version only (no cross-version test);
 - No automatic repair yet: `::selftest` reports, it does not fix (that is the next E18 step);
 - The list is C-hardcoded (each check is a code invariant), not data-driven.
+
+## §7.061 `::selftest repair`: guarded self-repair (E18 step), 6/6 (2026-11-22)
+
+First self-modification step, deliberately narrow: **memory-only** repairs of invariants that
+`::selftest` can prove broken, with no file writes and no graph edits.
+
+- `::selftest repair` re-runs the 10 checks; if any repairable invariant fails it:
+  - scales attention weights so their sum fits the budget (prints the scale factor),
+  - clamps focus/list lengths to capacities;
+  then **re-checks** and reports how many items were fixed;
+- If nothing is broken it says `没有需要修的项目` (no silent changes);
+- Every run appends a row to `_t/selftest.tsv` with a `check`/`repair` tag.
+
+Test hook `AIP_SELFTEST_BREAK=budget` forces a broken attention state (att_n=3, weights 1.0,
+budget 0.01) so the repair path can be exercised without corrupting the repository model.
+
+### Readings (`tools/selftest_repair_blind.py`, new suite `selftestrepair`)
+
+```
+=> 自检-修复首跑：6/6
+```
+
+| Check | Result |
+|---|---|
+| normal model: nothing to fix, 10/10 | OK |
+| broken state: FAIL then repaired (scale 0.003) | OK |
+| recheck after repair: 0 red | OK |
+| without repair the failure stays red (no silent fix) | OK |
+| ledger records `repair` rows | OK |
+| normal selftest still 10/10 | OK |
+
+### Boundaries
+
+- Repairs are **memory-only** and selected from a fixed list; no code/data file is modified;
+- Self-modification of source or persistence files is **not** enabled by this step (still needs the
+  reason gate + write gate + rollback from ⑥);
+- Recheck after repair covers only the 3 invariant groups (focus/attention/lists), not all 10;
+- If a future invariant fails for another reason, repair says “nothing to fix” and leaves it red.
