@@ -36252,3 +36252,46 @@ capbench PASS, 186 suites PASS, 0 `[FAIL]`.
 - Harness parses each tool's summary line; if a tool's output format changes, the category becomes ERROR;
 - `study` has no per-category "wrong" in its summary, so it is mapped to refuse for scoring;
 - No external benchmark adapters (e.g. MMLU) yet — that is an explicit open item for F20.
+
+## §7.050 GSM8K-style external adapter: 70% first run on a 20-item local set (2026-11-22)
+
+F20 asks for external-style human benchmarks. First adapter: `tools/gsm8k_blind.py`
+(new suite `gsm8k`), 20 locally **written** grade-school word problems in GSM8K style
+(not the official test split — avoids contamination and cannot be quoted as official GSM8K).
+
+Kernel change: `english_wordmath` (minimal, high-confidence templates only):
+rate×period, speed×time, each/box/row multiply, shared/among divide, cut-into divide,
+subtract keywords (sold/lost/ate/…), add keywords (bought/more/total/…); refuses to answer
+when no template matches. It runs before the English mapping/refusal path.
+
+### First run
+
+```
+=> GSM8K-style 首跑：pass 14 / refuse 2 / wrong 4（共 20，准确率 70.0%）
+```
+
+| Failure | Why |
+|---|---|
+| Tom 12 + 9 − 4 | only one operation; needs decomposition (no multi-step) |
+| 5 rows × 7 chairs | "rows of" pattern not recognized (no each/per) |
+| pizza 8 − 3 | "cut into" template fired first; eaten is subtraction |
+| car 240 km in 4 h, speed | rate template multiplied instead of divided |
+| 40 − 12 + 9 | picked add instead of two-step |
+| 2 refusals | unknown English words blocked before arithmetic ("There", "recipe") |
+
+### Honest caveats
+
+- **70% is on a locally authored 20-item set chosen for this kernel's templates**, not official
+  GSM8K; do not present it as a GSM8K score. Official split would require proper data handling and
+  would be lower;
+- Single-operation templates only; multi-step word problems fail (6/20 here involve ≥2 operations);
+- Template keywords are English constants in C (not yet data-driven); this is acknowledged
+  technical debt under rule ⑪;
+- Two refusal cases show a **routing** issue: unknown-word advice fires before arithmetic in some
+  phrasings; next round should give arithmetic a dry-run first and only then fall back;
+- No chain-of-thought, no equation setup, no units/dimensional checks inside wordmath.
+
+### Next
+
+Multi-step decomposition is the real gap: a plan → equation(s) → calculate → verify loop
+(candidate: extend `::chain` toward quantities, or add a template-composition layer).

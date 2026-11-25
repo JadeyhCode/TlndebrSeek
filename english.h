@@ -331,6 +331,70 @@ static inline int english_confirm(AI *ai, const char *q, char *out, size_t cap) 
     return 1;
 }
 
+/* §7.050 Minimal English arithmetic word problems (GSM8K-style), high-confidence templates only.
+ * Requires: ASCII, digits, no "is a/can a..." yes-no shape, and a recognized template.
+ * Returns 1 and writes an English numeric answer; 0 otherwise (fall through to mapping/refusal). */
+static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap) {
+    (void)ai;
+    if (!q || !out || !cap || !en_ascii_only(q)) return 0;
+    int hasdig = 0;
+    for (const char *p = q; *p; ++p) if (*p >= '0' && *p <= '9') { hasdig = 1; break; }
+    if (!hasdig) return 0;
+    if (!strncasecmp(q, "is ", 3) || !strncasecmp(q, "are ", 4) ||
+        !strncasecmp(q, "can ", 4) || !strncasecmp(q, "do ", 3) ||
+        !strncasecmp(q, "does ", 5)) return 0;
+
+    long nums[8]; int nn = 0;
+    for (const char *p = q; *p && nn < 8; ) {
+        if (*p >= '0' && *p <= '9') {
+            long v = 0;
+            while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
+            nums[nn++] = v;
+        } else p++;
+    }
+    if (nn < 2) return 0;
+    char low[512];
+    snprintf(low, sizeof low, "%s", q);
+    for (char *p = low; *p; ++p) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);
+
+    long long ans = 0; int ok = 0; const char *op = NULL;
+    int has_each = strstr(low, "each") || strstr(low, " per ") || strstr(low, "every");
+    int sub = strstr(low, "sold") || strstr(low, "lost") || strstr(low, "ate") ||
+              strstr(low, "used") || strstr(low, "gave away") || strstr(low, "left") ||
+              strstr(low, "leak") || strstr(low, "eaten") || strstr(low, "cut into");
+    int add = strstr(low, "bought") || strstr(low, "buys") || strstr(low, "gets") ||
+              strstr(low, "found") || strstr(low, "receives") || strstr(low, "more") ||
+              strstr(low, "total") || strstr(low, "altogether") || strstr(low, "in all");
+    int speed = strstr(low, "per hour") || strstr(low, "km/h") || strstr(low, "mph");
+    int each_total = strstr(low, "each") && (strstr(low, "has") || strstr(low, "holds") ||
+                                              strstr(low, "pack") || strstr(low, "box") ||
+                                              strstr(low, "row") || strstr(low, "cake") ||
+                                              strstr(low, "toy") || strstr(low, "egg"));
+    int rate_period = (strstr(low, "for") &&
+                       (strstr(low, "week") || strstr(low, "day") || strstr(low, "hour") ||
+                        strstr(low, "month") || strstr(low, "year"))) ||
+                      strstr(low, "per week") || strstr(low, "per day") || strstr(low, "a week");
+    if (strstr(low, "cut into") && nn >= 2) {           /* A cut into B equal pieces */
+        ans = nums[0] / nums[1]; ok = 1; op = "divide";
+    } else if ((strstr(low, "shared") || strstr(low, "among") || strstr(low, "split")) && nn >= 2) {
+        ans = nums[0] / nums[1]; ok = 1; op = "divide";   /* 先于 add（"gets" 会误命中 add） */
+    } else if (rate_period && nn >= 2) {                /* rate × period */
+        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
+    } else if (speed && nn >= 2) {                      /* speed * time */
+        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
+    } else if (has_each && each_total && nn >= 2) {     /* each/rows/boxes: multiply */
+        ans = (long long)nums[0] * nums[1]; ok = 1; op = "multiply";
+    } else if (sub && nn >= 2) {                        /* subtract */
+        ans = (long long)nums[0] - nums[1]; ok = 1; op = "subtract";
+    } else if (add && nn >= 2) {                        /* add */
+        ans = (long long)nums[0] + nums[1]; ok = 1; op = "add";
+    }
+    if (!ok) return 0;
+    snprintf(out, cap, "The answer is %lld.", ans);
+    (void)op;
+    return 1;
+}
+
 static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
     if (!ai || !q || !out || !cap) return 0;
     if (!en_ascii_only(q)) return 0;

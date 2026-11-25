@@ -10164,6 +10164,8 @@ int main(int argc, char **argv) {
          * （把 a/can/fly 登记成动态关系，还静默覆盖旧否定边），冲突就看不见了。 */
         int en_taught = 0;
         if (input[0] != ':' && en_ascii_only(input))
+            en_taught = english_wordmath(a->brain, input, out, sizeof out);   /* §7.050 含问号也先试算术 */
+        if (!en_taught && input[0] != ':' && en_ascii_only(input))
             en_taught = english_confirm(a->brain, input, out, sizeof out);
         if (!en_taught && input[0] != ':' && !en_ascii_q && en_ascii_only(input))
             en_taught = english_teach(a->brain, input, out, sizeof out);
