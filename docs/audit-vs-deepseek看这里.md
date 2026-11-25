@@ -36507,3 +36507,28 @@ Analogy-guessing is a deliberate behavior (tested elsewhere), so the pipeline no
 - Ingest is in-memory per process — there is no save/reload step, so "training" is not persisted;
 - No noise-model, no seeding/epochs; "epoch" = one ingest pass;
 - Analogy guesses can still produce hedged wrong answers on unknown facts (see hazard above).
+
+## §7.057 Train → save → reload → eval: persistence validated (epoch2 11/11) (2026-11-22)
+
+§7.056 only proved the in-memory loop; "training" was not persisted. The pipeline now adds epoch 2:
+
+- after ingest + epoch1 questions, `::save trained.bin` in the **same process**;
+- a **new process** loads `--model trained.bin` and answers the same 11 checks **without** ingesting;
+- both epochs must pass (wrong=0, pass ≥80%) and the saved file must exist (>1 KB).
+
+```
+[contamination] 泄漏题目数：0
+[ingest] 写入 10 条 / 坏行 1（期望 10 / 1）
+[epoch1] pass 11 / refuse 0 / wrong 0（共 11）
+[epoch2] reload 后 pass 11 / refuse 0 / wrong 0（共 11）
+=> 训练-评测流水线：PASS（ingest OK，save OK，contamination 0）
+```
+
+### What this now proves / doesn't
+
+- Ingested facts survive `::save`/reload through the model file (same binary version);
+- No retraining is needed in epoch 2 — the knowledge is in the persisted graph;
+- It does **not** test cross-version compatibility (model format v17), multi-file corpora, or
+  larger-than-memory graphs;
+- Epoch 2 uses the same blind set, so it measures persistence, not generalization;
+- Save time/disk for large graphs is not measured here (see S1 scale work for that dimension).

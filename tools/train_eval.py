@@ -82,7 +82,7 @@ def main():
 
     # ingest + questions must share one process (graph is in memory)
     qs_all = [q for q, _ in QUESTIONS] + list(EXTRA_REFUSE)
-    inp = "::ingest corpus.tsv\n" + "\n".join(qs_all) + "\n::quit\n"
+    inp = "::ingest corpus.tsv\n" + "\n".join(qs_all) + "\n::save trained.bin\n::quit\n"
     out = run(inp)
     m = re.search(r"写进去 (\d+)", out)
     bad = re.search(r"坏行 (\d+)", out)
@@ -106,10 +106,36 @@ def main():
         st["wrong"] += 1
 
     total = len(QUESTIONS) + len(EXTRA_REFUSE)
-    print("[epoch] pass %d / refuse %d / wrong %d（共 %d）" % (st["pass"], st["refuse"], st["wrong"], total))
-    ok = ok_ingest and st["wrong"] == 0 and st["pass"] >= total * 0.8
-    print("=> 训练-评测流水线：%s（ingest %s，contamination 0）"
-          % ("PASS" if ok else "FAIL", "OK" if ok_ingest else "BAD"))
+    print("[epoch1] pass %d / refuse %d / wrong %d（共 %d）" % (st["pass"], st["refuse"], st["wrong"], total))
+
+    # epoch2: reload the saved model (no ingest) and ask the same set — validates persistence
+    saved = os.path.join(W, "trained.bin")
+    st2 = {"pass": 0, "refuse": 0, "wrong": 0}
+    ok_save = os.path.isfile(saved) and os.path.getsize(saved) > 1000
+    if ok_save:
+        p = subprocess.run([BIN, "--model", "trained.bin"],
+                           input=("\n".join(qs_all) + "\n::quit\n").encode(),
+                           capture_output=True, cwd=W, timeout=180)
+        out2 = (p.stdout + p.stderr).decode("utf-8", "replace")
+        ans2 = [l[l.find("AI > ") + 5:] for l in out2.splitlines() if "AI > " in l]
+        for idx, (q, want) in enumerate(QUESTIONS):
+            a = ans2[idx] if idx < len(ans2) else ""
+            if want in a: st2["pass"] += 1
+            elif any(k in a for k in REFUSE): st2["refuse"] += 1
+            else: st2["wrong"] += 1
+        a = ans2[len(QUESTIONS)] if len(ans2) > len(QUESTIONS) else ""
+        if "不 对" in a or "不对" in a or any(k in a for k in REFUSE): st2["pass"] += 1
+        else: st2["wrong"] += 1
+        print("[epoch2] reload 后 pass %d / refuse %d / wrong %d（共 %d）"
+              % (st2["pass"], st2["refuse"], st2["wrong"], total))
+    else:
+        print("[epoch2] 没有保存出 trained.bin")
+
+    ok = (ok_ingest and ok_save and st["wrong"] == 0 and st["pass"] >= total * 0.8
+          and st2["wrong"] == 0 and st2["pass"] >= total * 0.8)
+    print("=> 训练-评测流水线：%s（ingest %s，save %s，contamination 0）"
+          % ("PASS" if ok else "FAIL", "OK" if ok_ingest else "BAD",
+             "OK" if ok_save else "BAD"))
     return 0 if ok else 1
 
 
