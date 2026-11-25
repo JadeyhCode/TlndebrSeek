@@ -36038,3 +36038,32 @@ New command `::know` (124 → 125 commands):
 - Edge counts distinguish co-occurrence (`::stats` 41k) from **relation** edges (~200); `::know` reports relation ones.
 - "Evidence source" is still only per-edge role/flags and `[教:]/[修正:]` markers; no aggregated provenance view yet.
 - This is the observation half of D13; the generalization half (unseen symbol combinations → refuse) is next.
+
+## §7.045 Symbol-combination generalization (D13 second half), 8/8 first run (2026-11-22)
+
+After teaching a tiny family (3 facts), `tools/symgen_blind.py` (new suite `symgen`) probes
+combinations that were **never taught**:
+
+```
+=> 符号组合泛化首跑：pass 8 / wrong 0（共 8）
+```
+
+| Probe | Behavior |
+|---|---|
+| direct fact (貘 属于 什么) | 奇蹄目 |
+| transitivity (貘 属于 哺乳纲 吗) | **对，属于·传递**（chain proof, not a guess） |
+| reversed (奇蹄目 属于 貘 吗) | 不对 + “反过来才成立”（correctly rejects, with reason） |
+| untaught attribute (貘 有 爪子 吗) | 不确定 |
+| untaught relation (貘 吃 什么) | 图里没记过（不编） |
+| untaught entity+relation (树懒 属于 …) | 不太懂 |
+| empty entity asked attribute | 图里没记过 |
+| repeated confirmation | 对 |
+
+### What this shows / doesn't
+
+- The graph already supports **transitive 属于** with a proof label (`·传递`), and rejects the
+  reverse direction with an explanation — this is the D13 generalization signal.
+- Every untaught combination lands in refuse/uncertain, **no confident false positives** in this set.
+- Small set (8 probes, one family); it does not prove open-world generalization. Multi-hop chains,
+  negation through chains, and cross-family transfers still need their own blind sets.
+- No code change this round: this is a **measurement** round following the new D discipline.
