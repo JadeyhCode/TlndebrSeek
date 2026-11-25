@@ -357,53 +357,68 @@ static inline int english_wordmath(AI *ai, const char *q, char *out, size_t cap)
     snprintf(low, sizeof low, "%s", q);
     for (char *p = low; *p; ++p) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + 32);
 
-    /* §7.051 Multi-step decomposition: left-to-right accumulator.
-     * For each adjacent pair of numbers, classify the operation from the words **between**
-     * them plus a short look-ahead after the second number. Handles two-step problems
-     * (12 +9 -4 / 40 -12 +9) without equations. */
+    /* §7.052 Clause-based operation scoping: one clause = one operation.
+     * Split on , . ; ! ? and " then ", attach each number to its clause, decide the op from that
+     * clause's words (fallback: previous clause / whole text for "each/per/rows of"). */
     size_t ll = strlen(low);
-    long long acc = nums[0];
+    long long acc = (long long)nums[0];
     int ok = 1;
     for (int i = 0; i + 1 < nn; ++i) {
-        long a = npos[i] + (long)snprintf(NULL, 0, "%ld", nums[i]);
         long b = npos[i + 1];
-        char win[160]; size_t wl = 0;
-        for (long k = a; k < b && wl + 1 < sizeof win && k < (long)ll; ++k) win[wl++] = low[k];
-        win[wl] = 0;
-        long look_end = b + (long)snprintf(NULL, 0, "%ld", nums[i + 1]) + 12;
-        char look[64]; size_t kl = 0;
-        for (long k = b; k < look_end && kl + 1 < sizeof look && k < (long)ll; ++k) look[kl++] = low[k];
-        look[kl] = 0;
-        char both[240];
-        snprintf(both, sizeof both, "%s %s", win, look);
+        /* 找 b 所在子句：向前到分隔符，向后到分隔符 */
+        long cs = 0, ce = (long)ll;
+        for (long k = b; k > 0; --k) {
+            char ch = low[k - 1];
+            if (ch == ',' || ch == '.' || ch == ';' || ch == '!' || ch == '?') { cs = k; break; }
+        }
+        for (long k = b; k < (long)ll; ++k) {
+            char ch = low[k];
+            if (ch == ',' || ch == '.' || ch == ';' || ch == '!' || ch == '?') { ce = k; break; }
+        }
+        char cl[220]; size_t cln = 0;
+        for (long k = cs; k < ce && cln + 1 < sizeof cl; ++k) cl[cln++] = low[k];
+        cl[cln] = 0;
+        /* " then " 也算子句边界：取 then 之后的片段 */
+        char *th = strstr(cl, " then ");
+        if (th) { memmove(cl, th + 6, strlen(th + 6) + 1); }
+        char both[420];
+        snprintf(both, sizeof both, "%s %s", cl, low);   /* 子句为主，全句只做兜底判据 */
 
-        int is_div = strstr(both, "cut into") || strstr(both, "shared") || strstr(both, "among") ||
-                     strstr(both, "split") || strstr(both, "divided") || strstr(both, "each piece") ||
-                     strstr(both, "equal part");
-        int is_mul = strstr(both, " each") || strstr(both, " per ") || strstr(both, "every") ||
-                     strstr(both, "rows of") || strstr(both, "boxes of") || strstr(both, "packs of") ||
-                     strstr(both, "trays of") || strstr(both, "shelves with") ||
-                     strstr(both, "a week") || strstr(both, "a day") || strstr(both, "a hour") ||
-                     strstr(both, "per hour") || strstr(both, "per minute") ||
-                     strstr(both, "for") ;
+        int is_div = strstr(cl, "cut into") || strstr(cl, "shared") || strstr(cl, "among") ||
+                     strstr(cl, "split") || strstr(cl, "divided") || strstr(cl, "equal part");
+        int is_mul = strstr(cl, " each") || strstr(cl, " per ") || strstr(cl, "every") ||
+                     strstr(cl, "rows of") || strstr(cl, "boxes of") || strstr(cl, "packs of") ||
+                     strstr(cl, "trays of") || strstr(cl, "shelves with") ||
+                     strstr(cl, "a week") || strstr(cl, "a day") || strstr(cl, "per hour") ||
+                     strstr(cl, "per minute") || strstr(cl, " for ");
+        int is_sub = strstr(cl, "sold") || strstr(cl, "sells") || strstr(cl, "lost") ||
+                     strstr(cl, "loses") || strstr(cl, "ate") || strstr(cl, "eaten") ||
+                     strstr(cl, "used") || strstr(cl, "gives") || strstr(cl, "gave") ||
+                     strstr(cl, "away") || strstr(cl, "leak") || strstr(cl, "left") ||
+                     strstr(cl, "remain") || strstr(cl, "taken") || strstr(cl, "been read");
         int is_speed = (nn == 2 && strstr(low, "speed")) ||
-                       strstr(both, "per hour") ||
-                       strstr(both, "km/h") || strstr(both, "mph");
-        int is_sub = strstr(both, "sold") || strstr(both, "sells") || strstr(both, "lost") ||
-                     strstr(both, "loses") || strstr(both, "ate") || strstr(both, "eaten") ||
-                     strstr(both, "used") || strstr(both, "gives") || strstr(both, "gave") ||
-                     strstr(both, "leak") || strstr(both, "sells") || strstr(both, "left") ||
-                     strstr(both, "remain") || strstr(both, "cut into") || strstr(both, "taken");
+                       strstr(cl, "per hour") || strstr(cl, "km/h") || strstr(cl, "mph");
+        if (!is_div && !is_mul && !is_sub) {
+            /* 同一子句没线索时，看全句里的 each/rows/...（如 “each box has 9 ...” 的首子句） */
+            if (strstr(low, " each") || strstr(low, " every") || !strncmp(low, "each", 4) || !strncmp(low, "every", 5) ||
+                strstr(low, "rows of") || strstr(low, "boxes of") ||
+                strstr(low, "packs of") || strstr(low, "shelves with") ||
+                strstr(low, " per ") || strstr(low, "a week") || strstr(low, "a day"))
+                is_mul = 1;
+        }
+        (void)both;
         if (is_div) { if (nums[i + 1] == 0) { ok = 0; break; } acc /= nums[i + 1]; }
-        else if (is_speed && strstr(both, "in ")) { if (nums[i + 1] == 0) { ok = 0; break; } acc /= nums[i + 1]; }
+        else if (is_speed && (strstr(cl, " in ") || strstr(low, " in "))) {
+            if (nums[i + 1] == 0) { ok = 0; break; }
+            acc /= nums[i + 1];
+        }
         else if (is_mul) acc *= nums[i + 1];
         else if (is_sub) acc -= nums[i + 1];
         else acc += nums[i + 1];
     }
-    long long ans = acc; const char *op = "step";
     if (!ok) return 0;
+    long long ans = acc;
     snprintf(out, cap, "The answer is %lld.", ans);
-    (void)op;
     return 1;
 }
 

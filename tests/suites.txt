@@ -241,6 +241,7 @@ planblind|python3 tools/plan_blind.py
 scorecard|python3 tools/bench.py --quick
 gsm8k|python3 tools/gsm8k_blind.py
 gsm8k2|python3 tools/gsm8k2_blind.py
+gsm8k3|python3 tools/gsm8k3_blind.py
 longsent|python3 tools/longsentence_blind.py
 nospace|python3 tools/nospace_blind.py
 pronoun|python3 tools/pronoun_blind.py

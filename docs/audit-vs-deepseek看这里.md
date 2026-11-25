@@ -36332,3 +36332,42 @@ All four are **operation-scoping** errors, not arithmetic errors — the fix is 
 - Semantic ops (“how many boys” from girls) are unsupported;
 - Template keywords are still C constants (technical debt), though now concentrated in one place;
 - v1 is contaminated from this round onward; use v2/v3 for future readings.
+
+## §7.052 Clause-based operation scoping + GSM8K v3 blind: 90% first run (2026-11-22)
+
+`english_wordmath` now scopes each operation to the **clause that contains its number** (split on
+`, . ; ! ?` and `then`), with a whole-sentence fallback only for uniform cues (`each/per/rows of`).
+This fixes the v2 scoping bugs (Ana, Mia, tank-used, book-read, leading Each) without touching numbers.
+
+### Fresh blind v3 (`tools/gsm8k3_blind.py`, new suite `gsm8k3`)
+
+20 new locally written problems:
+
+```
+=> GSM8K-v3 首跑：pass 18 / refuse 0 / wrong 2（共 20，准确率 90.0%）
+```
+
+Post-fix regressions (disclosed: **not blind**, v1/v2 were used during development):
+
+| set | first run | after clause parser |
+|---|---|---|
+| v1 | 70% | **95%** (19/20) |
+| v2 | 80% | **90%** (18/20) |
+| v3 | — | **90%** (18/20, fresh) |
+
+### The two remaining v3 failures
+
+1. `pizza cut into 12 slices and 5 are eaten` → 2 (divide) instead of 7: the `cut into` divide cue
+   fires before the subtraction cue in the same clause;
+2. `class 31 students and 17 are boys → girls` → 48: requires semantic inversion from “boys” to
+   “girls”, not a stated operation.
+
+Both are documented; the pizza one is a straightforward priority fix (sub beats divide when an
+`eaten/left` cue is present), the class one needs a data/template decision.
+
+### Boundaries
+
+- Numbers are plain integers (no decimals/currency fractions);
+- One clause = one operation; nested clauses (“after buying 3 of each of 2 kinds”) unsupported;
+- Templates remain C constants; no equation setup/verification;
+- 90% is on 20 locally authored items, **not official GSM8K**.
