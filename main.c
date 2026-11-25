@@ -574,6 +574,7 @@ typedef enum {
     CMD_RECENT,
     CMD_KNOW,
     CMD_CHAIN,
+    CMD_GAP,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -775,6 +776,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "gap", "<问句>", 1, "基本",
+      "缺口检测（§7.047）：::gap 问句 —— 判缺词/缺事实/缺结构/已能回答，并给可执行的下一步（查论文/自学/::chain/::sym/::ask），记 _t/gaps.tsv", CMD_GAP },
     { "chain", "条件 ; 条件 => 问句", 1, "基本",
       "多步约束求解（§7.046）：::chain 事1 ; 事2 => A 关系 B —— 属于走传递闭包（条件边+图边），输出证明链与自检；条件不足就拒答", CMD_CHAIN },
     { "know", "<self|relations|rules|symbol 名字>", 1, "基本",
@@ -3184,6 +3187,103 @@ static int solve_do(Agent *a, const char *arg) {
         printf("[求解] 条件 %zu 条 ⇒ **条件不足，拒答**（不编）\n", ne);
     return 1;
 }
+
+
+/* §7.047 `::gap`：**自己哪里不明白 + 下一步查什么**。
+ * 对一个问句做干跑（不回答、不写图）：分词 → 找缺词/缺关系/缺事实/已能回答，
+ * 然后给出**可执行的下一步命令序列**，并记 `_t/gaps.tsv`（可审计）。 */
+/* 去掉首尾空白/标点/语气词（不破坏词内字节） */
+static void gap_trim(char *s) {
+    if (!s) return;
+    char *p = s;
+    while (*p == ' ' || *p == '\t' || *p == '?') p++;
+    if (p != s) memmove(s, p, strlen(p) + 1);
+    size_t l = strlen(s);
+    static const char *tail[] = { "吗", "呢", "吧", "？", "?", "。", "，", " ", "\t", NULL };
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+        for (size_t i = 0; tail[i]; ++i) {
+            size_t tl = strlen(tail[i]);
+            while (l >= tl && !strcmp(s + l - tl, tail[i])) { s[l - tl] = 0; l -= tl; changed = 1; }
+        }
+    }
+}
+
+static int gap_do(Agent *a, const char *q) {
+    if (!a || !a->brain || !q) return 0;
+    AI *ai = a->brain;
+    /* **按字符串**找关系词：中文没有空格，分词会把新词切碎，干跑判据不能靠分词。 */
+    const char *rpos = NULL;
+    char rel[32] = {0};
+    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+        const char *rn = rel_name_of(ai, rid);
+        if (!rn || !rn[0]) continue;
+        const char *p = strstr(q, rn);
+        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+    }
+    char sbj[64] = {0}, obj[64] = {0};
+    const char *kind = NULL, *evidence = NULL;
+    Token *A = NULL, *B = NULL;
+    uint8_t rid = 0;
+    if (!rpos) { kind = "缺结构"; evidence = "问法里没有认识的关系词"; }
+    if (!kind) {
+        size_t sl = (size_t)(rpos - q);
+        if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+        memcpy(sbj, q, sl); sbj[sl] = 0;
+        gap_trim(sbj);
+        snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
+        gap_trim(obj);
+        if (!sbj[0] || !obj[0]) { kind = "缺结构"; evidence = "主语或宾语为空"; }
+    }
+    if (!kind) {
+        rid = rel_id_of(ai, rel, 0);
+        A = pool_find(ai->pool, sbj);
+        B = pool_find(ai->pool, obj);
+        if (!A || !B) {
+            kind = "缺词";
+            evidence = !A ? sbj : obj;
+        } else if (!rid) { kind = "缺结构"; evidence = rel; }
+        else if (rel_direct(A, rid, B) || rel_direct_neg(A, rid, B)) {
+            kind = "已能回答"; evidence = "图里有直边或否定边";
+        } else {
+            kind = "缺事实"; evidence = "图里没有这条关系边";
+        }
+    }
+
+    printf("[缺口] 类型：%s（证据：%s）\n", kind, evidence ? evidence : "?");
+    printf("[下一步]\n");
+    if (!strcmp(kind, "缺词")) {
+        printf("  1) ::paper search %s\n", evidence);
+        printf("  2) ::study pose %s\n", q);
+        printf("  3) ::ask %s（外部；需 ::tool on）\n", q);
+        printf("  4) ::sym add %s（先 ::sym write on + ::sym reason …）\n", evidence);
+    } else if (!strcmp(kind, "缺事实")) {
+        printf("  1) ::paper search %s%s\n", rel, obj);
+        printf("  2) ::study pose %s\n", q);
+        printf("  3) ::chain %s %s 甲 => %s %s 甲（先试传递）\n", sbj, rel, sbj, rel);
+        printf("  4) ::sym edge add %s %s %s（理由+开门）\n", sbj, rel, obj);
+        printf("  5) ::ask %s（外部；需 ::tool on）\n", q);
+    } else if (!strcmp(kind, "缺结构")) {
+        printf("  1) ::paper search %.*s\n", (int)(strlen(q) < 60 ? strlen(q) : 60), q);
+        printf("  2) ::ask %s（外部；需 ::tool on）\n", q);
+        printf("  3) 关系若不在数据里：往 relations.txt 加（不是改 C）\n");
+    } else {
+        printf("  1) 直接问：%s（或 ::att 看注意力分配）\n", q);
+        printf("  2) 想复核出处：::claim / ::sym links %s\n", sbj[0] ? sbj : "?");
+    }
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/gaps.tsv", "ab");
+    if (f) {
+        fprintf(f, "%ld\t%s\t%s\t第一 步：%s\n", (long)time(NULL), kind, q,
+                !strcmp(kind, "缺词") ? "::paper search" :
+                !strcmp(kind, "缺事实") ? "::chain/::sym edge add" :
+                !strcmp(kind, "缺结构") ? "::paper search/relations.txt" : "直接问");
+        fclose(f);
+    }
+    return 1;
+}
+
 
 static void study_stats_counts(size_t *nq, size_t *solved) {
     *nq = 0; *solved = 0;
@@ -5710,6 +5810,13 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_GAP: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                if (!arg || !*arg) { printf("[用法] ::gap <问句>\n"); continue; }
+                gap_do(a, arg);
                 continue;
             }
             case CMD_CHAIN: {

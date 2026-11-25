@@ -36106,3 +36106,40 @@ New command `::chain` (125 → 126): given conditions + graph knowledge → conc
 - Proof prefers the shortest path (may use graph shortcuts and skip intermediate given facts);
 - It's a local solver, not a general planner: no disjunction, no counting/units within the chain,
   no retraction of conditions after the query.
+
+## §7.047 `::gap`: know where it doesn't understand + next-step plan (E16), 6/6 (2026-11-22)
+
+New command `::gap <question>` (126 → 127): a **dry run** that classifies the gap and prints an
+executable plan. It does not answer, does not write the graph, and appends one line to `_t/gaps.tsv`.
+
+- Analysis is **string-level**: find the relation word by `strstr` (longest first appearance),
+  split subject/object around it, trim spaces/吗呢吧/？；
+  this avoids the tokenizer fragmenting new words (`螺旋兽` → 螺/旋/兽) — first version used tokens and
+  misclassified 缺词 as 缺事实 with an empty plan (caught in testing);
+- Classes: 缺词 (subject/object not a symbol) / 缺事实 (symbols known, edge absent) /
+  缺结构 (no known relation word) / 已能回答 (direct or negative edge exists);
+- Plans are concrete commands, e.g. for 缺事实:
+  `::paper search`, `::study pose`, `::chain … ⇒ 甲`, `::sym edge add …`(reason+gate), `::ask`(external).
+
+### Readings (`tools/gap_blind.py`, new suite `gap`)
+
+```
+=> 缺口检测首跑：6/6
+```
+
+| Check | Result |
+|---|---|
+| 缺词 names the whole word (螺旋兽) | OK |
+| 缺词 plan: paper search + study pose + sym add | OK |
+| 缺事实 plan: edge add + ask | OK |
+| 缺结构 points to relations.txt | OK |
+| 已能回答 (猫属于动物) | OK |
+| gaps.tsv ledger has 缺词 and 缺事实 | OK |
+
+### Boundaries
+
+- Relation detection is substring-based: an embedded relation word inside a longer word could mis-split;
+- Only `A 关系 B`-shaped questions; multi-clause/why/how questions yield 缺结构;
+- The plan is suggestions, not execution — `::gap` never runs `::ask`/`::paper` itself;
+- 已能回答 means "an edge exists", not "the answer is correct" (negation/derivation still go through normal QA);
+- Ledger is append-only, no dedupe/rotation yet.
