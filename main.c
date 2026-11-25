@@ -576,6 +576,7 @@ typedef enum {
     CMD_CHAIN,
     CMD_GAP,
     CMD_PLAN,
+    CMD_SELFTEST,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -777,6 +778,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "selftest", NULL, 0, "基本",
+      "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项，记账 _t/selftest.tsv", CMD_SELFTEST },
     { "plan", "[run] <问句>", 1, "基本",
       "流程策略（§7.048）：按任务类型选步骤顺序（gap/local/paper/ask/sym/refuse…），::plan run 只执行安全的本地一步并记账 _t/plans.tsv", CMD_PLAN },
     { "gap", "<问句>", 1, "基本",
@@ -3305,6 +3308,54 @@ static int plan_do(Agent *a, const char *arg) {
     FILE *f = fopen("_t/plans.tsv", "ab");
     if (f) { fprintf(f, "%ld\t%s\t%d\t%s\t%s\n", (long)time(NULL), type, idx, run ? "run" : "dry", outcome); fclose(f); }
     return 1;
+}
+
+
+/* §7.060 `::selftest`：**自检 10 项**（E18 自举前的健康检查）。
+ * 只读内存 + 一次 /tmp 存读往返；不改图、不改文件（除 /tmp 临时档）。 */
+static int selftest_run(Agent *a) {
+    if (!a || !a->brain) return 1;
+    AI *ai = a->brain;
+    int pass = 0, fail = 0;
+    #define ST(name, cond) do { \
+        int _ok = (cond) ? 1 : 0; \
+        printf("  [%s] %s\n", _ok ? "OK" : "FAIL", name); \
+        if (_ok) pass++; else fail++; \
+    } while (0)
+    printf("[自检] 逐项：\n");
+    ST("焦点环不超过容量", ai->focus_n <= AI_MAX_FOCUS);
+    float sum = 0.0f;
+    for (size_t i = 0; i < ai->att_n; ++i) sum += ai->att_w[i];
+    ST("注意力分配不超预算", ai->att_n == 0 || sum <= ai->att_budget + 0.01f);
+    ST("未解/冲突/论文列表不越界",
+       ai->unsolved_n <= 8 && ai->conflict_n <= 8 && ai->paper_n <= 8);
+    {
+        int okrel = 1;
+        for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid)
+            if (!rel_name_of(ai, rid)) { okrel = 0; break; }
+        ST("核心关系 1..9 都有名字", okrel);
+    }
+    ST("类词表数量合理（≥10）", g_class_n >= 10);
+    ST("拒答词表在数据里", aip_policy_list_has("refuse_words", "不知道,不太懂", "不知道"));
+    ST("时间线词表在数据里", aip_policy_list_has("time_marker", "之前,之后", "之前"));
+    ST("流程策略表在数据里", aip_policy_list_has("plan_steps_fact", "gap,local,refuse", "local"));
+    ST("自我节点存在", ai->self != NULL);
+    {
+        char path[96];
+        snprintf(path, sizeof path, "/tmp/aip_selftest.%ld.bin", (long)getpid());
+        size_t wn = ai_save_file(ai, path);
+        AI *ld = wn > 0 ? ai_load_file(path) : NULL;
+        int same = ld && ld->pool && ld->pool->count == ai->pool->count;
+        ST("存读往返（/tmp）", same);
+        if (ld) ai_free(ld);
+        remove(path);
+    }
+    printf("[自检] 结果：%d 过 / %d 红（共 %d）\n", pass, fail, pass + fail);
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/selftest.tsv", "ab");
+    if (f) { fprintf(f, "%ld\t%d\t%d\n", (long)time(NULL), pass, fail); fclose(f); }
+    #undef ST
+    return fail == 0 ? 0 : 1;
 }
 
 static int gap_do(Agent *a, const char *q) {
@@ -5907,6 +5958,10 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_SELFTEST: {
+                selftest_run(a);
                 continue;
             }
             case CMD_PLAN: {

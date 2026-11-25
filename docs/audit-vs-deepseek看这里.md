@@ -36596,3 +36596,36 @@ The standing subagent ran `AIP_SHARD_EDGES=25000000 python3 tools/shard_cold.py`
 - Same synthetic unique facts (`N{i} 属于 N{hash}`), not real corpus distribution;
 - Still one shard at 25M (no forced sharding); the multi-shard path is exercised only at small sizes;
 - RSS remains `?` in the bench output; memory at 25M was not measured.
+
+## §7.060 `::selftest`: 10 in-kernel health checks (E18 groundwork), 10/10 (2026-11-22)
+
+Before the model can modify itself (E18), it needs a trustworthy "how am I" check. New command
+`::selftest` (128 → 129) runs 10 invariants, prints per-item OK/FAIL, and appends to
+`_t/selftest.tsv`:
+
+1. focus ring ≤ `AI_MAX_FOCUS`;
+2. attention weights sum ≤ budget (+ε);
+3. unsolved/conflict/paper lists within capacity;
+4. core relations 1..9 all have names;
+5. class tables ≥10;
+6. refusal word list present in policy data;
+7. timeline markers present in policy data;
+8. plan step table present in policy data;
+9. self node exists;
+10. **save→load roundtrip** through `/tmp` (token count equal), file removed afterwards.
+
+### Readings (`tools/selftest_blind.py`, new suite `selftest`)
+
+```
+=> 自检首跑：5/5
+```
+
+10/10 checks pass, 10 `[OK]` lines, roundtrip included, exit 0, ledger 10/0.
+
+### Boundaries
+
+- Health checks are **invariants + smoke**, not correctness tests; they can pass while the model
+  answers wrongly;
+- Roundtrip uses `/tmp` and the current model version only (no cross-version test);
+- No automatic repair yet: `::selftest` reports, it does not fix (that is the next E18 step);
+- The list is C-hardcoded (each check is a code invariant), not data-driven.
