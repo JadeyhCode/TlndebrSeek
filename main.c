@@ -573,6 +573,7 @@ typedef enum {
     CMD_CONFLICT,
     CMD_RECENT,
     CMD_KNOW,
+    CMD_CHAIN,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -774,6 +775,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "chain", "条件 ; 条件 => 问句", 1, "基本",
+      "多步约束求解（§7.046）：::chain 事1 ; 事2 => A 关系 B —— 属于走传递闭包（条件边+图边），输出证明链与自检；条件不足就拒答", CMD_CHAIN },
     { "know", "<self|relations|rules|symbol 名字>", 1, "基本",
       "自我认识（§7.044）：::know self 看自己的规模/规则数；relations 看核心关系边数；rules 看校验/改写规则；symbol 看单个符号的关系卡", CMD_KNOW },
     { "recent", NULL, 0, "基本",
@@ -3023,6 +3026,162 @@ static int study_round(Agent *a) {
                   (long)time(NULL), success ? "solved" : "failed", flags, q);
     }
     study_mark(q, "studied");
+    return 1;
+}
+
+
+/* §7.046 `::solve`：**给定条件 + 已知知识 → 结论 → 自检** 的最小约束求解。
+ * 输入：`::solve 事实1 ; 事实2 ; … => 问句`（事实是 `A 关系 B`，问句是 `A 关系 B [吗]`）。
+ * 规则：本版只做**属于 的传递闭包**（从条件边 + 图里已有的属于边一起走 BFS），
+ * 其它关系只查图里的直边/否定边。条件**不写进图**（纯局部推理）。
+ * 输出：对/不对 + 证明链 + 自检（每一步的来源：给定/图）。条件不足就拒答。 */
+static int solve_do(Agent *a, const char *arg) {
+    if (!a || !a->brain || !arg) return 0;
+    AI *ai = a->brain;
+    const char *arrow = strstr(arg, "=>");
+    if (!arrow) { printf("[求解] 用法：::solve 事实1 ; 事实2 => 问句\n"); return 1; }
+    char cond[1024], qry[512];
+    size_t cl = (size_t)(arrow - arg);
+    if (cl >= sizeof cond) cl = sizeof cond - 1;
+    memcpy(cond, arg, cl); cond[cl] = 0;
+    snprintf(qry, sizeof qry, "%s", arrow + 2);
+
+    typedef struct { Token *A, *B; uint8_t rid; } SE;
+    SE E[32]; size_t ne = 0;
+    char *save = NULL;
+    for (char *f = strtok_r(cond, ";；", &save); f && ne < 32; f = strtok_r(NULL, ";；", &save)) {
+        /* 条件按**空白**切，不按分词：未见过的新词（`甲兽`）必须保持整词 */
+        char *t[8]; size_t tn = 0;
+        char *fs = NULL;
+        for (char *tok = strtok_r(f, " \t", &fs); tok && tn < 8; tok = strtok_r(NULL, " \t", &fs)) {
+            char z[64];
+            (void)aip_strip_punct_chars(tok, z, sizeof z);
+            if (!z[0]) continue;
+            t[tn++] = strdup(z);
+        }
+        if (tn >= 3) {
+            uint8_t rid = rel_id_of(ai, t[1], 0);
+            if (!rid) rid = rel_id_of(ai, t[1], 1);
+            if (rid && ne < 32) {
+                E[ne].A = pool_token_intern(ai->pool, t[0]);
+                E[ne].B = pool_token_intern(ai->pool, t[2]);
+                E[ne].rid = rid;
+                ne++;
+            }
+        }
+        for (size_t i = 0; i < tn; ++i) free(t[i]);
+    }
+
+    char *t2[8]; size_t tn2 = 0;
+    {
+        char *qs = NULL;
+        for (char *tok = strtok_r(qry, " \t", &qs); tok && tn2 < 8; tok = strtok_r(NULL, " \t", &qs)) {
+            char z[64];
+            (void)aip_strip_punct_chars(tok, z, sizeof z);
+            if (!z[0] || !strcmp(z, "吗")) continue;
+            t2[tn2++] = strdup(z);
+        }
+    }
+    if (tn2 < 3) {
+        printf("[求解] 条件 %zu 条；问句没读懂（要 `A 关系 B`）⇒ 拒答\n", ne);
+        for (size_t i = 0; i < tn2; ++i) free(t2[i]);
+        return 1;
+    }
+    Token *QA = pool_token_intern(ai->pool, t2[0]);
+    uint8_t qrid = rel_id_of(ai, t2[1], 0);
+    if (!qrid) qrid = rel_id_of(ai, t2[1], 1);
+    Token *QB = pool_token_intern(ai->pool, t2[2]);
+    for (size_t i = 0; i < tn2; ++i) free(t2[i]);
+    if (!qrid) { printf("[求解] 关系「%s」不认识 ⇒ 拒答\n", t2[1]); return 1; }
+
+    /* BFS：属于 走传递（条件边 + 图边），其它关系只看直边 */
+    int found = 0;
+    Token *path[64]; size_t pn = 0;
+    if (qrid == REL_IS_A) {
+        Token *vis[64]; size_t vn = 0;
+        int prev[64];
+        vis[vn] = QA; prev[vn] = -1; vn++;
+        for (size_t qi = 0; qi < vn; ++qi) {
+            Token *cur = vis[qi];
+            if (cur == QB) {
+                Token *chain[64]; size_t cn = 0;
+                int k = (int)qi;
+                while (k >= 0 && cn < 64) { chain[cn++] = vis[k]; k = prev[k]; }
+                for (size_t kk = cn; kk > 0; --kk) path[pn++] = chain[kk - 1];
+                found = 1;
+                break;
+            }
+            /* 条件边 */
+            for (size_t e = 0; e < ne && vn < 64; ++e) {
+                if (E[e].rid != REL_IS_A || E[e].A != cur) continue;
+                int seen = 0;
+                for (size_t v = 0; v < vn; ++v) if (vis[v] == E[e].B) { seen = 1; break; }
+                if (seen) continue;
+                vis[vn] = E[e].B; prev[vn] = (int)qi; vn++;
+            }
+            /* 图边 */
+            for (uint32_t ti = 0; ti < ai->pool->count && vn < 64; ++ti) {
+                Token *x = ai->pool->tokens[ti];
+                if (!x || x->is_garbage || x == cur) continue;
+                if (!rel_direct(cur, REL_IS_A, x)) continue;
+                int seen = 0;
+                for (size_t v = 0; v < vn; ++v) if (vis[v] == x) { seen = 1; break; }
+                if (seen) continue;
+                vis[vn] = x; prev[vn] = (int)qi; vn++;
+            }
+        }
+    } else {
+        for (size_t e = 0; e < ne; ++e)
+            if (E[e].A == QA && E[e].rid == qrid && E[e].B == QB) { found = 1; break; }
+        if (!found) found = rel_direct(QA, qrid, QB);
+        if (found) { path[0] = QA; path[1] = QB; pn = 2; }
+    }
+
+    if (found) {
+        printf("[求解] 条件 %zu 条 ⇒ **对**", ne);
+        if (pn) {
+            printf("（链：");
+            for (size_t i = 0; i < pn; ++i)
+                printf("%s%s", i ? " -> " : "", path[i]->name ? path[i]->name : "?");
+            printf("）\n");
+        } else printf("\n");
+        printf("[自检] 每一步都来自给定条件或图；共 %zu 步（%s）\n",
+               pn > 1 ? pn - 1 : 0, pn > 2 ? "含传递" : "直边");
+        return 1;
+    }
+    int neg = rel_direct_neg(QA, qrid, QB);
+    if (!neg && qrid == REL_IS_A) {
+        /* 反向成立（图里**或给定条件里**）⇒ 这条为假 */
+        if (rel_direct(QB, REL_IS_A, QA)) neg = 1;
+        else {
+            Token *vis[64]; size_t vn = 0;
+            vis[vn++] = QB;
+            int reach = 0;
+            for (size_t qi = 0; qi < vn && !reach; ++qi) {
+                Token *cur = vis[qi];
+                if (cur == QA) { reach = 1; break; }
+                for (size_t e = 0; e < ne && vn < 64; ++e) {
+                    if (E[e].rid != REL_IS_A || E[e].A != cur) continue;
+                    int seen = 0;
+                    for (size_t v = 0; v < vn; ++v) if (vis[v] == E[e].B) { seen = 1; break; }
+                    if (!seen) vis[vn++] = E[e].B;
+                }
+                for (uint32_t ti = 0; ti < ai->pool->count && vn < 64; ++ti) {
+                    Token *x = ai->pool->tokens[ti];
+                    if (!x || x->is_garbage || x == cur) continue;
+                    if (!rel_direct(cur, REL_IS_A, x)) continue;
+                    int seen = 0;
+                    for (size_t v = 0; v < vn; ++v) if (vis[v] == x) { seen = 1; break; }
+                    if (!seen) vis[vn++] = x;
+                }
+            }
+            if (reach) neg = 1;
+        }
+    }
+    if (neg)
+        printf("[求解] 条件 %zu 条 ⇒ **不对**（图里或反方向有依据）\n", ne);
+    else
+        printf("[求解] 条件 %zu 条 ⇒ **条件不足，拒答**（不编）\n", ne);
     return 1;
 }
 
@@ -5551,6 +5710,13 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_CHAIN: {
+                const char *arg = (cmd[5] == ' ') ? cmd + 6 : NULL;
+                while (arg && *arg == ' ') arg++;
+                if (!arg || !*arg) { printf("[用法] ::solve 事实1 ; 事实2 => 问句\n"); continue; }
+                solve_do(a, arg);
                 continue;
             }
             case CMD_KNOW: {

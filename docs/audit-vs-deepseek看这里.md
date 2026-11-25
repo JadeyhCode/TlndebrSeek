@@ -36067,3 +36067,42 @@ combinations that were **never taught**:
 - Small set (8 probes, one family); it does not prove open-world generalization. Multi-hop chains,
   negation through chains, and cross-family transfers still need their own blind sets.
 - No code change this round: this is a **measurement** round following the new D discipline.
+
+## §7.046 `::chain`: multi-step constraint solving (D14), 7/7 first run (2026-11-22)
+
+New command `::chain` (125 → 126): given conditions + graph knowledge → conclusion → self-check.
+
+```
+::chain 事实1 ; 事实2 ; … => A 关系 B [吗]
+```
+
+- Conditions are parsed **by whitespace** (unknown names like 甲兽 must stay whole words);
+- Conditions are **local only** — they are not written into the graph;
+- `属于` is solved as a transitive closure over **condition edges + existing graph edges** (BFS);
+  other relations use a direct condition edge or the graph's direct/negative edges;
+- Output: 对/不对/条件不足 + the proof chain + a self-check line (steps and whether transitivity was used);
+- If the reverse holds in conditions or graph, the query is 不对.
+
+### Readings (`tools/chain_blind.py`, new suite `chain`)
+
+```
+=> 多步求解首跑：7/7
+```
+
+| Check | Result |
+|---|---|
+| 3-hop chain from conditions only ⇒ 对 + full chain | OK |
+| successful conclusion carries `[自检]` | OK |
+| condition + graph knowledge (猫 属于 哺乳动物 ⇒ 猫 属于 生物) | OK |
+| reverse in conditions ⇒ 不对 | OK |
+| insufficient conditions ⇒ 条件不足/拒答 | OK |
+| non-transitive relation direct edge from conditions | OK |
+| graph negation (猫不会飞) ⇒ 不对 | OK |
+
+### Boundaries
+
+- Only `属于` gets transitive closure; `包含/在/会` chains are not solved (direct/negative only);
+- Conditions are positive edges only (negated conditions are not part of the local set yet);
+- Proof prefers the shortest path (may use graph shortcuts and skip intermediate given facts);
+- It's a local solver, not a general planner: no disjunction, no counting/units within the chain,
+  no retraction of conditions after the query.
