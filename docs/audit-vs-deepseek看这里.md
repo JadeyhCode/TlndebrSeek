@@ -36822,3 +36822,40 @@ per-step lines (`ask → 拒绝`, `sym → 拒绝`) and `结果：拒`. The test
 (no kernel change) and both `planblind` (7/7) and `plantrace` (6/6) pass. Also clarified why the gate
 table showed “199 套” while 200 rc files existed: `gate.py` reports the count of `[OK]` lines, so with
 one failing suite it prints the number of *passing* suites under a loose “套” label.
+
+## §7.066 Plan refusal → unsolved queue → self-study closure (③/⑯/⑰), 4/4 (2026-11-22)
+
+`::plan run` used to print “记未解” without doing it. Now, when the flow ends in `refuse`:
+
+- sets the question as `last_ask` and calls the existing `agent_note_unsolved()` hook → subject
+  tokens go to the attention/unsolved lists and a row is appended to `_t/unsolved.tsv`;
+- prints `[流程] 已记入未解（::unsolved 可看；::study next 会先挑它）`;
+- successful runs record nothing;
+- policy `plan_note_unsolved=1` (registered) can disable it, with ablation in the blind set.
+
+This closes the loop “flow decides it cannot answer → the question enters the unattended study queue”,
+which `::study next` / `::auto` already consume.
+
+### Readings (`tools/plan_study_blind.py`, new suite `planstudy`)
+
+```
+=> 流程→未解首跑：4/4
+```
+
+refusal says + ledger row; successful run records nothing; policy ablation records nothing.
+
+### Boundaries
+
+- The unsolved list stores **subject tokens** (max 8), not full question objects; the ledger keeps the
+  full question text;
+- `::unsolved` prints a count, not item names (existing behavior);
+- Recording is in-process; without `::save` it does not persist;
+- Only the `refuse` step triggers recording; an early answer never does.
+
+### Gate note (round 72): `learn` flake fixed in the test, not the kernel
+
+First gate went red on `learn` ⑤ (“编译不过也接受”). In isolation `learn` passed 25/25. Diagnosis:
+under 8-way parallel load the fake endpoint occasionally returns an incomplete reply (the code block
+is lost), so the model correctly says “没有可编译的代码段” and the check looking for “编译没过” fails —
+the test wrongly records “accepted bad code”. Fixed by retrying that one bad-code case once before
+judging (with a comment), `sh -n` clean, `learn` 25/25 again.

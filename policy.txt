@@ -65,3 +65,5 @@ order_before=之前,以前,先于
 order_after=之后,以后,晚于
 # §7.064 缺口执行：先本地传递搜索（0=只出计划，不执行）
 gap_do_local=1
+# §7.066 流程放弃时是否写入未解队列（0=只打印）
+plan_note_unsolved=1

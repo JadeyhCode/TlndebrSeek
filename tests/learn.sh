@@ -86,7 +86,14 @@ int main(void){ this is not C; return 0; }
 随便写的。
 ### EVIDENCE
 没验证。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个坏程序")
+# 并行负载高时假端点偶发回包不完整（编译段丢失）⇒ 重试一次再判，避免把“回包截断”记成“接受坏代码”
+o=''
+t=0
+while [ "$t" -lt 2 ]; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个坏程序")
+    printf '%s' "$o" | grep -qa '编译没过' && break
+    t=$((t + 1)); sleep 0.3
+done
 printf '%s' "$o" | grep -qa '编译没过' && ok "编译不过：拒绝" || bad "编译不过也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 

@@ -3356,6 +3356,11 @@ static int plan_do(Agent *a, const char *arg) {
             } else if (!strcmp(s, "refuse")) {
                 printf("  [流程] %d) refuse → 明说不会，记未解\n", idx2);
                 outcome = "拒";
+                if (aip_policy_int("plan_note_unsolved", 1)) {
+                    snprintf(ai->last_ask, sizeof ai->last_ask, "%s", q);
+                    agent_note_unsolved(ai, "不知道");
+                    printf("  [流程] 已记入未解（::unsolved 可看；::study next 会先挑它）\n");
+                }
             } else {
                 printf("  [流程] %d) %s → 不认识的步骤，跳过\n", idx2, s);
             }
