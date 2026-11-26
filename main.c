@@ -6488,6 +6488,64 @@ int main(int argc, char **argv) {
                         shown++;
                     }
                     if (!shown) printf("  （没有关系边）\n");
+                    /* §7.071 符号自省补全：入边 + 来源档分布 + 待证出处 */
+                    int inc = 0;
+                    {
+                        int shown_in = 0;
+                        for (uint32_t i = 0; i < ai->pool->count && shown_in < 6; ++i) {
+                            Token *from = ai->pool->tokens[i];
+                            if (!from || from == t || from->is_garbage || !from->name) continue;
+                            for (size_t j = 0; j < from->count; ++j) {
+                                const AssocEntry *e = &token_assocs_ro(from)[j];
+                                if (!e->main || e->main != t || !e->rel) continue;
+                                uint8_t rid0 = 0;
+                                for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
+                                    if (e->rel & (uint16_t)(1u << (r - 1))) { rid0 = r; break; }
+                                if (!inc) printf("  入边：\n");
+                                printf("  %s%s --[%s]--> %s\n",
+                                       (e->nrel ? "不 " : ""), from->name,
+                                       rid0 ? rel_name_of(ai, rid0) : "?", t->name);
+                                inc++; shown_in++;
+                                break;
+                            }
+                        }
+                        if (!inc) printf("  入边：0（没有别的符号指向它）\n");
+                    }
+                    {
+                        /* 来源档：教学/感知/推论/想象 各多少条（出边 + 入边） */
+                        size_t cnt[8] = {0};
+                        for (size_t j = 0; j < t->count; ++j) {
+                            const AssocEntry *e = &token_assocs_ro(t)[j];
+                            if (e->main && e->rel && e->role < 8) cnt[e->role]++;
+                        }
+                        for (uint32_t i = 0; i < ai->pool->count; ++i) {
+                            Token *from = ai->pool->tokens[i];
+                            if (!from || from == t || !from->name) continue;
+                            for (size_t j = 0; j < from->count; ++j) {
+                                const AssocEntry *e = &token_assocs_ro(from)[j];
+                                if (e->main == t && e->rel && e->role < 8) { cnt[e->role]++; break; }
+                            }
+                        }
+                        printf("  来源档：");
+                        int any = 0;
+                        for (int r = 0; r < 8; ++r)
+                            if (cnt[r]) { printf("%s%s %zu", any ? " / " : "",
+                                                 assoc_role_name((uint8_t)r), cnt[r]); any = 1; }
+                        printf("%s\n", any ? "" : "（没有带角色的边）");
+                    }
+                    {
+                        Claim cl[64];
+                        size_t n = claim_list(ai, cl, 64);
+                        int ncl = 0;
+                        for (size_t i = 0; i < n; ++i)
+                            if (!strcmp(cl[i].a, t->name) || !strcmp(cl[i].b, t->name)) {
+                                if (!ncl) printf("  待证（还不算数）：\n");
+                                if (ncl < 4)
+                                    printf("  %s %s %s（来源 %s）\n", cl[i].a, cl[i].r, cl[i].b, cl[i].src);
+                                ncl++;
+                            }
+                        printf("  待证条数：%d\n", ncl);
+                    }
                     continue;
                 }
                 printf("[用法] ::know self|relations|rules|symbol <名字>\n");

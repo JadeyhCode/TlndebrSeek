@@ -36990,3 +36990,30 @@ cumulative stats file between runs, the ablation re-using an already-studied que
 - Transitive verification is depth ≤4 over one relation;
 - No TESTS/invariant verification for free-form answers; only relation-style questions are parsed;
 - Negative answers are only verified when an explicit negative edge exists.
+
+## §7.071 `::know symbol`: meaning + edges + sources + pending claims (D13), 7/7 (2026-11-22)
+
+`::know symbol <name>` used to print degree and a few **outgoing** relation edges. It now answers
+“what do I know about this symbol, and where did it come from?”:
+
+- outgoing edges (unchanged, capped at 12);
+- **incoming** edges (`X --[R]--> symbol`, capped at 6, or “入边：0”);
+- **source-role distribution** over in+out edges (`assoc_role_name`: 基准/共现/推论/想象…);
+- **pending claims** touching the symbol with their source (`待证（还不算数）… 来源 论文`) and count;
+- unknown symbol still says “图里没有”.
+
+### Readings (`tools/knowsymbol_blind.py`, new suite `knowsymbol`)
+
+```
+=> 符号自省首跑：7/7
+```
+
+out-edge, degree, in-edge, source-role distribution, claim+source, claim count, unknown message.
+
+### Boundaries
+
+- Incoming scan is a full-pool linear pass (fine at 1.2k symbols, not at scale);
+- Source-role shows the **edge role byte**, not a per-fact audit trail; it cannot distinguish two
+  teachings of the same fact;
+- Pending claims are matched by exact subject/object string;
+- No paper paragraph IDs/offsets yet — source is the coarse “论文” label.
