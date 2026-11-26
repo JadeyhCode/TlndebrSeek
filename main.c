@@ -3360,6 +3360,10 @@ static int plan_do(Agent *a, const char *arg) {
                     snprintf(ai->last_ask, sizeof ai->last_ask, "%s", q);
                     agent_note_unsolved(ai, "不知道");
                     printf("  [流程] 已记入未解（::unsolved 可看；::study next 会先挑它）\n");
+                    if (aip_policy_int("plan_queue_study", 1)) {
+                        curious_enqueue(q, "未解（流程放弃）");
+                        printf("  [流程] 已排入自学队列（::study next 可直接取）\n");
+                    }
                 }
             } else {
                 printf("  [流程] %d) %s → 不认识的步骤，跳过\n", idx2, s);

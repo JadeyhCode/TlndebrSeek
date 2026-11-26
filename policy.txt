@@ -67,3 +67,5 @@ order_after=之后,以后,晚于
 gap_do_local=1
 # §7.066 流程放弃时是否写入未解队列（0=只打印）
 plan_note_unsolved=1
+# §7.067 流程放弃时是否把整题排进好奇心队列（交给 ::study next）
+plan_queue_study=1

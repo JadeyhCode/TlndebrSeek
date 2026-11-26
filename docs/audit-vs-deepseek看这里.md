@@ -36859,3 +36859,34 @@ under 8-way parallel load the fake endpoint occasionally returns an incomplete r
 is lost), so the model correctly says “没有可编译的代码段” and the check looking for “编译没过” fails —
 the test wrongly records “accepted bad code”. Fixed by retrying that one bad-code case once before
 judging (with a comment), `sh -n` clean, `learn` 25/25 again.
+
+## §7.067 Plan refusal → curiosity queue → `::study next` (③/⑰), 5/5 (2026-11-22)
+
+§7.066 put refused questions into the unsolved ledger/attention; §7.067 also **enqueues the full
+question** into the existing curiosity queue (`_t/curious.tsv`, reason `未解（流程放弃）`), so the
+unattended study loop can actually pick it up:
+
+```
+[流程] 已记入未解（::unsolved 可看；::study next 会先挑它）
+[流程] 已排入自学队列（::study next 可直接取）
+[自学] 下一题（注意力得分 0.00）：甲 属于 丙 吗
+```
+
+Policy `plan_queue_study=1` (registered, ablation in the blind set); successful runs never enqueue.
+
+### Readings (`tools/plan_queue_blind.py`, new suite `planqueue`)
+
+```
+=> 流程→自学队列首跑：5/5
+```
+
+Honest note: first run was 4/5 because the check expected the question to appear twice (only
+`::study next` echoes it); the assertion was corrected, no kernel change.
+
+### Boundaries
+
+- Reuses the existing 24h-dedup curiosity queue; no priority field beyond `study_score` (0.00 in the
+  fresh sandbox because attention was empty);
+- The question is stored as text, not linked to the ledger row / subject tokens;
+- Enqueue is in-process and `_t/`-local; no persistence semantics beyond the file;
+- Only the `refuse` step enqueues; paper/ask/sym steps still do not execute.

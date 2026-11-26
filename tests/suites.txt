@@ -247,6 +247,7 @@ gapexec|python3 tools/gap_exec_blind.py
 planblind|python3 tools/plan_blind.py
 plantrace|python3 tools/plan_trace_blind.py
 planstudy|python3 tools/plan_study_blind.py
+planqueue|python3 tools/plan_queue_blind.py
 scorecard|python3 tools/bench.py --quick
 gsm8k|python3 tools/gsm8k_blind.py
 gsm8k2|python3 tools/gsm8k2_blind.py
