@@ -69,3 +69,5 @@ gap_do_local=1
 plan_note_unsolved=1
 # §7.067 流程放弃时是否把整题排进好奇心队列（交给 ::study next）
 plan_queue_study=1
+# §7.068 未解题在自学选题目时的注意力加成（0=不加成）
+att_pick_unsolved=0.60

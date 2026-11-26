@@ -36890,3 +36890,36 @@ Honest note: first run was 4/5 because the check expected the question to appear
 - The question is stored as text, not linked to the ledger row / subject tokens;
 - Enqueue is in-process and `_t/`-local; no persistence semantics beyond the file;
 - Only the `refuse` step enqueues; paper/ask/sym steps still do not execute.
+
+## §7.068 Unsolved priority in study picking (①/③), 5/5 (2026-11-22)
+
+`study_score` only weighted attention tokens and paper sources; a question that the model had **failed**
+(plan-refused / unsolved) had no priority. Added `att_pick_unsolved` (policy, default **0.60**): if the
+queue row's reason contains 未解 / 流程放弃 / 没答, the candidate gets a fixed bonus. With two pending
+questions (a user-posed curiosity and a plan-refused one), `::study next` now picks the refused one:
+
+```
+[自学] 下一题（注意力得分 0.60）：甲 属于 丙 吗
+```
+
+Ablation `att_pick_unsolved=0` → picks the earlier curiosity question (score 0.00).
+
+Also fixed a duplication bug found by the blind: `::study pose` appended directly to `_t/curious.tsv`
+(no 24h dedupe) → now goes through `curious_enqueue` (same question not duplicated within 24h).
+
+### Readings (`tools/study_priority_blind.py`, new suite `studypriority`)
+
+```
+=> 未解优先首跑：5/5
+```
+
+Honest note: first run was 3/5 because of two **test design errors** (empty-queue check ran after the
+queue existed; duplicate counting missed the pose-append bug). The test was corrected and the
+duplication was fixed in code; final 5/5.
+
+### Boundaries
+
+- Bonus is a flat 0.60, not proportional to failure count/uncertainty;
+- Reason strings (“未解/流程放弃/没答”) are the trigger — free-text reasons may miss the words;
+- No decay: an old unsolved question keeps the bonus until studied/cleared;
+- `::study next` still only **picks**, it does not run the question (that is `::study run`).

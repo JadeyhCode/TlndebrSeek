@@ -3852,6 +3852,10 @@ static double study_score(Agent *a, const char *q, const char *why) {
             if (nm && strstr(q, nm)) { sc += wf; break; }
         }
     if (ws > 0.0 && why && strstr(why, "论文")) sc += ws;
+    /* §7.068 未解优先：流程/对话里“没答上来”的题，元认知给一个固定加成（策略可关可调）。 */
+    double wu = (double)aip_policy_float("att_pick_unsolved", 0.60f);
+    if (wu > 0.0 && why && (strstr(why, "未解") || strstr(why, "流程放弃") || strstr(why, "没答")))
+        sc += wu;
     return sc;
 }
 
@@ -3967,11 +3971,9 @@ static void study_cmd(Agent *a, const char *arg) {
         if (!*q) { printf("[自学] 用法：::study pose <一个问题>\n"); return; }
         mkdir("_t", 0755);
         mkdir("_t/work", 0755);
-        FILE *f = fopen("_t/curious.tsv", "ab");
-        if (!f) { printf("[自学] 写不进 _t/curious.tsv\n"); return; }
-        fprintf(f, "%ld\t%s\t用户出题\tpending\n", (long)time(NULL), q);
-        fclose(f);
-        printf("[自学] 已出题（pending）：%s\n", q);
+        /* §7.068 修：走 curious_enqueue（24h 去重），别直接 append —— 否则同一题重复入队 */
+        curious_enqueue(q, "用户出题");
+        printf("[自学] 已出题（pending，重复题 24h 内不重复入队）：%s\n", q);
         return;
     }
     if (arg && !strncmp(arg, "list", 4)) {
