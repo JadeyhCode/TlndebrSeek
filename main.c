@@ -3933,6 +3933,12 @@ static void study_cmd(Agent *a, const char *arg) {
         printf("[自学] 统计/待证清零（ask_user/sym_hints 保留，等你处理）\n");
         return;
     }
+    if (arg && !strncmp(arg, "next", 4) && strstr(arg, "run")) {
+        /* §7.069 选题 + 自做 + 自检 + 归因 + 求助 一条命令 */
+        if (!study_round(a)) { printf("[自学] 没有待学的题\n"); return; }
+        study_stats_print();
+        return;
+    }
     if (arg && !strncmp(arg, "next", 4)) {
         char q[512];
         if (!study_pick(a, q, sizeof q)) { printf("[自学] 没有待学的题\n"); return; }

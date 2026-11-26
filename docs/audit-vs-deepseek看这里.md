@@ -36923,3 +36923,36 @@ duplication was fixed in code; final 5/5.
 - Reason strings (“未解/流程放弃/没答”) are the trigger — free-text reasons may miss the words;
 - No decay: an old unsolved question keeps the bonus until studied/cleared;
 - `::study next` still only **picks**, it does not run the question (that is `::study run`).
+
+## §7.069 `::study next run`: pick → self-answer → reflect → help (③), 7/7 (2026-11-22)
+
+`::study next` used to only pick. `::study next run` now runs the **whole unattended round** in one
+command: pick the best pending question (with the §7.068 unsolved bonus), self-answer, self-check
+(refusal detection), reflect to a gap attribution, then walk the policy help order
+(`study_order_*`) and record the distribution:
+
+```
+[自学] 出题（来自好奇心队列）：甲 有 翅膀 吗
+[自学] 自答：大概，我 不 太 确定 甲 有 没有 翅膀
+[自学] 自检：答不出；归因：缺词「翅膀」（图里没有这个词的关系边）
+[自学] 求助④自省工具建议：::sym edge add 甲 有 翅膀（先 ::sym write on + ::sym reason 为什么）
+[自学] 求助③问用户：已写进 _t/study/ask_user.tsv（等你答）
+[自学统计] 出题 2｜自解 1（50.0%…）｜答不出 1｜求助分布：… 问用户 1 / ::sym 建议 1｜待证 1
+```
+
+### Readings (`tools/study_run_blind.py`, new suite `studyrun`)
+
+```
+=> 选题即跑首跑：7/7
+```
+
+pipeline output, stats row/print, plain `next` does not self-answer, help order sym→user for 缺词,
+distribution recorded, `study_ask_user=0` ablation.
+
+### Boundaries
+
+- “自解” is self-judged (refusal-vs-not), not verified against an external oracle; stats says 未验证;
+- The help order still only **records suggestions/requests**; external ask needs `::tool on` and is not
+  exercised here; user help is a file, not a conversation;
+- A closed-world negation can count as “solved” (`甲 不属于 丙`), which is a design choice, not proof;
+- One question per invocation (`run N` remains the batch form).
