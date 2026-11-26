@@ -78,7 +78,7 @@ int main(void) {
         size_t pn = claim_list(a, cl, 16);
         ok(pn == 3, "待证队列里 3 条");
         int all_paper = 1;
-        for (size_t i = 0; i < pn; ++i) if (strcmp(cl[i].src, "论文")) all_paper = 0;
+        for (size_t i = 0; i < pn; ++i) if (strncmp(cl[i].src, "论文", strlen("论文"))) all_paper = 0;
         ok(all_paper, "来源都是「论文」（可信度 50/100）");
     }
 

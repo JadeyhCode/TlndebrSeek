@@ -4902,6 +4902,13 @@ static inline int agent_is_hedge(const char *w) {
  * 放在 agent.h 里是因为"两个来源升格"这条路径在 agent.h（它不能 include claim.h）。 */
 static inline int agent_source_tier(const char *src) {
     if (!src || !src[0]) return 0;
+    /* §7.072 修：出处可以带段号（论文#3）——可信度按**基础来源**「论文」查，
+     * 否则带 # 的来源会掉到 0 档。 */
+    char base[48];
+    snprintf(base, sizeof base, "%s", src);
+    char *hash = strchr(base, '#');
+    if (hash) *hash = 0;
+    src = base;
     for (size_t i = 0; i < g_class_n; ++i) {
         if (strcmp(g_class_name[i], "trust") != 0) continue;
         const char *p = g_class_words[i];

@@ -25,6 +25,7 @@ typedef struct {
     char a[40];
     char r[24];
     char b[40];
+    int  para;   /* §7.072 段落号（1 起；0=未知），出处显示成「论文#N」 */
 } PaperClaim;
 
 /* 这个 token 能不能当"词"（去掉标点/虚词） */
@@ -704,6 +705,7 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
     if (!ai || !text || !out || cap == 0) return 0;
     size_t got = 0;
     char prev_subj[40] = {0};
+    int para = 1, last_nl = 0;
     const char *p = text;
     while (*p && got < cap) {
         const char *st = p;
@@ -722,10 +724,13 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
         /* 跳过分句符：中文标点可能是三字节 */
         if (*p) {
             unsigned char c = (unsigned char)*p;
+            int was_nl = (c == '\n');
+            if (was_nl && last_nl) para++;   /* 空行 ⇒ 新段落 */
+            last_nl = was_nl ? 1 : 0;
             if (c == 0xE3 && (unsigned char)p[1] == 0x80) p += 3;
             else if (c == 0xEF && (unsigned char)p[1] == 0xBC) p += 3;
             else p += 1;
-        }
+        } else last_nl = 0;
         PaperClaim c;
         char cl[256];
         paper_prep_clause(ai, st, len, cl, sizeof cl, prev_subj);
@@ -739,7 +744,7 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
                 int dup2 = 0;
                 for (size_t i = 0; i < got; ++i)
                     if (!strcmp(out[i].a, cc[q].a) && !strcmp(out[i].r, cc[q].r) && !strcmp(out[i].b, cc[q].b)) { dup2 = 1; break; }
-                if (!dup2 && got < cap) { out[got++] = cc[q]; c = cc[q]; got_claim = 1; }
+                if (!dup2 && got < cap) { cc[q].para = para; out[got++] = cc[q]; c = cc[q]; got_claim = 1; }
             }
         }
         if (got_claim) {
@@ -751,6 +756,7 @@ static inline size_t paper_extract(AI *ai, const char *text, PaperClaim *out, si
                     dup = 1; break;
                 }
             if (!dup) {
+                c.para = para;
                 out[got++] = c;
                 if (!paper_pronoun(c.a)) snprintf(prev_subj, sizeof prev_subj, "%s", c.a);
             }
@@ -764,7 +770,10 @@ static inline size_t paper_to_claims(AI *ai, const PaperClaim *cs, size_t n) {
     if (!ai || !cs) return 0;
     size_t made = 0;
     for (size_t i = 0; i < n; ++i) {
-        if (!claim_add(ai, "论文", cs[i].a, cs[i].r, cs[i].b)) continue;
+        char src[40];
+        if (cs[i].para > 0) snprintf(src, sizeof src, "论文#%d", cs[i].para);
+        else snprintf(src, sizeof src, "论文");
+        if (!claim_add(ai, src, cs[i].a, cs[i].r, cs[i].b)) continue;
         made++;
     }
     return made;

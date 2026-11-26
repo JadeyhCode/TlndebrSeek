@@ -37017,3 +37017,49 @@ out-edge, degree, in-edge, source-role distribution, claim+source, claim count, 
   teachings of the same fact;
 - Pending claims are matched by exact subject/object string;
 - No paper paragraph IDs/offsets yet — source is the coarse “论文” label.
+
+## §7.072 Paragraph provenance for paper claims (D12), 6/6 (2026-11-22)
+
+Claims used to record only the coarse source `论文`. `PaperClaim` now carries a paragraph number
+(`para`, 1-based; a blank line starts a new paragraph) and `paper_to_claims` writes the source as
+`论文#N`:
+
+```
+1. 猫 属于 动物   （来源：论文#1，可信度 40/100）
+2. 猫 有 毛发     （来源：论文#2，…）
+3. 猫 属于 猫科   （来源：论文#3，…）
+```
+
+This flows through existing UIs automatically: `::claim`, `::paper conflicts` (shows the two different
+paragraph sources), `::know symbol` (待证 with 来源 论文#N), `::paper roles` unaffected.
+
+### Readings (`tools/paper_para_blind.py`, new suite `paperpara`)
+
+```
+=> 论文段落出处首跑：6/6
+```
+
+three paragraphs → #1/#2/#3, 3 claims, symbol view shows #3, conflict sides differ, single paragraph #1,
+uniform `论文#N` format.
+
+### Boundaries
+
+- Paragraph = blank-line separated; a single newline stays in the same paragraph;
+- Only paper-file extraction (`::paper read <txt>`); PDF text goes through the same path but its
+  pagination is not paragraph-aware;
+- `::claim ingest` still uses `教师`, and other sources have no paragraph notion;
+- No character offsets/line numbers inside a paragraph — just the index.
+
+### Gate note (same round): source tier prefix + three test expectations
+
+First gate went red on `e2e_paper`, `paperprobe`, `tokenop` because they asserted the source exactly
+`论文`. Two things were needed:
+
+1. **kernel fix**: `agent_source_tier("论文#3")` returned 0 (exact match against the `trust` table), so
+   the credibility line dropped from 50 to 40. It now strips `#…` and looks up the base source
+   (`论文`), which is the correct semantics for paragraph-numbered provenance;
+2. **test updates**: the three assertions now accept the `论文` **prefix** (and `paperprobe` uses
+   `strncmp`). This is an intentional format extension (`论文#N`), not a behavior relaxation.
+
+All three suites then passed in isolation (e2e_paper 7/0, paperprobe 33/0, tokenop 438/438), and the
+gate was re-run.

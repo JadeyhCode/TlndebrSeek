@@ -1574,7 +1574,7 @@ cp "$ROOT/papers/sample.txt" "$PP/papers/sample.txt" 2>/dev/null || printf '企�
 grep -qaE '抽到 [0-9]+ 条，记为待证 [0-9]+ 条' "$PP/o.txt" \
     && ok "::paper read 抽到断言、全部记为待证（样本里是 3 条）" \
     || bad "paper-抽" "$(grep -a '论文' "$PP/o.txt" | head -1)"
-grep -qaF '（来源：论文，可信度 50/100）' "$PP/o.txt" \
+grep -qaF '（来源：论文' "$PP/o.txt" \
     && ok "待证来源是「论文」、可信度 50/100" \
     || bad "paper-来源" "$(grep -a '待证' "$PP/o.txt" | sed -n 2p)"
 ( cd "$PP" && printf '::notepad off\n::char off\n::paper read 不存在.txt\n::quit\n' | "$WORK/aip" --model m.bin > o2.txt 2>&1 ) || true

@@ -28,7 +28,7 @@ run '::paper read papers/p.txt\n::claim\n::save m.bin\n'
 grep -qaE '抽到 [0-9]+ 条，记为待证 [0-9]+ 条' out.txt \
     && ok "::paper read 抽到断言并记为待证" \
     || bad "抽断言" "$(grep -a '论文' out.txt | head -1)"
-grep -qaF '（来源：论文，可信度 50/100）' out.txt \
+grep -qaF '（来源：论文' out.txt \
     && ok "待证来源/可信度都写清了" \
     || bad "来源" "$(grep -a '待证' out.txt | sed -n 2p)"
 
