@@ -36734,3 +36734,39 @@ the check was corrected to 2 pairs and re-run. No kernel change was made for tha
 - Cycles are reported as pairwise “mutually ordered”, not as a minimal cycle;
 - No dates/intervals, no cross-document merging;
 - Extraction is line-based and simple; a sentence with two ordering statements uses only the first marker.
+
+## §7.064 `::gap do`: executable gap plan (⑯/⑰), 6/6 (2026-11-22)
+
+`::gap` used to print a plan and stop. `::gap do <question>` now runs the local step and reports
+three observable stages:
+
+```
+[缺口·执行] 类型：缺事实（图里没有这条关系边）
+[缺口·执行] 计划→执行→验证：
+  计划：本地传递搜索（同一关系，深度≤4）
+  执行：BFS 完成（从 甲 到 丙，关系 属于）
+  验证：找到传递路径（2 跳）：甲 乙 丙
+  结论：**本地可求证**（路径可当证据；要落图仍需理由+开门）
+```
+
+- proof search = BFS on the graph along the **same relation**, depth ≤4, positive edges only;
+- not found → explicit “本地求证失败” + next steps (paper search / study pose / ask);
+- missing word/structure → “不能自动补” / add to relations.txt;
+- ledger `_t/gap_exec.tsv` (time, kind, result, question);
+- policy `gap_do_local=1` (registered): 0 degrades to plan-only (ablation in the blind set).
+
+### Readings (`tools/gap_exec_blind.py`, new suite `gapexec`)
+
+```
+=> 缺口执行首跑：6/6
+```
+
+2-hop proof found, not-found path + next steps, missing word honesty, 3 stages visible, ledger,
+policy ablation.
+
+### Boundaries
+
+- Only **same-relation** transitive proofs; negation handling is “direct edge exists” only;
+- Depth ≤4, token budget 256 (small graphs; not a scalable index);
+- No external search/ask here; the next step is printed but not executed automatically;
+- It says “本地可求证”, not “already a fact”: writing still needs the reason gate + write gate.

@@ -243,6 +243,7 @@ selfknow|python3 tools/selfknow_blind.py
 symgen|python3 tools/symgen_blind.py
 chain|python3 tools/chain_blind.py
 gap|python3 tools/gap_blind.py
+gapexec|python3 tools/gap_exec_blind.py
 planblind|python3 tools/plan_blind.py
 scorecard|python3 tools/bench.py --quick
 gsm8k|python3 tools/gsm8k_blind.py

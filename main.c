@@ -3597,6 +3597,129 @@ static int gap_do(Agent *a, const char *q) {
 }
 
 
+
+/* §7.064 `::gap do`：缺口计划 → **执行本地求证** → 验证，可观测三段。
+ * 只在本地图上做传递搜索（深度 ≤4，同一关系）；找不到不联网、不猜。 */
+static int gap_find_path(AI *ai, Token *A, Token *B, uint8_t rid, char *out, size_t cap, int *depth_out) {
+    if (!ai || !A || !B || !rid) return 0;
+    Token *q[256]; int par[256]; int qn = 0;
+    Token *seen[256]; int sn = 0;
+    q[qn] = A; par[qn] = -1; qn++;
+    seen[sn++] = A;
+    for (int d = 0; d < 4 && qn < 256; ++d) {
+        int end = qn;
+        for (int i = 0; i < end; ++i) {
+            Token *cur = q[i];
+            for (size_t k = 0; k < cur->count; ++k) {
+                const AssocEntry *e = &token_assocs_ro(cur)[k];
+                if (!e->main || !(e->rel & (1u << (rid - 1)))) continue;
+                Token *nb = e->main;
+                if (!nb) continue;
+                int dup = 0;
+                for (int s = 0; s < sn; ++s) if (seen[s] == nb) { dup = 1; break; }
+                if (dup) continue;
+                if (sn < 256) seen[sn++] = nb;
+                if (qn < 256) { q[qn] = nb; par[qn] = i; qn++; }
+                if (nb == B) {
+                    /* 回溯：用 par 链把路径写出来 */
+                    int idx = qn - 1;
+                    Token *path[8]; int pn = 0;
+                    while (idx >= 0 && pn < 8) { path[pn++] = q[idx]; idx = par[idx]; }
+                    size_t used = 0;
+                    for (int p = pn - 1; p >= 0; --p) {
+                        int w = snprintf(out + used, cap > used ? cap - used : 0, "%s%s",
+                                         path[p]->name ? path[p]->name : "?", p ? " " : "");
+                        if (w < 0) break;
+                        used += (size_t)w;
+                        if (used >= cap) break;
+                    }
+                    if (depth_out) *depth_out = d + 1;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int gap_exec(Agent *a, const char *q) {
+    if (!a || !a->brain || !q) return 0;
+    AI *ai = a->brain;
+    const char *rpos = NULL;
+    char rel[32] = {0};
+    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+        const char *rn = rel_name_of(ai, rid);
+        if (!rn || !rn[0]) continue;
+        const char *p = strstr(q, rn);
+        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+    }
+    char sbj[64] = {0}, obj[64] = {0};
+    const char *kind = NULL, *evidence = NULL;
+    Token *A = NULL, *B = NULL;
+    uint8_t rid = 0;
+    if (!rpos) { kind = "缺结构"; evidence = "问法里没有认识的关系词"; }
+    if (!kind) {
+        size_t sl = (size_t)(rpos - q);
+        if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+        memcpy(sbj, q, sl); sbj[sl] = 0; gap_trim(sbj);
+        snprintf(obj, sizeof obj, "%s", rpos + strlen(rel)); gap_trim(obj);
+        if (!sbj[0] || !obj[0]) { kind = "缺结构"; evidence = "主语或宾语为空"; }
+    }
+    if (!kind) {
+        rid = rel_id_of(ai, rel, 0);
+        A = pool_find(ai->pool, sbj); B = pool_find(ai->pool, obj);
+        if (!A || !B) { kind = "缺词"; evidence = !A ? sbj : obj; }
+        else if (!rid) { kind = "缺结构"; evidence = rel; }
+        else if (rel_direct(A, rid, B) || rel_direct_neg(A, rid, B)) { kind = "已能回答"; evidence = "图里有直边或否定边"; }
+        else { kind = "缺事实"; evidence = "图里没有这条关系边"; }
+    }
+    printf("[缺口·执行] 类型：%s（%s）\n", kind, evidence ? evidence : "?");
+    printf("[缺口·执行] 计划→执行→验证：\n");
+    const char *result = "none";
+    if (!strcmp(kind, "缺事实")) {
+        printf("  计划：本地传递搜索（同一关系，深度≤4）\n");
+        int enabled = (int)aip_policy_int("gap_do_local", 1);
+        if (!enabled) {
+            printf("  执行：本地搜索被策略关闭（gap_do_local=0）\n");
+            printf("  验证：未执行 —— 降级为人工/外部求证\n");
+            result = "disabled";
+        } else {
+            char path[512] = {0}; int depth = 0;
+            int found = gap_find_path(ai, A, B, rid, path, sizeof path, &depth);
+            printf("  执行：BFS 完成（从 %s 到 %s，关系 %s）\n", sbj, obj, rel);
+            if (found) {
+                printf("  验证：找到传递路径（%d 跳）：%s\n", depth, path);
+                printf("  结论：**本地可求证**（路径可当证据；要落图仍需理由+开门）\n");
+                result = "found";
+            } else {
+                printf("  验证：本地无路径（4 跳内）\n");
+                printf("  结论：本地求证失败 → 下一步：::paper search %s%s / ::study pose %s / ::ask（需 ::tool on）\n",
+                       rel, obj, q);
+                result = "notfound";
+            }
+        }
+    } else if (!strcmp(kind, "缺词")) {
+        printf("  计划：本地找同义词/上位词\n");
+        printf("  执行：词表里没有「%s」\n", evidence);
+        printf("  验证：不能自动补 → 数据缺口（[syn] / 教学 / ::sym add）\n");
+        result = "need_data";
+    } else if (!strcmp(kind, "缺结构")) {
+        printf("  计划：检查关系词表\n");
+        printf("  执行：关系「%s」不在数据里\n", evidence);
+        printf("  验证：往 relations.txt 加（不改 C）\n");
+        result = "need_structure";
+    } else {
+        printf("  计划：直接验证直边\n");
+        printf("  执行：图里有这条关系\n");
+        printf("  验证：可以直接回答（答案仍按既有置信/否定位规则）\n");
+        result = "direct";
+    }
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/gap_exec.tsv", "ab");
+    if (f) { fprintf(f, "%ld\t%s\t%s\t%s\n", (long)time(NULL), kind, result, q); fclose(f); }
+    return 1;
+}
+
 static void study_stats_counts(size_t *nq, size_t *solved) {
     *nq = 0; *solved = 0;
     FILE *f = fopen("_t/study/stats.tsv", "rb");
@@ -6146,8 +6269,13 @@ int main(int argc, char **argv) {
             case CMD_GAP: {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
-                if (!arg || !*arg) { printf("[用法] ::gap <问句>\n"); continue; }
-                gap_do(a, arg);
+                if (!arg || !*arg) { printf("[用法] ::gap <问句> | ::gap do <问句>\n"); continue; }
+                if (!strncmp(arg, "do ", 3)) {
+                    arg += 3;
+                    while (*arg == ' ') arg++;
+                    if (!*arg) { printf("[用法] ::gap do <问句>\n"); continue; }
+                    gap_exec(a, arg);
+                } else gap_do(a, arg);
                 continue;
             }
             case CMD_CHAIN: {
