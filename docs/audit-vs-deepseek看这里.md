@@ -36667,3 +36667,40 @@ budget 0.01) so the repair path can be exercised without corrupting the reposito
   reason gate + write gate + rollback from ⑥);
 - Recheck after repair covers only the 3 invariant groups (focus/attention/lists), not all 10;
 - If a future invariant fails for another reason, repair says “nothing to fix” and leaves it red.
+
+## §7.062 `::self edit/rollback/status`: guarded data-file self-edit (E18 step), 9/9 (2026-11-22)
+
+The model can now modify **data files** (not source) under the ⑥ gate chain:
+
+- allowlist only `policy.txt` / `patterns.txt`; single line, ≤200 bytes, format-checked
+  (`key=value` for policy, `[`-prefixed for patterns);
+- requires `::sym write on` **and** `::sym reason <why>`; refuses otherwise;
+- backs the file up to `_t/self/backup/`, appends or **replaces the existing key line**, writes
+  `_t/self/ledger.tsv` (time, file, text, reason, backup) and `_t/self/last.tsv`;
+- max 5 edits per process; `::self rollback` restores the newest backup; `::self status` shows gate,
+  reason, edit count and paths.
+
+### Bug found by building this
+
+`aip_policy_int` cached at most **16 keys**; with the growing `policy.txt`, later keys (including
+`att_topk`) were silently ignored — an edit “succeeded” but the runtime kept the default 5. Fixed by
+raising the cache to 128 keys × 64 bytes (`ai.h`). This was a real policy-parsing bug, not a test
+artifact.
+
+### Readings (`tools/selfedit_blind.py`, new suite `selfedit`)
+
+```
+=> 数据文件自改首跑：9/9
+```
+
+gate/reason/allowlist/format refusals, replacement visible to a new process (top-k 2), ledger +
+backup, rollback restores top-k 5, rollback-without-backup message.
+
+### Boundaries
+
+- **Data only** (policy/patterns); no source-file edits, no model binary, no git;
+- “Format check” is syntactic; semantic damage (bad value, harmful word) is caught only by later
+  tests or humans;
+- Rollback is single-step (last edit); no multi-step stack;
+- The 5-edit limit is per process, not persisted; no rate limit across restarts;
+- This is a self-modification **primitive**, not yet a bootstrap loop.

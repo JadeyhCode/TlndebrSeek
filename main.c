@@ -577,6 +577,7 @@ typedef enum {
     CMD_GAP,
     CMD_PLAN,
     CMD_SELFTEST,
+    CMD_SELF,
     CMD_RELAY,
     CMD_FALL,
     CMD_COT,
@@ -778,6 +779,8 @@ static const CmdDef CMDS[] = {
       "允许现场造词：没见过的复合词造成符号节点并接线（默认 on）", CMD_COIN },
     { "seg", NULL, 1, "基本",
       "允许换切分找帧：拆解（好吗→好+吗）/ 合并（人工+智能）（默认 on）", CMD_SEG },
+    { "self", "<edit|rollback|status>", 1, "基本",
+      "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
     { "plan", "[run] <问句>", 1, "基本",
@@ -3313,6 +3316,134 @@ static int plan_do(Agent *a, const char *arg) {
 
 /* §7.060 `::selftest`：**自检 10 项**（E18 自举前的健康检查）。
  * 只读内存 + 一次 /tmp 存读往返；不改图、不改文件（除 /tmp 临时档）。 */
+
+/* §7.062 `::self edit/rollback/status`：**数据文件**的受限自修改。
+ * 只允许 policy.txt / patterns.txt；必须 ::sym write on + 理由；写前备份、记账、限额；
+ * 只做格式检查（语义要看下次进程），rollback 恢复最近一次备份。 */
+static int g_self_edits = 0;
+static int self_allowed(const char *f) {
+    return !strcmp(f, "policy.txt") || !strcmp(f, "patterns.txt");
+}
+static int self_format_ok(const char *f, const char *text) {
+    if (!strcmp(f, "policy.txt")) {
+        const char *eq = strchr(text, '=');
+        if (!eq || eq == text) return 0;
+        for (const char *p = text; p < eq; ++p)
+            if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_')) return 0;
+        return 1;
+    }
+    return text[0] == '[';   /* patterns.txt：形状/类/答复行 */
+}
+static int self_do(Agent *a, const char *arg) {
+    if (!a || !arg) return 0;
+    while (*arg == ' ') arg++;
+    if (!strncmp(arg, "status", 6) || !*arg) {
+        printf("[自改] 状态：写入门=%s｜理由=%s｜本进程已改=%d/5｜允许文件=policy.txt,patterns.txt\n",
+               g_sym_write ? "开" : "关", g_sym_reason[0] ? g_sym_reason : "（空）", g_self_edits);
+        printf("       账本=_t/self/ledger.tsv｜最近备份=_t/self/last.tsv\n");
+        return 1;
+    }
+    if (!strncmp(arg, "rollback", 8)) {
+        FILE *lf = fopen("_t/self/last.tsv", "rb");
+        if (!lf) { printf("[自改] 没有可回滚的备份\n"); return 1; }
+        char file[128], backup[256];
+        if (fscanf(lf, "%127s %255s", file, backup) != 2) { fclose(lf); printf("[自改] 备份记录坏了\n"); return 1; }
+        fclose(lf);
+        FILE *src = fopen(backup, "rb");
+        FILE *dst = src ? fopen(file, "wb") : NULL;
+        if (!src || !dst) {
+            if (src) fclose(src);
+            if (dst) fclose(dst);
+            printf("[自改] 回滚失败（备份或目标打不开：%s）\n", backup);
+            return 1;
+        }
+        char buf[4096]; size_t n;
+        while ((n = fread(buf, 1, sizeof buf, src)) > 0) fwrite(buf, 1, n, dst);
+        fclose(src); fclose(dst);
+        remove("_t/self/last.tsv");
+        printf("[自改] 已回滚 %s（从 %s 恢复；新进程生效）\n", file, backup);
+        return 1;
+    }
+    if (!strncmp(arg, "edit", 4)) {
+        const char *rest = arg + 4;
+        while (*rest == ' ') rest++;
+        char file[64]; size_t fl = 0;
+        while (*rest && *rest != ' ' && fl + 1 < sizeof file) file[fl++] = *rest++;
+        file[fl] = 0;
+        while (*rest == ' ') rest++;
+        if (!file[0] || !*rest) { printf("[用法] ::self edit <policy.txt|patterns.txt> <一行文本>\n"); return 1; }
+        if (!self_allowed(file)) { printf("[自改] 只允许 policy.txt / patterns.txt（拒绝 %s）\n", file); return 1; }
+        if (!sym_write_gate()) return 1;
+        if (!g_sym_reason[0]) { printf("[自改] 必须给理由：先 ::sym reason <为什么>\n"); return 1; }
+        if (g_self_edits >= 5) { printf("[自改] 本进程已达 5 次上限\n"); return 1; }
+        if (strlen(rest) > 200) { printf("[自改] 文本太长（>200 字节）\n"); return 1; }
+        if (strchr(rest, '\n') || strchr(rest, '\r')) { printf("[自改] 只允许单行\n"); return 1; }
+        if (!self_format_ok(file, rest)) { printf("[自改] 格式检查不通过（policy 要 key=value；patterns 要以 [ 开头）\n"); return 1; }
+        FILE *chk = fopen(file, "rb");
+        if (!chk) { printf("[自改] 目标文件不存在：%s\n", file); return 1; }
+        fseek(chk, 0, SEEK_END);
+        long sz = ftell(chk);
+        int need_nl = 1;
+        if (sz > 0) { fseek(chk, -1, SEEK_END); need_nl = (fgetc(chk) != '\n'); }
+        fclose(chk);
+        mkdir("_t", 0755); mkdir("_t/self", 0755); mkdir("_t/self/backup", 0755);
+        char backup[256];
+        snprintf(backup, sizeof backup, "_t/self/backup/%s.%ld.%d", file, (long)time(NULL), g_self_edits);
+        FILE *s = fopen(file, "rb"), *d = s ? fopen(backup, "wb") : NULL;
+        if (!s || !d) { if (s) fclose(s); if (d) fclose(d); printf("[自改] 备份失败，未修改\n"); return 1; }
+        char b[4096]; size_t n;
+        while ((n = fread(b, 1, sizeof b, s)) > 0) fwrite(b, 1, n, d);
+        fclose(s); fclose(d);
+        int replaced = 0;
+        if (!strcmp(file, "policy.txt")) {
+            /* policy：同名 key 就**替换那一行**（追加在末尾会被前面的同 key 盖住） */
+            FILE *rf = fopen(file, "rb");
+            char *buf = rf ? (char *)malloc(1 << 20) : NULL;
+            size_t rn = 0;
+            if (rf && buf) { rn = fread(buf, 1, (1 << 20) - 1, rf); buf[rn] = 0; }
+            if (rf) fclose(rf);
+            if (buf) {
+                char key[64]; size_t kl = 0;
+                const char *eq = strchr(rest, '=');
+                while (rest + kl < eq && kl + 1 < sizeof key) { key[kl] = rest[kl]; kl++; }
+                key[kl] = 0;
+                FILE *wf = fopen(file, "wb");
+                char *save = NULL, *line = strtok_r(buf, "\n", &save);
+                while (line) {
+                    if (!replaced && !strncmp(line, key, strlen(key)) && line[strlen(key)] == '=') {
+                        fprintf(wf, "%s\n", rest);
+                        replaced = 1;
+                    } else {
+                        fprintf(wf, "%s\n", line);
+                    }
+                    line = strtok_r(NULL, "\n", &save);
+                }
+                if (!replaced) fprintf(wf, "%s\n", rest);
+                fclose(wf);
+                free(buf);
+            }
+        }
+        if (strcmp(file, "policy.txt") != 0) {
+            FILE *f = fopen(file, "ab");
+            if (!f) { printf("[自改] 打不开目标文件，未修改\n"); return 1; }
+            if (need_nl) fputc('\n', f);
+            fprintf(f, "%s\n", rest);
+            fclose(f);
+        }
+        (void)replaced;
+        g_self_edits++;
+        study_log("_t/self/ledger.tsv", "%ld\t%s\t%s\t理由=%s\t备份=%s\n",
+                  (long)time(NULL), file, rest, g_sym_reason, backup);
+        FILE *lf = fopen("_t/self/last.tsv", "wb");
+        if (lf) { fprintf(lf, "%s %s\n", file, backup); fclose(lf); }
+        printf("[自改] 已写入 %s（备份 %s）；格式检查通过，**新进程生效**；回滚：::self rollback\n",
+               file, backup);
+        return 1;
+    }
+    printf("[用法] ::self edit <file> <文本>｜::self rollback｜::self status\n");
+    return 1;
+}
+
 static int selftest_run(Agent *a, int repair) {
     if (!a || !a->brain) return 1;
     AI *ai = a->brain;
@@ -5991,6 +6122,12 @@ int main(int argc, char **argv) {
                        a->brain->seg_off ? "关（只用切词器那一版切分）"
                                          : "开（默认：主切分不中时试拆解/合并）",
                        a->brain->n_split, a->brain->n_merge);
+                continue;
+            }
+            case CMD_SELF: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                self_do(a, arg ? arg : "status");
                 continue;
             }
             case CMD_SELFTEST: {

@@ -476,8 +476,10 @@ static inline const char *ai_write_src_name(AiWriteSrc s) {
  * 只认整数；文件缺失/坏行就当没写（保持可复现：删掉 policy.txt 就回到默认）。 */
 static inline long aip_policy_int(const char *key, long def) {
     /* 线程局部：并发（conc_tsan）下多个 agent 会同时进这里，全局静态会报 data race */
-    static AIP_TLS char p_key[16][40];
-    static AIP_TLS long p_val[16];
+    /* §7.062 修：旧容量 16 会把长 policy.txt 里靠后的 key **静默忽略**（att_topk 就中招：
+     * 文件写 2、运行时仍按默认 5）。放大到 128 并继续按文件顺序读。 */
+    static AIP_TLS char p_key[128][64];
+    static AIP_TLS long p_val[128];
     static AIP_TLS int p_n = -1;
     if (!key) return def;
     if (p_n < 0) {
@@ -485,7 +487,7 @@ static inline long aip_policy_int(const char *key, long def) {
         FILE *f = fopen("policy.txt", "rb");
         if (f) {
             char line[256];
-            while (fgets(line, sizeof line, f) && p_n < 16) {
+            while (fgets(line, sizeof line, f) && p_n < 128) {
                 char *h = strchr(line, '#');
                 if (h) *h = 0;
                 char *eq = strchr(line, '=');
