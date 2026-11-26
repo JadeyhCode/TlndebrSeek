@@ -51,8 +51,9 @@ def main():
     checks.append(("run：本地能答就停", "能答" in out and "→ 停" in out))
 
     out = run("::plan run 螺旋兽 属于 动物 吗\n::quit\n")
-    checks.append(("run：答不出就按计划继续（不擅自联网）",
-                   "答不出" in out and "按上面步骤继续" in out and "不擅自联网" in out))
+    checks.append(("run：答不出就按步骤继续（外部/写入步骤拒绝，不擅自联网）",
+                   "本地答不出" in out and "ask → 拒绝" in out and
+                   "sym → 拒绝" in out and "结果：拒" in out))
 
     tsv = os.path.join(W, "_t", "plans.tsv")
     ok_tsv = False

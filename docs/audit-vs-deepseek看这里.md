@@ -36770,3 +36770,55 @@ policy ablation.
 - Depth ≤4, token budget 256 (small graphs; not a scalable index);
 - No external search/ask here; the next step is printed but not executed automatically;
 - It says “本地可求证”, not “already a fact”: writing still needs the reason gate + write gate.
+
+## §7.065 `::plan run` step trace: plan → execute → verify, task-type routing (⑰), 6/6 (2026-11-22)
+
+`::plan run` used to try only one “local step”. It now walks the **policy step list** in order and
+prints each step's outcome, stopping when the local step answers:
+
+```
+[计划] 任务类型：fact｜步骤：
+[流程] 开始按步骤执行（只跑本地安全步骤）：
+  [流程] 1) gap → 缺词
+  [流程] 2) local → 本地答不出
+  [流程] 3) paper → 未自动执行（要出处用 ::paper search）
+  [流程] 4) ask → 拒绝：外部请求需 ::tool on，不擅自联网
+  [流程] 5) sym → 拒绝：改图需 ::sym write on + 理由，不自动写
+  [流程] 6) refuse → 明说不会，记未解
+[流程] 结果：拒（共走 6 步）
+```
+
+- task type (fact/code/math/paper/other) and step lists stay **data**: `plan_steps_*` in policy;
+- known fact: gap → 已能回答, local → 能答, **stops** (no paper/ask);
+- unknown: every step is reported; external (ask) and write (sym) steps are explicitly refused,
+  so the flow cannot silently call the network or write the graph;
+- ledger `_t/plans.tsv` (type, steps, run/dry, outcome).
+
+Bug found while testing: the step string was consumed by the first print loop (`aip_policy_next`
+inserts NULs), so the execution loop saw only step 1 — fixed by re-reading the policy into a second
+buffer before execution.
+
+### Readings (`tools/plan_trace_blind.py`, new suite `plantrace`)
+
+```
+=> 流程 trace 首跑：6/6
+```
+
+known-stops, unknown-runs-all-and-refuses, ask/sym refusal, math→calc, ledger, policy ablation (2 steps).
+
+### Boundaries
+
+- Execution only **checks facts** (direct edge) and gap kind; paper/calc/code are printed as
+  “not auto-executed” rather than run;
+- Step semantics are names in a list; the executor understands a fixed vocabulary of step names;
+- The trace is text, not a machine-readable plan object (no plan id or replay);
+- “记未解” is printed but the unsolved hook is not called from this path yet.
+
+### Gate note (same round)
+
+The first gate after this change went **red on `planblind`**: its assertion still looked for the old
+single-step wording (`答不出 … 按上面步骤继续`). The run branch now prints `本地答不出` plus explicit
+per-step lines (`ask → 拒绝`, `sym → 拒绝`) and `结果：拒`. The test was updated to the new contract
+(no kernel change) and both `planblind` (7/7) and `plantrace` (6/6) pass. Also clarified why the gate
+table showed “199 套” while 200 rc files existed: `gate.py` reports the count of `[OK]` lines, so with
+one failing suite it prints the number of *passing* suites under a loose “套” label.

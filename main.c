@@ -3235,6 +3235,33 @@ static const char *plan_label(const char *step) {
     return step;
 }
 
+
+/* §7.065 流程 trace：判断缺口类型（给 `::plan run` 逐步执行用，只读）。 */
+static void plan_gap_kind(AI *ai, const char *q, char *kind, size_t cap) {
+    snprintf(kind, cap, "%s", "缺结构");
+    const char *rpos = NULL; char rel[32] = {0};
+    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+        const char *rn = rel_name_of(ai, rid);
+        if (!rn || !rn[0]) continue;
+        const char *p = strstr(q, rn);
+        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+    }
+    if (!rpos) return;
+    char sbj[64] = {0}, obj[64] = {0};
+    size_t sl = (size_t)(rpos - q);
+    if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+    memcpy(sbj, q, sl); sbj[sl] = 0;
+    snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
+    gap_trim(sbj); gap_trim(obj);
+    if (!sbj[0] || !obj[0]) return;
+    Token *A = pool_find(ai->pool, sbj), *B = pool_find(ai->pool, obj);
+    uint8_t rid = rel_id_of(ai, rel, 0);
+    if (!A || !B) { snprintf(kind, cap, "%s", "缺词"); return; }
+    if (!rid) { snprintf(kind, cap, "%s", "缺结构"); return; }
+    if (rel_direct(A, rid, B) || rel_direct_neg(A, rid, B)) { snprintf(kind, cap, "%s", "已能回答"); return; }
+    snprintf(kind, cap, "%s", "缺事实");
+}
+
 static int plan_do(Agent *a, const char *arg) {
     if (!a || !a->brain || !arg) return 0;
     AI *ai = a->brain;
@@ -3279,33 +3306,61 @@ static int plan_do(Agent *a, const char *arg) {
 
     const char *outcome = "只出计划（未执行）";
     if (run) {
-        /* 只跑“本地一步”：按字符串找关系词，词/边在就报能答，否则拒；不发外部请求。 */
-        const char *rpos = NULL; char rel[32] = {0};
-        for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
-            const char *rn = rel_name_of(ai, rid);
-            if (!rn || !rn[0]) continue;
-            const char *p = strstr(q, rn);
-            if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
-        }
-        int can = 0, neg = 0;
-        if (rpos) {
-            char sbj[64] = {0}, obj[64] = {0};
-            size_t sl = (size_t)(rpos - q);
-            if (sl >= sizeof sbj) sl = sizeof sbj - 1;
-            memcpy(sbj, q, sl); sbj[sl] = 0;
-            snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
-            gap_trim(sbj); gap_trim(obj);
-            Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
-            Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
-            uint8_t rid = rel_id_of(ai, rel, 0);
-            if (A && B && rid) {
-                if (rel_direct(A, rid, B)) can = 1;
-                else if (rel_direct_neg(A, rid, B)) neg = 1;
+        printf("[流程] 开始按步骤执行（只跑本地安全步骤）：\n");
+        int idx2 = 0;
+        char steps2[256];
+        if (!aip_policy_str(key, steps2, sizeof steps2) || !steps2[0])
+            snprintf(steps2, sizeof steps2, "%s", steps);
+        char *c2 = steps2;
+        int stopped = 0;
+        for (char *s = aip_policy_next(&c2); s && !stopped; s = aip_policy_next(&c2)) {
+            idx2++;
+            if (!strcmp(s, "gap")) {
+                char gk[32]; plan_gap_kind(ai, q, gk, sizeof gk);
+                printf("  [流程] %d) gap → %s\n", idx2, gk);
+            } else if (!strcmp(s, "local")) {
+                const char *rpos = NULL; char rel[32] = {0};
+                for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+                    const char *rn = rel_name_of(ai, rid);
+                    if (!rn || !rn[0]) continue;
+                    const char *p = strstr(q, rn);
+                    if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+                }
+                int can = 0, neg = 0;
+                if (rpos) {
+                    char sbj[64] = {0}, obj[64] = {0};
+                    size_t sl = (size_t)(rpos - q);
+                    if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+                    memcpy(sbj, q, sl); sbj[sl] = 0;
+                    snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
+                    gap_trim(sbj); gap_trim(obj);
+                    Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
+                    Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
+                    uint8_t rid = rel_id_of(ai, rel, 0);
+                    if (A && B && rid) {
+                        if (rel_direct(A, rid, B)) can = 1;
+                        else if (rel_direct_neg(A, rid, B)) neg = 1;
+                    }
+                }
+                if (can) { printf("  [流程] %d) local → 能答（有直边）→ 停\n", idx2); outcome = "能答"; stopped = 1; }
+                else if (neg) { printf("  [流程] %d) local → 能答（否定边）→ 停\n", idx2); outcome = "能答（否定）"; stopped = 1; }
+                else printf("  [流程] %d) local → 本地答不出\n", idx2);
+            } else if (!strcmp(s, "paper")) {
+                printf("  [流程] %d) paper → 未自动执行（要出处用 ::paper search）\n", idx2);
+            } else if (!strcmp(s, "ask")) {
+                printf("  [流程] %d) ask → 拒绝：外部请求需 ::tool on，不擅自联网\n", idx2);
+            } else if (!strcmp(s, "sym")) {
+                printf("  [流程] %d) sym → 拒绝：改图需 ::sym write on + 理由，不自动写\n", idx2);
+            } else if (!strcmp(s, "code") || !strcmp(s, "calc")) {
+                printf("  [流程] %d) %s → 未自动执行（需精确函数/动作层，计划保留）\n", idx2, s);
+            } else if (!strcmp(s, "refuse")) {
+                printf("  [流程] %d) refuse → 明说不会，记未解\n", idx2);
+                outcome = "拒";
+            } else {
+                printf("  [流程] %d) %s → 不认识的步骤，跳过\n", idx2, s);
             }
         }
-        if (can) { printf("[执行] 本地一步：**能答**（图里有直边）→ 停\n"); outcome = "能答"; }
-        else if (neg) { printf("[执行] 本地一步：**能答（否定）**\n"); outcome = "能答（否定）"; }
-        else { printf("[执行] 本地一步：答不出 → 按上面步骤继续（不擅自联网/不问用户）\n"); outcome = "拒"; }
+        printf("[流程] 结果：%s（共走 %d 步）\n", outcome, idx2);
     }
     mkdir("_t", 0755);
     FILE *f = fopen("_t/plans.tsv", "ab");
