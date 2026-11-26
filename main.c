@@ -2414,6 +2414,7 @@ typedef struct {
     size_t help_user;  /* 求助：写进“要问用户”队列 */
     size_t help_sym;   /* 求助：给出 ::sym 建议（不自动写） */
     size_t propose;    /* 写进待证的条数 */
+    size_t verified;   /* 自解中**经图复核**过的条数（§7.070） */
 } StudyStats;
 static StudyStats g_study;
 
@@ -2897,6 +2898,8 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
 }
 
 /* 一轮自学；返回 1=处理了一道题，0=队列空 */
+static void gap_trim(char *s);
+static int gap_find_path(AI *ai, Token *A, Token *B, uint8_t rid, char *out, size_t cap, int *depth_out);
 static int study_round(Agent *a) {
     AI *ai = a->brain;
     char q[512];
@@ -2907,6 +2910,7 @@ static int study_round(Agent *a) {
     ans[0] = 0;
     (void)agent_step(a, q, ans, sizeof ans);
     int solved = !study_is_refusal(ans);
+    int vkind = 0;
     int local_ok = 0, local_verified = 0;
     char why[256];
     study_reflect(ai, q, why, sizeof why);
@@ -2914,8 +2918,49 @@ static int study_round(Agent *a) {
     printf("[自学] 自检：%s；归因：%s\n", solved ? "答出了（**未外部验证**）" : "答不出", why);
     if (solved) {
         g_study.solved++;
-        study_log("_t/study/proposals.tsv", "%ld\t自解（未验证）\t%s\t%s\n",
-                  (long)time(NULL), q, ans);
+        /* §7.070 复核：自判“答出了”不等于对；能在图上找到直边/传递路径/否定直边才记 verified。 */
+        char vwhy[96] = "未验证（只有自判）";
+        int v_on = (int)aip_policy_int("study_verify", 1);
+        if (!v_on) snprintf(vwhy, sizeof vwhy, "%s", "关（study_verify=0），按未验证计");
+        if (v_on) {
+            const char *rpos = NULL; char rel[32] = {0};
+            for (uint8_t rid0 = 1; rid0 < REL_DYN_BASE; ++rid0) {
+                const char *rn = rel_name_of(ai, rid0);
+                if (!rn || !rn[0]) continue;
+                const char *pp = strstr(q, rn);
+                if (pp && (!rpos || pp < rpos)) { rpos = pp; snprintf(rel, sizeof rel, "%s", rn); }
+            }
+            if (rpos) {
+                char sbj[64] = {0}, obj[64] = {0};
+                size_t sl = (size_t)(rpos - q);
+                if (sl >= sizeof sbj) sl = sizeof sbj - 1;
+                memcpy(sbj, q, sl); sbj[sl] = 0;
+                snprintf(obj, sizeof obj, "%s", rpos + strlen(rel));
+                gap_trim(sbj); gap_trim(obj);
+                Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
+                Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
+                uint8_t rid = rel_id_of(ai, rel, 0);
+                if (A && B && rid) {
+                    int derived0 = 0;
+                    if (rel_direct_as(A, rid, B, &derived0)) {
+                        vkind = 1;
+                        snprintf(vwhy, sizeof vwhy, "%s", derived0 ? "传递（缓存边）" : "直边");
+                    }
+                    else if (rel_direct_neg(A, rid, B)) { vkind = 1; snprintf(vwhy, sizeof vwhy, "否定直边"); }
+                    else {
+                        char path[512] = {0}; int depth = 0;
+                        if (gap_find_path(ai, A, B, rid, path, sizeof path, &depth)) {
+                            vkind = 1;
+                            snprintf(vwhy, sizeof vwhy, "传递路径 %d 跳", depth);
+                        }
+                    }
+                }
+            }
+        }
+        printf("[自学] 复核：%s\n", vwhy);
+        if (vkind) g_study.verified++;
+        study_log("_t/study/proposals.tsv", "%ld\t自解（%s）\t%s\t%s\n",
+                  (long)time(NULL), vkind ? "已验证" : "未验证", q, ans);
         g_study.propose++;
     } else {
         g_study.failed++;
@@ -3029,7 +3074,8 @@ static int study_round(Agent *a) {
         int success = solved || local_ok;
         char flags[64];
         snprintf(flags, sizeof flags, "%s%s%s%s%s",
-                 solved ? "self" : (local_ok ? (local_verified ? "localv" : "localu") : "-"),
+                 solved ? (vkind ? "selfv" : "self")
+                        : (local_ok ? (local_verified ? "localv" : "localu") : "-"),
                  (!success && g_study.help_ext) ? ",ext" : "",
                  (!success && g_study.help_user) ? ",user" : "",
                  (!success && g_study.help_sym) ? ",sym" : "",
@@ -3806,8 +3852,8 @@ static void study_stats_print(void) {
             nq++;
             if (strstr(line, "\tsolved\t")) {
                 solved++;
-                if (strstr(line, "\tself\t") || strstr(line, "\tlocalv\t")) verified++;
-                else if (strstr(line, "\tlocalu\t")) unverified++;
+                if (strstr(line, "\tselfv\t") || strstr(line, "\tlocalv\t")) verified++;
+                else if (strstr(line, "\tself\t") || strstr(line, "\tlocalu\t")) unverified++;
             } else failed++;
             if (strstr(line, "localv") || strstr(line, "localu")) hl++;
             if (strstr(line, "ext")) he++;

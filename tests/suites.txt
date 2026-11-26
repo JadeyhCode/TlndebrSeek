@@ -250,6 +250,7 @@ planstudy|python3 tools/plan_study_blind.py
 planqueue|python3 tools/plan_queue_blind.py
 studypriority|python3 tools/study_priority_blind.py
 studyrun|python3 tools/study_run_blind.py
+studyverify|python3 tools/study_verify_blind.py
 scorecard|python3 tools/bench.py --quick
 gsm8k|python3 tools/gsm8k_blind.py
 gsm8k2|python3 tools/gsm8k2_blind.py

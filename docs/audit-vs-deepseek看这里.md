@@ -36956,3 +36956,37 @@ distribution recorded, `study_ask_user=0` ablation.
   exercised here; user help is a file, not a conversation;
 - A closed-world negation can count as “solved” (`甲 不属于 丙`), which is a design choice, not proof;
 - One question per invocation (`run N` remains the batch form).
+
+## §7.070 Verified self-solving: recheck the graph after "I solved it" (③), 6/6 (2026-11-22)
+
+Self-judged “solved” was only refusal-vs-not. Now after a self-answer the kernel rechecks the graph:
+
+- **直边** — `rel_direct` finds a plain edge;
+- **传递（缓存边）** — `rel_direct_as` says the edge was derived/cached (chain solver沉淀);
+- **否定直边** — a negative edge exists;
+- otherwise **未验证**（自判不算证明; prints why）;
+- policy `study_verify=1` (registered): 0 prints `复核：关（study_verify=0），按未验证计` and counts all as unverified (ablation).
+
+Stats and proposals are split: `已验证 N / 未验证 M`, proposals label `自解（已验证）` vs `自解（未验证）`;
+stats flag `selfv` vs `self` (fixed a counting bug where every “solved” was shown as verified).
+
+### Readings (`tools/study_verify_blind.py`, new suite `studyverify`)
+
+```
+=> 可验证自解首跑：6/6
+```
+
+直边, 传递（缓存边）, 无依据→未验证, verified/unverified split, proposal labels, ablation message.
+
+Honest note: the blind took several iterations (4/6 → 5/6) because of **test artifacts**, not capability:
+cumulative stats file between runs, the ablation re-using an already-studied question (pose dedupes for
+24h), and the print using a literal instead of `vwhy`. Each was fixed (test or print), and the final
+6/6 is on a clean run.
+
+### Boundaries
+
+- “Verified” means **a graph path exists**, not that the answer matches an external truth; a cached
+  derived edge can itself be wrong;
+- Transitive verification is depth ≤4 over one relation;
+- No TESTS/invariant verification for free-form answers; only relation-style questions are parsed;
+- Negative answers are only verified when an explicit negative edge exists.
