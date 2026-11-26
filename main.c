@@ -8730,6 +8730,113 @@ int main(int argc, char **argv) {
                 /* §6.638 `::paper read <文件>` / `::paper list` */
                 const char *r = carg ? carg : "";
                 while (*r == ' ' || *r == '\t') r++;
+                if (!strncmp(r, "order", 5)) {
+                    /* §7.063 显式先后关系：`X 在 Y 之前/之后`、`X 先于 Y`、`X 晚于 Y`。
+                     * 标记词表在 policy（order_before/order_after）；检测反向对并报冲突。 */
+                    const char *fn = r + 5;
+                    while (*fn == ' ' || *fn == '\t') fn++;
+                    if (!*fn) { printf("[论文] 用法：::paper order <文件>\n"); continue; }
+                    FILE *of = fopen(fn, "rb");
+                    if (!of) { printf("[论文] 读不开 %s\n", fn); continue; }
+                    char *txt = (char *)malloc(1 << 20);
+                    if (!txt) { fclose(of); printf("[论文] 内存不够\n"); continue; }
+                    size_t tn = fread(txt, 1, (1 << 20) - 1, of);
+                    txt[tn] = 0;
+                    fclose(of);
+                    char bwlist[128], awlist[128];
+                    if (!aip_policy_str("order_before", bwlist, sizeof bwlist) || !bwlist[0])
+                        snprintf(bwlist, sizeof bwlist, "%s", "之前,以前,先于");
+                    if (!aip_policy_str("order_after", awlist, sizeof awlist) || !awlist[0])
+                        snprintf(awlist, sizeof awlist, "%s", "之后,以后,晚于");
+                    char pairs[64][2][128];
+                    int pn = 0;
+                    printf("[论文·先后] %s：\n", fn);
+                    char *save = NULL;
+                    for (char *ln = strtok_r(txt, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+                        while (*ln == ' ' || *ln == '\t') ln++;
+                        if (!*ln) continue;
+                        const char *mp = NULL, *mk = NULL;
+                        int after = 0;
+                        char *cur = bwlist;
+                        for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+                            if (w[0] && strstr(ln, w)) { mp = strstr(ln, w); mk = w; after = 0; break; }
+                        if (!mp) {
+                            cur = awlist;
+                            for (char *w = aip_policy_next(&cur); w; w = aip_policy_next(&cur))
+                                if (w[0] && strstr(ln, w)) { mp = strstr(ln, w); mk = w; after = 1; break; }
+                        }
+                        if (!mp || !mk) continue;
+                        const char *xs = ln, *xe = NULL, *ys = NULL, *ye = mp;
+                        const char *zai = strstr(ln, " 在 ");
+                        if (zai && zai < mp) {
+                            xe = zai;
+                            ys = zai + 5;
+                            while (ys < mp && (*ys == ' ' || *ys == '\t')) ys++;
+                        } else if (!strcmp(mk, "先于") || !strcmp(mk, "晚于")) {
+                            xe = mp;
+                            ys = mp + strlen(mk);
+                            while (ys < mp + strlen(mk) + 16 && (*ys == ' ' || *ys == '\t')) ys++;
+                        } else {
+                            xe = mp;
+                            ys = mp + strlen(mk);
+                        }
+                        if (!xe || !ys || ys >= ye) continue;
+                        size_t xl = (size_t)(xe - xs), yl = (size_t)(ye - ys);
+                        while (xl && (xs[xl-1] == ' ' || xs[xl-1] == '\t')) xl--;
+                        while (yl && (ys[yl-1] == ' ' || ys[yl-1] == '\t')) yl--;
+                        while (xl && (xs[0] == ' ' || xs[0] == '\t')) { xs++; xl--; }
+                        while (yl && (ys[0] == ' ' || ys[0] == '\t')) { ys++; yl--; }
+                        if (!xl || !yl || xl >= 128 || yl >= 128) continue;
+                        char X[128], Y[128];
+                        memcpy(X, xs, xl); X[xl] = 0;
+                        memcpy(Y, ys, yl); Y[yl] = 0;
+                        if (after) { char t[128]; snprintf(t, sizeof t, "%s", X); snprintf(X, sizeof X, "%s", Y); snprintf(Y, sizeof Y, "%s", t); }
+                        printf("  %s 在 %s 之前\n", X, Y);
+                        if (pn < 64) {
+                            snprintf(pairs[pn][0], 128, "%s", X);
+                            snprintf(pairs[pn][1], 128, "%s", Y);
+                            pn++;
+                        }
+                    }
+                    /* 冲突 = 先后关系成环（含直接反向、以及 A→B→C→A 这种传递环）。
+                     * 实体映射成顶点，做传递闭包；互相可达的实体对就是环。 */
+                    int nconf = 0;
+                    {
+                        char names[128][128];
+                        int nv = 0;
+                        for (int i = 0; i < pn; ++i)
+                            for (int k = 0; k < 2; ++k) {
+                                int found = 0;
+                                for (int v = 0; v < nv; ++v)
+                                    if (!strcmp(names[v], pairs[i][k])) { found = 1; break; }
+                                if (!found && nv < 128) snprintf(names[nv++], 128, "%s", pairs[i][k]);
+                            }
+                        unsigned char reach[128][128];
+                        memset(reach, 0, sizeof reach);
+                        for (int i = 0; i < pn; ++i) {
+                            int u = -1, v = -1;
+                            for (int k = 0; k < nv; ++k) {
+                                if (!strcmp(names[k], pairs[i][0])) u = k;
+                                if (!strcmp(names[k], pairs[i][1])) v = k;
+                            }
+                            if (u >= 0 && v >= 0) reach[u][v] = 1;
+                        }
+                        for (int k = 0; k < nv; ++k)
+                            for (int i = 0; i < nv; ++i)
+                                if (reach[i][k])
+                                    for (int j = 0; j < nv; ++j)
+                                        if (reach[k][j]) reach[i][j] = 1;
+                        for (int i = 0; i < nv; ++i)
+                            for (int j = i + 1; j < nv; ++j)
+                                if (reach[i][j] && reach[j][i]) {
+                                    printf("  冲突（成环）：%s 与 %s 互相先后\n", names[i], names[j]);
+                                    nconf++;
+                                }
+                    }
+                    printf("[论文·先后] 共 %d 条显式先后；冲突 %d 对（只列，不裁决）\n", pn, nconf);
+                    free(txt);
+                    continue;
+                }
                 if (!strncmp(r, "timeline", 8)) {
                     /* §7.058 时间线：按文档顺序列出带时间标记的句子（数据类 time_marker）。
                      * 只做**抽取+排序**，不做矛盾判定（下一步再比对前后关系）。 */

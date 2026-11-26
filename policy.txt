@@ -60,3 +60,6 @@ wordmath_max_numbers=3
 paper_conflict_relations=属于,在
 # §7.058 论文时间线：哪些词算时间标记（数据）
 time_marker=之前,之后,以前,以后,先,再,然后,接着,最后,起初,后来
+# §7.063 论文显式先后关系：标记词（数据）
+order_before=之前,以前,先于
+order_after=之后,以后,晚于

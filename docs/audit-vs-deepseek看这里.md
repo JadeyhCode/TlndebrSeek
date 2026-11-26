@@ -36704,3 +36704,33 @@ backup, rollback restores top-k 5, rollback-without-backup message.
 - Rollback is single-step (last edit); no multi-step stack;
 - The 5-edit limit is per process, not persisted; no rate limit across restarts;
 - This is a self-modification **primitive**, not yet a bootstrap loop.
+
+## §7.063 `::paper order`: explicit ordering + cycle detection (D12), 6/6 (2026-11-22)
+
+New subcommand reads explicit order statements and reports conflicts:
+
+- forms: `X 在 Y 之前/之后`, `X 先于 Y`, `X 晚于 Y` (marker words are data:
+  `order_before=之前,以前,先于`, `order_after=之后,以后,晚于`);
+- prints each normalized pair (`X 在 Y 之前`) in document order;
+- conflict = **cycle in the order graph**, detected by transitive closure over entity vertices
+  (direct reversal → 1 pair; A→B→C→A → 3 mutually-reversed pairs);
+- reports only, never decides.
+
+### Readings (`tools/paper_order_blind.py`, new suite `paperorder`)
+
+```
+=> 论文先后关检测首跑：6/6
+```
+
+chain 2/0, direct reverse 2/1, 3-cycle 3/3, plain 0/0, missing file message, marker-word ablation 0/0.
+
+Honest note: the first run was 5/6 because the **test expected 3 pairs for a 2-line chain** (my error);
+the check was corrected to 2 pairs and re-run. No kernel change was made for that.
+
+### Boundaries
+
+- Only the listed surface forms; “A 早于 B”/“A before B” are not parsed;
+- Entities are raw strings; “早饭”/“早饭时” are different entities (no normalization);
+- Cycles are reported as pairwise “mutually ordered”, not as a minimal cycle;
+- No dates/intervals, no cross-document merging;
+- Extraction is line-based and simple; a sentence with two ordering statements uses only the first marker.

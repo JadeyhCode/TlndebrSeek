@@ -213,6 +213,7 @@ paperblind|python3 tools/paper_blind.py
 paperarg|python3 tools/paper_arg_blind.py
 paperfocus|python3 tools/paper_focus_blind.py
 paperconflict|python3 tools/paper_conflict_blind.py
+paperorder|python3 tools/paper_order_blind.py
 timeline|python3 tools/timeline_blind.py
 selftest|python3 tools/selftest_blind.py
 selftestrepair|python3 tools/selftest_repair_blind.py
