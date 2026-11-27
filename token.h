@@ -1578,30 +1578,62 @@ l_create_nrel:
  * 为什么不再开一个字段：存档格式是铁律（v10），空位就藏在现成的字节里。 */
 #define REL_NEG_DYN_BIT 0x8000u
 
-/* 给 a→b 打上**动态关系**（清单外的谓语，id 从 8 起） */
+/* §7.082 同一对 (A,B) 可以挂多个动态关系（默认开；`AIP_MULTIDYN=0` 回退旧的覆盖行为）。
+ * 为什么：`e->dyn` 是单字段，旧实现会把上一条动态关系**覆盖**掉（实测同对 3 个谓语只剩 1 个）。
+ * 做法：virgin 共现边仍然复用（保持旧行为/边数），已有 dyn≠本 id 时**新增一条边**；
+ * 格式不用改——多条同 (main) 边本来就能序列化。 */
+static inline int token_multidyn_on(void) {
+    /* §7.082 分阶段：默认**关**（旧覆盖行为），`AIP_MULTIDYN=1` 才开多 dyn。
+     * 原因：`::code synth` 的多变量链仍假设“同一对只有一条运算边”（multivar 实测），
+     * 等消费方全部按多条边处理后再默认打开。 */
+    const char *e = getenv("AIP_MULTIDYN");
+    return e && e[0] == '1';
+}
+
 static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bump) {
     if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
     if (!a || !b || a == b || dyn_id == 0) return -1;
     for (size_t i = 0; i < a->count; ++i) {
         AssocEntry *e = &token_assocs(a)[i];
+        if (e->main == b && edge_is_plain(e) && e->dyn == dyn_id) return 0;  /* 幂等 */
+    }
+    if (!token_multidyn_on()) {
+        /* 旧行为（消融）：复用第一条 plain 边，覆盖 dyn */
+        for (size_t i = 0; i < a->count; ++i) {
+            AssocEntry *e = &token_assocs(a)[i];
+            if (e->main != b || !edge_is_plain(e)) continue;
+            e->dyn = dyn_id;
+            if (a->owner && !pool_rev_has(a->owner, b, a->id,
+                                          (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
+                pool_rev_add(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0);
+            if (bump) e->hits += bump;
+            e->mem_state = MEM_ACTIVE;
+            return 0;
+        }
+        goto add_new;
+    }
+    /* 多 dyn：优先复用“还没挂任何关系”的 virgin 共现边（保持旧边数），否则新增 */
+    for (size_t i = 0; i < a->count; ++i) {
+        AssocEntry *e = &token_assocs(a)[i];
         if (e->main != b || !edge_is_plain(e)) continue;
-        if (e->dyn == dyn_id) return 0;
+        if (e->dyn || e->rel || e->nrel) continue;   /* 已有关系/否定 ⇒ 不能复用 */
         e->dyn = dyn_id;
-        /* §6.584 幂等：同一条动态事实重复写不再追加反查条目（去重）*/
         if (a->owner && !pool_rev_has(a->owner, b, a->id,
                                       (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
             pool_rev_add(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0);
-
         if (bump) e->hits += bump;
         e->mem_state = MEM_ACTIVE;
         return 0;
     }
+add_new:
     if (token_add_assoc_ex(a, b, NULL) != 0) return -1;
-    AssocEntry *e = &token_assocs(a)[a->count - 1];
-    e->dyn = dyn_id;
-    if (a->owner && !pool_rev_has(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
-        pool_rev_add(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0);
-    e->hits = bump;
+    {
+        AssocEntry *e = &token_assocs(a)[a->count - 1];
+        e->dyn = dyn_id;
+        if (a->owner && !pool_rev_has(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
+            pool_rev_add(a->owner, b, a->id, (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0);
+        e->hits = bump;
+    }
     return 0;
 }
 

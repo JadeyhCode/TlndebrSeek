@@ -62,6 +62,7 @@ rolecheck|python3 tools/rolecheck_blind.py
 sisplit|python3 tools/sisplit_blind.py
 relwide|python3 tools/relwide_blind.py
 dynquery|python3 tools/dynquery_blind.py
+multidyn|python3 tools/multidyn_blind.py
 # 切分可选：拆解 / 合并 / 中转词容错 / 碎片护栏（本机实测 3.8s）
 segmentation|sh tests/segmentation.sh
 # 反事实：假设世界可推、不越界、能外推、**绝不进图**（本机实测 3.6s）
