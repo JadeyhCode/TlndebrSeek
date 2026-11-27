@@ -580,6 +580,7 @@ typedef enum {
     CMD_RELBEH,
     CMD_EFFECT,
     CMD_ROLECHECK,
+    CMD_SISPLIT,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -787,6 +788,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "sisplit", "[主语]", 1, "基本",
+      "把现有「属于」边分成 subclass-of / instance-of / unknown（§7.077 P1，只读；按入边证据判断，迁移到 P2 双关系）", CMD_SISPLIT },
     { "rolecheck", "<关系> <主语> <宾语>", 1, "基本",
       "角色/约束只读检查（P1）：打印角色绑定与每个 cons 的状态（属于链/谓词原子/奇怪/不知道）；不写图", CMD_ROLECHECK },
     { "effect", "<apply|state|retract|log>", 1, "基本",
@@ -4091,6 +4094,71 @@ static void study_cmd(Agent *a, const char *arg) {
 
 
 /* §7.073 P0：关系 schema 自省。 */
+
+/* §7.077 P1：`::sisplit` —— 把现有「属于」边分成 subclass-of / instance-of / unknown。
+ * 只读，不改图；迁移策略：P2 才拆成两个关系 id，本命令先用**入边证据**给分类与不确定性。 */
+typedef struct { size_t subclass, instance, unknown, total; } SiSplitStat;
+
+static void sisplit_run(AI *ai, const char *only) {
+    if (!ai || !ai->pool) return;
+    size_t n = ai->pool->count;
+    int min_in = (int)aip_policy_int("sisplit_min_inbound", 2);
+    if (min_in < 1) min_in = 1;
+    Token *only_tok = (only && *only) ? pool_find(ai->pool, only) : NULL;
+    if (only && *only && !only_tok) { printf("[属于拆分] 图里没有「%s」\n", only); return; }
+    unsigned char *has_in = (unsigned char *)calloc(n ? n : 1, 1);
+    if (!has_in) return;
+    unsigned char *is_class = (unsigned char *)calloc(n ? n : 1, 1);
+    SiSplitStat st = {0, 0, 0, 0};
+    /* 一遍扫出“有入边（作为某个 属于 的宾语）”的 token ⇒ 类候选 */
+    for (uint32_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage) continue;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (!e->main || !(e->rel & REL_BIT(REL_IS_A)) || e->nrel) continue;
+            if (e->main->id < n && has_in[e->main->id] < 255) has_in[e->main->id]++;
+        }
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage || !t->name) continue;
+        int out_has = 0;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && (e->rel & REL_BIT(REL_IS_A)) && !e->nrel) { out_has = 1; break; }
+        }
+        (void)out_has;
+        is_class[i] = (unsigned char)(has_in[i] >= min_in);
+    }
+    printf("[属于拆分] 模式：入边数 ≥ %d 才算类（sisplit_min_inbound=%d）%s%s\n",
+           min_in, min_in, only_tok ? "；只看：" : "", only_tok ? only_tok->name : "");
+    for (uint32_t i = 0; i < n; ++i) {
+        Token *a = ai->pool->tokens[i];
+        if (!a || a->is_garbage || !a->name) continue;
+        if (only_tok && a != only_tok) continue;
+        for (size_t j = 0; j < a->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(a)[j];
+            if (!e->main || !(e->rel & REL_BIT(REL_IS_A)) || e->nrel) continue;
+            Token *b = e->main;
+            if (!b || !b->name) continue;
+            st.total++;
+            int a_cls = a->id < n ? is_class[a->id] : 0;
+            int b_cls = b->id < n ? is_class[b->id] : 0;
+            const char *kind;
+            if (!b_cls) { kind = "unknown"; st.unknown++; }
+            else if (a_cls) { kind = "subclass-of"; st.subclass++; }
+            else { kind = "instance-of"; st.instance++; }
+            if (st.total <= 12)
+                printf("  %-6s --[属于]--> %-6s ⇒ %s%s\n", a->name, b->name, kind,
+                       b_cls ? (a_cls ? "（两边都是类）" : "（个体→类）") : "（宾语没有入边/类证据）");
+        }
+    }
+    printf("[属于拆分] 共 %zu 条：subclass-of %zu / instance-of %zu / unknown %zu（只读，不改图）\n",
+           st.total, st.subclass, st.instance, st.unknown);
+    free(has_in); free(is_class);
+}
+
 static void relbeh_show(const char *name) {
     if (!rel_schema_active()) {
         printf("[关系schema] 当前**回退 AI_RELS**（AIP_NOSCHEMA=1 或无 relations_beh.txt）\n");
@@ -6454,6 +6522,10 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_SISPLIT: {
+                sisplit_run(a->brain, carg && *carg ? carg : NULL);
                 continue;
             }
             case CMD_ROLECHECK: {

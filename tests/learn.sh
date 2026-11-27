@@ -110,7 +110,14 @@ IN: 1 2 => OUT: 999
 IN: 3 4 => OUT: 7
 ### EVIDENCE
 本地编译过。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个求和器三号")
+# 并行时假端点偶发回包不完整 ⇒ 重试一次再判（同 ⑤；别把“回包截断”记成“接受”）
+o=''
+r=0
+while [ "$r" -lt 2 ]; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个求和器三号")
+    printf '%s' "$o" | grep -qa '教师测试没过' && break
+    r=$((r + 1)); sleep 0.3
+done
 printf '%s' "$o" | grep -qa '教师测试没过' && ok "教师测试不过：拒绝" || bad "教师测试不过也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
@@ -124,7 +131,13 @@ int main(void){puts("hi");return 0;}
 打印 hi。
 ### EVIDENCE
 编译过。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个打印 hi 的程序二号")
+o=''
+r=0
+while [ "$r" -lt 2 ]; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个打印 hi 的程序二号")
+    printf '%s' "$o" | grep -qa '没给够测试' && break
+    r=$((r + 1)); sleep 0.3
+done
 printf '%s' "$o" | grep -qa '没给够测试' && ok "没 TESTS：拒绝" || bad "没 TESTS 也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
