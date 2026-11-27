@@ -29,6 +29,7 @@
 #include "english.h"    /* 英语问 ⇒ 英语答（只做是非问；中文不碰） */
 #include "symtool.h"    /* §6.988 自省/自修改：::sym */
 #include "effect.h"      /* §7.074 P1 效果执行器（schema post 数据） */
+#include "induce.h"      /* §7.085 P3 行为归纳（只建议 + 待证） */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -582,6 +583,7 @@ typedef enum {
     CMD_ROLECHECK,
     CMD_SISPLIT,
     CMD_RELDYN,
+    CMD_INDUCE,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -789,6 +791,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "induce", "[N|claim <关系> <行为>]", 1, "基本",
+      "行为归纳（§7.085 P3）：按已接受事实统计 trans/sym/excl 支持率与反例；只建议；::induce claim 经理由闸门写成待证", CMD_INDUCE },
     { "reldyn", "[N]", 1, "基本",
       "动态关系压力读数（§7.078 P2 前置，只读）：登记数/上限、边用到几个、id>24 的独占槽缺口、使用量 top N", CMD_RELDYN },
     { "sisplit", "[主语]", 1, "基本",
@@ -6558,6 +6562,12 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_INDUCE: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                induce_cmd(a->brain, arg ? arg : "");
                 continue;
             }
             case CMD_RELDYN: {
