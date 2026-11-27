@@ -10,3 +10,4 @@
 在 | excl | roles=主体,地点 | card=single | evidence=observed
 需要 | multi | roles=主体,前提 | card=multi | evidence=observed
 爱 | alias=喜欢
+结果 | dir,non-trans,multi | roles=事件,状态 | card=multi | evidence=observed

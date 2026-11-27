@@ -99,12 +99,45 @@ static inline int effect_retract_edge(Token *subj, uint8_t dyn, Token *val) {
     return 0;
 }
 
+
+/* §7.075 事件具体化：`[事件:吃(张三,米饭)] --[结果]--> [状态:数量(米饭,-1)]`
+ * 结果边是**普通动态关系边**（关系名来自数据 `结果`），没有“看到效果就执行”的分支。 */
+static inline void effect_event_name(char *out, size_t cap, const char *rel,
+                                     const char *a1, const char *a2) {
+    snprintf(out, cap, "[事件:%s(%s,%s)]", rel, a1, a2);
+}
+
+static inline int effect_trace(AI *ai, const char *ev) {
+    if (!ai || !ev || !*ev) return 0;
+    Token *e = pool_find(ai->pool, ev);
+    if (!e) { printf("[效果] 图里没有事件「%s」\n", ev); return 1; }
+    int n = 0;
+    printf("[效果] 事件 %s 的结果：\n", ev);
+    for (size_t i = 0; i < e->count; ++i) {
+        const AssocEntry *a = &token_assocs_ro(e)[i];
+        if (!a->main || !a->dyn) continue;
+        const char *nm = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + a->dyn - 1));
+        printf("  --[%s]--> %s（计数 %u，tick %llu）\n", nm ? nm : "?",
+               a->main->name ? a->main->name : "?", a->hits,
+               (unsigned long long)a->last_touch_tick);
+        n++;
+    }
+    if (!n) printf("  （没有结果边；可能只做了 apply 没做 event）\n");
+    return 1;
+}
+
 static inline int effect_cmd(AI *ai, const char *arg) {
     if (!ai || !arg) return 0;
     while (*arg == ' ') arg++;
     if (!*arg) {
         printf("[效果] 用法：::effect apply <关系> <主语> <宾语> [--force] | state <主语> | retract <关系> <主语> <宾语> | log\n");
         return 1;
+    }
+    if (!strncmp(arg, "trace", 5)) {
+        const char *ev = arg + 5;
+        while (*ev == ' ') ev++;
+        if (!*ev) { printf("[效果] 用法：::effect trace <事件名，如 [事件:吃(张三,米饭)]>\n"); return 1; }
+        return effect_trace(ai, ev);
     }
     if (!strncmp(arg, "state", 5)) {
         const char *s = arg + 5;
@@ -135,9 +168,16 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         return 1;
     }
     int do_retract = !strncmp(arg, "retract", 7);
-    int do_apply = !strncmp(arg, "apply", 5) || do_retract;
-    if (!do_apply) { printf("[效果] 只认 apply / state / retract / log\n"); return 1; }
-    const char *rest = arg + (do_retract ? 7 : 5);
+    int do_event = !strncmp(arg, "event", 5);
+    int do_apply = !strncmp(arg, "apply", 5) || do_retract || do_event;
+    if (!do_apply) { printf("[效果] 只认 apply / event / state / trace / retract / log\n"); return 1; }
+    const char *rest = arg + (do_retract ? 7 : (do_event ? 5 : 5));
+    if (do_event) {
+        const char *p = rest;
+        while (*p == ' ') p++;
+        /* ::effect event <关系> <主语> <宾语>：走同一条 apply 逻辑，成功后再具体化事件 */
+        rest = p;
+    }
     while (*rest == ' ') rest++;
     int force = 0;
     char buf[512];
@@ -239,6 +279,34 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         }
     }
     if (!did) printf("[效果] 没有可执行的效果（模板为空/全部失败）\n");
+    if (do_event && did) {
+        char ev[256];
+        effect_event_name(ev, sizeof ev, sc->name, tok[1], tok[2]);
+        Token *et = pool_token_intern(ai->pool, ev);
+        uint8_t rrid = rel_id_of(ai, "结果", 1);
+        int links = 0;
+        if (et && rrid) {
+            for (uint8_t k = 0; k < REL_SCHEMA_ROLES && sc->post[k][0]; ++k) {
+                char nm[32], val[64]; int sel = 0;
+                if (!effect_parse_post(sc->post[k], nm, sizeof nm, &sel, val, sizeof val)) continue;
+                const char *arg = (sel == 1) ? tok[1] : tok[2];
+                char st[256];
+                snprintf(st, sizeof st, "[状态:%s(%s,%s)]", nm, arg, val);
+                Token *stt = pool_token_intern(ai->pool, st);
+                if (!stt) continue;
+                int saved_route = ai->route_writes;
+                ai->route_writes = 0;
+                int rc = ai_write_rel(ai, et, stt, rrid, 0, AI_WSRC_RELATION);
+                ai->route_writes = saved_route;
+                if (rc == 0) links++;
+            }
+        }
+        printf("[效果] 事件已具体化：%s（结果边 %d 条；结果关系 id=%u，**普通关系边**）\n",
+               ev, links, rrid);
+        effect_log("%llu\t%s\t%s\t%s\tevent:%s\t结果边:%d\t理由:%s\n",
+                   (unsigned long long)(ai->pool ? ai->pool->current_tick : 0),
+                   sc->name, tok[1], tok[2], ev, links, g_sym_reason);
+    }
     return 1;
 }
 

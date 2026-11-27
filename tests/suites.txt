@@ -57,6 +57,7 @@ logic4|sh tests/logic4.sh
 relations|sh tests/relations.sh
 relschema|python3 tools/rel_schema_blind.py
 effect|python3 tools/effect_blind.py
+effectevent|python3 tools/effect_event_blind.py
 # 切分可选：拆解 / 合并 / 中转词容错 / 碎片护栏（本机实测 3.8s）
 segmentation|sh tests/segmentation.sh
 # 反事实：假设世界可推、不越界、能外推、**绝不进图**（本机实测 3.6s）

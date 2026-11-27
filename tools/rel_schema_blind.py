@@ -34,7 +34,7 @@ def main():
     checks = []
     out = run("::relbeh\n::quit\n")
     checks.append(("载入 9 核心 + 2 别名，0 非法",
-                   "有效 11 条，非法 0 行" in out and "推理读 schema" in out))
+                   "有效 12 条，非法 0 行" in out and "推理读 schema" in out))
 
     expect = {
         "属于": ("trans,excl", "包含", "single"),
