@@ -60,6 +60,88 @@ static inline int effect_parse_post(const char *tpl, char *name, size_t ncap,
     return value[0] != 0;
 }
 
+
+/* 约束状态：3=没有约束，2=类词都不知道，1=通过，0=奇怪（不满足）。 */
+static inline int effect_cons_status(AI *ai, const RelSchema *sc, uint8_t k,
+                                     Token *a1, Token *a2, char *note, size_t cap) {
+    if (!sc || k >= sc->n_roles || !sc->cons[k][0]) {
+        if (note && cap) snprintf(note, cap, "（没有约束）");
+        return 3;
+    }
+    char consbuf[REL_SCHEMA_CONS];
+    snprintf(consbuf, sizeof consbuf, "%s", sc->cons[k]);
+    char *colon = strchr(consbuf, ':');
+    if (!colon) { if (note && cap) snprintf(note, cap, "（约束格式坏：%s）", consbuf); return 2; }
+    *colon = 0;
+    const char *cls = colon + 1;
+    Token *who = (k == 0) ? a1 : a2;
+    if (!who) { if (note && cap) snprintf(note, cap, "（没有绑定参数）"); return 2; }
+    if (effect_is_a(ai, who, cls, 4)) {
+        if (note && cap) snprintf(note, cap, "通过（属于链）");
+        return 1;
+    }
+    {   /* P1：复用 pred.h 的谓词原子 `可食(石头)`，不只靠 属于 链 */
+        char *args[1];
+        args[0] = (char *)who->name;
+        if (who->name && pred_find(ai, cls, args, 1)) {
+            if (note && cap) snprintf(note, cap, "通过（谓词原子 %s(%s)）", cls, who->name);
+            return 1;
+        }
+    }
+    if (!pool_find(ai->pool, cls)) {
+        if (note && cap) snprintf(note, cap, "不知道「%s」是什么（类词不在图里）", cls);
+        return 2;
+    }
+    if (note && cap) snprintf(note, cap, "奇怪：%s 不是/推不出 %s", who->name ? who->name : "?", cls);
+    return 0;
+}
+
+/* `::rolecheck <关系> <主语> <宾语>`：只读，不写图；角色绑定 + 约束状态。 */
+static inline int rolecheck_cmd(AI *ai, const char *arg) {
+    if (!ai || !arg) return 0;
+    while (*arg == ' ') arg++;
+    if (!*arg) { printf("[角色] 用法：::rolecheck <关系> <主语> <宾语>\n"); return 1; }
+    char buf[384];
+    snprintf(buf, sizeof buf, "%s", arg);
+    char *tok[4] = {0}; int nw = 0;
+    for (char *p = buf; *p && nw < 4; ) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        tok[nw++] = p;
+        while (*p && *p != ' ' && *p != '\t') p++;
+        if (*p) *p++ = 0;
+    }
+    if (nw < 3) { printf("[角色] 用法：::rolecheck <关系> <主语> <宾语>\n"); return 1; }
+    const RelSchema *sc = rel_schema_by_name(tok[0]);
+    if (!sc) { printf("[角色] 关系「%s」没有 schema：纯标签，没有角色/约束可查\n", tok[0]); return 1; }
+    Token *a1 = pool_find(ai->pool, tok[1]);
+    Token *a2 = pool_find(ai->pool, tok[2]);
+    if (!a1 || !a2) {
+        printf("[角色] 图里没有「%s」\n", !a1 ? tok[1] : tok[2]);
+        return 1;
+    }
+    printf("[角色] %s：", sc->name);
+    for (uint8_t k = 0; k < sc->n_roles; ++k)
+        printf("%s%s=%s", k ? "，" : "", sc->roles[k][0] ? sc->roles[k] : "?",
+               (k == 0) ? a1->name : a2->name);
+    printf("\n");
+    if ((int)aip_policy_int("role_constraint", 1) == 0) {
+        printf("[约束] 检查关闭（role_constraint=0）\n");
+        return 1;
+    }
+    int pass = 0, bad = 0, unk = 0;
+    for (uint8_t k = 0; k < sc->n_roles; ++k) {
+        char note[192];
+        int st = effect_cons_status(ai, sc, k, a1, a2, note, sizeof note);
+        printf("[约束] %s：%s\n", sc->cons[k][0] ? sc->cons[k] : sc->roles[k], note);
+        if (st == 1) pass++;
+        else if (st == 0) bad++;
+        else if (st == 2) unk++;
+    }
+    printf("[角色] 小结：通过 %d / 奇怪 %d / 不知道 %d\n", pass, bad, unk);
+    return 1;
+}
+
 static inline void effect_log(const char *fmt, ...) {
     mkdir("_t", 0755);
     FILE *f = fopen("_t/effects.tsv", "ab");
@@ -210,30 +292,18 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         printf("[效果] 图里没有「%s」，先教这个词（不造脏实体）\n", !a1 ? tok[1] : tok[2]);
         return 1;
     }
-    /* 约束（defeasible）：违反 → “奇怪”，默认拒绝；--force 才落 */
-    for (uint8_t k = 0; k < sc->n_roles && k < REL_SCHEMA_ROLES; ++k) {
-        if (!sc->cons[k][0]) continue;
-        char consbuf[REL_SCHEMA_CONS];
-        snprintf(consbuf, sizeof consbuf, "%s", sc->cons[k]);
-        char *colon = strchr(consbuf, ':');
-        if (!colon) continue;
-        *colon = 0;
-        const char *cls = colon + 1;
-        Token *who = (k == 0) ? a1 : a2;
-        Token *cl = pool_find(ai->pool, cls);
-        int ok = effect_is_a(ai, who, cls, 4);
-        if (!ok) {
-            printf("[效果] 奇怪：约束「%s」不满足（%s 不是/推不出 %s）%s\n",
-                   consbuf, who->name ? who->name : "?", cls,
+    /* 约束（defeasible）：违反 → “奇怪”，默认拒绝；--force 才落。P1 起同时查 pred.h 谓词原子。 */
+    if ((int)aip_policy_int("role_constraint", 1) != 0) {
+        for (uint8_t k = 0; k < sc->n_roles && k < REL_SCHEMA_ROLES; ++k) {
+            if (!sc->cons[k][0]) continue;
+            char note[192];
+            int st = effect_cons_status(ai, sc, k, a1, a2, note, sizeof note);
+            if (st == 1 || st == 3) continue;
+            printf("[效果] 奇怪：约束「%s」%s%s\n", sc->cons[k], note,
                    force ? "；--force ⇒ 仍然执行（已记账）" : "；不执行");
             effect_log("%llu\t%s\t%s\t%s\t%s\t约束不满足:%s\n",
                        (unsigned long long)(ai->pool ? ai->pool->current_tick : 0),
-                       sc->name, tok[1], tok[2], force ? "force" : "refused", cls);
-            if (!force) return 1;
-        } else if (!cl) {
-            /* 类词不存在：诚实说明，和“推不出”分开 */
-            printf("[效果] 奇怪：我不知道「%s」是什么（类词不在图里）；%s\n", cls,
-                   force ? "仍执行" : "不执行");
+                       sc->name, tok[1], tok[2], force ? "force" : "refused", sc->cons[k]);
             if (!force) return 1;
         }
     }

@@ -579,6 +579,7 @@ typedef enum {
     CMD_PLAN,
     CMD_RELBEH,
     CMD_EFFECT,
+    CMD_ROLECHECK,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -786,6 +787,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "rolecheck", "<关系> <主语> <宾语>", 1, "基本",
+      "角色/约束只读检查（P1）：打印角色绑定与每个 cons 的状态（属于链/谓词原子/奇怪/不知道）；不写图", CMD_ROLECHECK },
     { "effect", "<apply|state|retract|log>", 1, "基本",
       "效果执行器（§7.074 P1）：::effect apply 吃 张三 米饭（要 ::sym write on + 理由）；state/retract/log；效果模板来自 relations_beh.txt 的 post", CMD_EFFECT },
     { "relbeh", "[名字]", 1, "基本",
@@ -6451,6 +6454,12 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_ROLECHECK: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                rolecheck_cmd(a->brain, arg ? arg : "");
                 continue;
             }
             case CMD_EFFECT: {
