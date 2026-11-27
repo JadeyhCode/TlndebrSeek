@@ -56,11 +56,19 @@ def main():
     out = run("猫 属于 动物 吗\n::quit\n")
     checks.append(("v16 旧档可读且答对", "对" in out and "猫" in out))
 
-    run("::save new17.bin\n::quit\n")
-    p = os.path.join(W, "new17.bin")
-    checks.append(("新档版本号 = 17", version_of(p) == 17))
-    out2 = run("猫 属于 动物 吗\n::quit\n", model="new17.bin")
-    checks.append(("v17 新档能重载并答对", "对" in out2 and "猫" in out2))
+    run("::save newver.bin\n::quit\n")
+    p = os.path.join(W, "newver.bin")
+    # 期望版本号从 model_io.h 读，别硬编码（v17→v18 已经在 §7.079 升过）
+    want = None
+    mo = os.path.join(ROOT, "model_io.h")
+    if os.path.isfile(mo):
+        m = re.search(r"#define MODEL_VERSION\s+(\d+)u", open(mo, encoding="utf-8").read())
+        if m:
+            want = int(m.group(1))
+    checks.append(("新档版本号 = %s" % (want if want is not None else "?"),
+                   want is not None and version_of(p) == want))
+    out2 = run("猫 属于 动物 吗\n::quit\n", model="newver.bin")
+    checks.append(("新档能重载并答对", "对" in out2 and "猫" in out2))
 
     fresh()
     out3 = run("人 属于 动物 吗\n谁 属于 动物\n::att\n::quit\n")

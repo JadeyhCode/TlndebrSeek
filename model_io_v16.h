@@ -94,7 +94,7 @@ static inline void mio16_w_edge(MWriter *w, const AssocEntry *e) {
     if (f & MIO16_E_TOPIC)  *p++ = e->topic;
     if (f & MIO16_E_PAT)    *p++ = e->pattern;
     if (f & MIO16_E_REL)    p = mio16_put_uv(p, e->rel);
-    if (f & MIO16_E_DYN)  { p = mio16_put_uv(p, e->nrel); *p++ = e->dyn; }
+    if (f & MIO16_E_DYN)  { p = mio16_put_uv(p, e->nrel); p = mio16_put_uv(p, e->dyn); }
     if (f & MIO16_E_TSET) {
         uint8_t nt = (e->n_tset <= 4) ? e->n_tset : 0;
         *p++ = nt;
@@ -106,7 +106,7 @@ static inline void mio16_w_edge(MWriter *w, const AssocEntry *e) {
     mw_raw(w, buf, (size_t)(p - buf));
 }
 
-static inline int mio16_r_edge(MReader *r, AssocEntry *e) {
+static inline int mio16_r_edge(MReader *r, AssocEntry *e, int dyn_wide) {
     uint16_t f = mr_u16(r);
     if (r->err) return -1;
     e->main = (Token *)(uintptr_t)mr_uv(r);   /* 先存 id，第二趟换指针 */
@@ -122,7 +122,10 @@ static inline int mio16_r_edge(MReader *r, AssocEntry *e) {
     if (f & MIO16_E_TOPIC)  e->topic = mr_u8(r);
     if (f & MIO16_E_PAT)    e->pattern = mr_u8(r);
     if (f & MIO16_E_REL)    e->rel = (uint16_t)mr_uv(r);
-    if (f & MIO16_E_DYN)  { e->nrel = (uint16_t)mr_uv(r); e->dyn = mr_u8(r); }
+    if (f & MIO16_E_DYN)  {
+        e->nrel = (uint16_t)mr_uv(r);
+        e->dyn = dyn_wide ? (uint32_t)mr_uv(r) : (uint32_t)mr_u8(r);   /* v18 起 LEB128 */
+    }
     if (f & MIO16_E_TSET) {
         e->n_tset = mr_u8(r);
         if (r->err || e->n_tset > 4) return -1;

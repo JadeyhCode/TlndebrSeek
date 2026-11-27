@@ -4,7 +4,7 @@
 
 量化现状：96 上限登记失败、id>24 的独占槽缺口、v17 动态关系分布；不扩 id、不改格式。
 """
-import os, re, shutil, subprocess, sys
+import os, re, shutil, struct, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "build_aip")
@@ -15,6 +15,15 @@ def run(inp, model="model.bin"):
     p = subprocess.run([BIN, "--model", model], input=inp.encode(),
                        capture_output=True, cwd=W, timeout=180)
     return (p.stdout + p.stderr).decode("utf-8", "replace")
+
+
+def model_version(path):
+    with open(path, "rb") as f:
+        head = f.read(8)
+    if len(head) < 8:
+        return None
+    _magic, ver = struct.unpack("<II", head)
+    return ver
 
 
 def top_lines(out):
@@ -57,11 +66,14 @@ def main():
                    re.search(r"动态关系 (\d+) / 96", out2).group(1) == m.group(1) and
                    re.search(r"id>24 的 (\d+)", out2).group(1) == m2.group(1)))
 
-    # v17 存档后仍能读回同样的动态关系数
-    run(base + "::save rw17.bin\n::quit\n")
-    out3 = run("::reldyn 3\n::quit\n", model="rw17.bin")
+    # v18：v17 输入可读、新档版本号 18、读回动态关系数不变
+    run(base + "::save rw18.bin\n::quit\n")
+    out3 = run("::reldyn 3\n::quit\n", model="rw18.bin")
     m3 = re.search(r"动态关系 (\d+) / 96", out3)
-    checks.append(("v17 存读后动态关系数不变（格式未动）", bool(m3) and m3.group(1) == "96"))
+    oldv = model_version(os.path.join(W, "model.bin"))
+    checks.append(("旧档输入可读（出厂 model.bin 是 v%d）" % (oldv or -1), oldv is not None and oldv <= 17))
+    checks.append(("新存档版本号 = 18", model_version(os.path.join(W, "rw18.bin")) == 18))
+    checks.append(("v18 存读后动态关系数不变", bool(m3) and m3.group(1) == "96"))
 
     ok = sum(1 for _, g in checks if g)
     for name, good in checks:
