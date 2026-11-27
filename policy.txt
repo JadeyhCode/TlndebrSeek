@@ -73,3 +73,5 @@ plan_queue_study=1
 att_pick_unsolved=0.60
 # §7.076 角色/约束检查（效果执行与 ::rolecheck 共用；0=只报角色不查约束）
 role_constraint=1
+# §7.080 动态关系软上限（默认=编译上限 245；调低用于限额/消融）
+dynrel_soft_limit=245

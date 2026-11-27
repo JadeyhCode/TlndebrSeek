@@ -193,8 +193,8 @@ typedef enum {
 /* §6.633 16 → 64：阶段二要用"动态关系"当**结构槽**（谓词参数 `参数1..8`、规则前提 `前提1..6`、
  * 结论 `结论`），老上限 16 一用就满、把用户自己教的新谓语挤掉。表是 `char*[64]`（+384 字节），
  * 存档里只存 `n` 条名字，旧档（≤16 条）照样读 —— 不动格式。 */
-#define AI_MAX_DYNREL  96      /* §6.943d 动态关系上限 64→96（出处：知识来源关系被 64 卡掉） */
-#define REL_TABLE_MAX  24      /* 运行时关系表最大 id（含动态关系） */
+#define AI_MAX_DYNREL  245     /* §7.080 P2a：96→245（uint8 关系 id 的上限；4096 需 RelId 扩宽，P2b） */
+#define REL_TABLE_MAX  255     /* §7.080 运行时关系表最大 id（覆盖 uint8 全部动态 id；数组 5KB/agent） */
 
 /* ---- 关系 id（rel.h 的 AI_RELS 用它们）---- */
 #define REL_BIT(id) (uint16_t)(1u << ((id) - 1u))

@@ -4121,18 +4121,17 @@ static void reldyn_run(AI *ai, int limit) {
             edges++;
         }
     }
-    printf("[关系符号] 动态关系 %zu / %d（REL_DYN_BASE=%u, REL_TABLE_MAX=%d）\n",
-           ai->dynrel_n, AI_MAX_DYNREL, (unsigned)REL_DYN_BASE, REL_TABLE_MAX);
-    int over = 0, with_edges = 0;
-    for (size_t i = 0; i < ai->dynrel_n; ++i) {
-        uint8_t id = (uint8_t)(REL_DYN_BASE + i);
-        if (id > REL_TABLE_MAX) over++;
+    long soft = aip_policy_int("dynrel_soft_limit", AI_MAX_DYNREL);
+    if (soft <= 0 || soft > AI_MAX_DYNREL) soft = AI_MAX_DYNREL;
+    printf("[关系符号] 动态关系 %zu / %d（软上限 %ld，REL_DYN_BASE=%u, REL_TABLE_MAX=%d）\n",
+           ai->dynrel_n, AI_MAX_DYNREL, soft, (unsigned)REL_DYN_BASE, REL_TABLE_MAX);
+    int with_edges = 0;
+    for (size_t i = 0; i < ai->dynrel_n; ++i)
         if (used[i + 1]) with_edges++;
-    }
-    printf("[关系符号] 边用到 %d 个动态关系（dyn 边共 %zu 条）；id>24 的 %d 个 ⇒ 独占槽缺失（excl 不生效）\n",
-           with_edges, edges, over);
-    if (ai->dynrel_n >= AI_MAX_DYNREL)
-        printf("[关系符号] **已满**：新谓语登记会失败（P2 要扩到 4096）\n");
+    printf("[关系符号] 边用到 %d 个动态关系（dyn 边共 %zu 条）；id>24 的 0 个（REL_TABLE_MAX=255，独占槽已覆盖全部 uint8 id）\n",
+           with_edges, edges);
+    if ((long)ai->dynrel_n >= soft)
+        printf("[关系符号] **已满**：新谓语登记会失败（当前上限 %ld；P2b 要扩到 4096，需 RelId 扩宽）\n", soft);
     printf("[关系符号] 使用量 top %d：\n", limit);
     int shown = 0;
     while (shown < limit) {

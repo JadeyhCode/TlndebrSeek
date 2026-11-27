@@ -119,7 +119,11 @@ static inline uint8_t rel_dyn_intern(AI *ai, const char *w) {
     for (size_t i = 0; i < ai->dynrel_n; ++i)
         if (ai->dynrel_name[i] && strcmp(ai->dynrel_name[i], w) == 0)
             return (uint8_t)(REL_DYN_BASE + i);
-    if (ai->dynrel_n >= AI_MAX_DYNREL) return 0;
+    {   /* §7.080 软上限（策略）：默认=编译上限；可调低做消融/限额 */
+        long cap = aip_policy_int("dynrel_soft_limit", AI_MAX_DYNREL);
+        if (cap <= 0 || cap > AI_MAX_DYNREL) cap = AI_MAX_DYNREL;
+        if (ai->dynrel_n >= (size_t)cap) return 0;
+    }
     size_t n = strlen(w) + 1;
     char *c = (char *)malloc(n);
     if (!c) return 0;
@@ -303,8 +307,9 @@ static inline uint8_t rel_inv_of(const AI *ai, uint8_t rid) {
 /* schema 的独占声明回填到 ai->rel_excl（P0 让实测表与声明同源；NOSCHEMA 时不动）。 */
 static inline void rel_schema_seed_excl(AI *ai) {
     if (!ai || !g_rs_active) return;
-    for (uint8_t rid = 1; rid <= REL_CORE_MAX; ++rid) {
-        const RelSchema *s = rel_schema_of(ai, rid);
+    /* P2a：动态 id 也回填（REL_TABLE_MAX 已覆盖 1..255） */
+    for (uint16_t rid = 1; rid <= REL_TABLE_MAX; ++rid) {
+        const RelSchema *s = rel_schema_of(ai, (uint8_t)rid);
         if (s) ai->rel_excl[rid] = !!(s->flags & RELB_EXCL);
     }
 }
@@ -1198,7 +1203,7 @@ static inline void hypo_frame_text(const AI *ai, size_t k, char *out, size_t cap
 }
 
 static inline int rel_is_excl(const AI *ai, uint8_t rid) {
-    if (!ai || rid == 0 || rid > REL_TABLE_MAX) return 0;
+    if (!ai || rid == 0) return 0;   /* P2a：REL_TABLE_MAX=255，uint8 rid 天然在界内 */
     if (ai->rel_excl[rid]) return 1;                 /* 运行期实测优先（不变） */
     const RelSchema *s = rel_schema_of(ai, rid);
     if (s) return !!(s->flags & RELB_EXCL);          /* schema 声明兜底（NOSCHEMA 时为 NULL） */
@@ -1679,7 +1684,7 @@ static inline size_t aip_check_excl_conflicts_rec(AI *ai, char *first, size_t ca
      * （且截断），语义变了就不算优化，整段回滚。 */
     {
         int any_excl = 0;
-        for (uint8_t r = 1; r <= REL_TABLE_MAX && r < REL_DYN_BASE; ++r)
+        for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
             if (rel_is_excl(ai, r)) { any_excl = 1; break; }
         if (!any_excl) return 0;
     }
@@ -1718,7 +1723,7 @@ static inline size_t aip_check_excl_conflicts_rec(AI *ai, char *first, size_t ca
                 for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
                     if (e1->rel & REL_BIT(r)) { rid0 = r; break; }
                 if (!rid0 || !rel_is_excl(ai, rid0)) continue;
-                if (rid0 <= REL_TABLE_MAX && ++cnt[rid0] > AIP_EXCL_MAX_VALS) too_many = 1;
+                if (++cnt[rid0] > AIP_EXCL_MAX_VALS) too_many = 1;
             }
             if (too_many) { g_excl_skipped++; continue; }
         }

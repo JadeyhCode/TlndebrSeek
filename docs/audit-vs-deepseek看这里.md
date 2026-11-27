@@ -37336,3 +37336,32 @@ retract 后状态为空、`effect_enable=0` 消融、无 schema/无 post 拒绝�
 首轮 `focuscap` 红：`tools/focus_capacity_blind.py` 把“新档版本号 = 17”写死，v18 后必然失败
 （重载/答题都过）。改成从 `model_io.h` 的 `MODEL_VERSION` 动态取期望值，标签也改成“新档版本号 = N”；
 复跑 `focuscap` **6/6**。这是测试期望更新，不是格式回退。
+
+## §7.080 P2a：动态关系 96→245 + 独占槽覆盖全部 uint8 id（2026-11-27）
+
+P2 第二步（仍不动 v18 格式，只扩内存/表）：
+
+- `AI_MAX_DYNREL 96 → 245`（`REL_DYN_BASE=10`，id 最大 254，仍是 uint8）；
+- `REL_TABLE_MAX 24 → 255`：`rel_excl` 及 `_single/_multi/_llr` 数组从 25 扩到 256（≈5 KB/agent），
+  **id>24 的独占槽缺口消失**；
+- `rel_schema_seed_excl()` 现在对 1..255 全量回填（动态关系的 schema `excl` 生效）；
+- 新策略 `dynrel_soft_limit`（默认 245）：登记软上限，可调低做限额/消融。
+
+### 首跑读数（`tools/relwide_blind.py`，套件 `relwide`）
+
+```
+=> 动态关系容量首跑：9/9
+```
+
+基线 245/255/无缺口、灌 300 停 245、满额告警（P2b 4096）、高 id 边可查（`::rel 甲244`）、
+v18 存读后 245 dyn + 高 id 边都在、旧档可读/新档 18、软上限 8 消融、读数一致。
+
+### 实测边界（P2b 必须处理）
+
+- **仍是 uint8 关系 id**：4096 需要把 `rel_id_of`/`REL_BIT`/`HypoFact.rid`/`ProofStep.rid` 等
+  264 处 `uint8_t rid` 一起扩宽（P2b，单独一轮或多轮），不是只改 `AI_MAX_DYNREL`；
+- **通用问句仍只认核心关系词**：`::gap 甲200 谓仈 乙200` 报“没有认识的关系词”、
+  `甲200 谓仈 乙200 吗` 不识别；但 `::rel 甲200` 能看到该动态边。P2b 要把“关系词扫描”
+  （gap/plan/问句解析）从 core-only 改成 core+dyn；
+- 同一对 (A,B) 仍只能挂一个 dyn（单字段）；
+- `rel_excl_build()` 只测核心关系（动态独占目前只来自 schema 声明）。
