@@ -236,6 +236,79 @@ static inline const char *rel_name_of(const AI *ai, uint8_t id) {
     if (rd) return rd->name;
     return rel_dyn_name(ai, id);
 }
+/* ---------------------------------------------------------------- §7.073 关系 schema（P0） */
+#include "rel_schema.h"
+
+static inline uint8_t rel_schema_core_id_cb(const char *name) {
+    const RelDef *rd = rel_by_name(name);
+    return rd ? rd->id : 0;
+}
+static inline const char *rel_schema_core_inv_cb(const char *name) {
+    const RelDef *rd = rel_by_name(name);
+    if (!rd || !rd->inv) return NULL;
+    const RelDef *iv = rel_by_id(rd->inv);
+    return iv ? iv->name : NULL;
+}
+static inline size_t rel_schema_load_file(const char *path) {
+    RelSchemaHooks hk = { rel_schema_core_id_cb, rel_schema_core_inv_cb };
+    return rel_schema_load(path, &hk);
+}
+/* id → schema；动态关系按名字查（P0 不做 id 绑定；P2 再缓存）。 */
+static inline const RelSchema *rel_schema_of(const AI *ai, uint8_t rid) {
+    if (!g_rs_active || !rid) return NULL;
+    if (rid < REL_DYN_BASE) return rel_schema_by_id(rid);
+    const char *nm = rel_name_of(ai, rid);
+    return nm ? rel_schema_by_name(nm) : NULL;
+}
+static inline int rel_is_trans(const AI *ai, uint8_t rid) {
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s) return !!(s->flags & RELB_TRANS);
+    const RelDef *rd = rel_by_id(rid);
+    return rd && rd->trans;
+}
+static inline int rel_is_sym(const AI *ai, uint8_t rid) {
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s) return !!(s->flags & RELB_SYM);
+    const RelDef *rd = rel_by_id(rid);
+    return rd && rd->sym;
+}
+static inline int rel_is_inherit(const AI *ai, uint8_t rid) {
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s) return !!(s->flags & RELB_INHERIT);
+    const RelDef *rd = rel_by_id(rid);
+    return rd && rd->inherit;
+}
+static inline int rel_has_behavior(const AI *ai, uint8_t rid, uint32_t bit) {
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s) return !!(s->flags & bit);
+    /* 回退 AI_RELS（NOSCHEMA/未装载）：必须逐位映射，不能一律 0 —— 否则 think 的
+     * “缺前提”机制会静默失效（delibtest 实测 155/156）。 */
+    const RelDef *rd = rel_by_id(rid);
+    if (!rd) return 0;
+    switch (bit) {
+    case RELB_TRANS:   return rd->trans;
+    case RELB_INHERIT: return rd->inherit;
+    case RELB_SYM:     return rd->sym;
+    case RELB_EXCL:    return rd->excl;
+    case RELB_PREREQ:  return rd->prereq;
+    default:           return 0;
+    }
+}
+static inline uint8_t rel_inv_of(const AI *ai, uint8_t rid) {
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s && s->inv) return (uint8_t)s->inv;
+    const RelDef *rd = rel_by_id(rid);
+    return rd ? rd->inv : 0;
+}
+/* schema 的独占声明回填到 ai->rel_excl（P0 让实测表与声明同源；NOSCHEMA 时不动）。 */
+static inline void rel_schema_seed_excl(AI *ai) {
+    if (!ai || !g_rs_active) return;
+    for (uint8_t rid = 1; rid <= REL_CORE_MAX; ++rid) {
+        const RelSchema *s = rel_schema_of(ai, rid);
+        if (s) ai->rel_excl[rid] = !!(s->flags & RELB_EXCL);
+    }
+}
+
 static inline const char *rel_neg_of(const AI *ai, uint8_t id) {
     (void)ai;
     const RelDef *rd = rel_by_id(id);
@@ -375,11 +448,13 @@ static inline int relprops_of(const AI *ai, uint8_t rid, RelPropView *out) {
     memset(out, 0, sizeof *out);
     const RelDef *rd = rel_by_id(rid);
     if (rd) {
-        out->trans = rd->trans;
-        out->sym = rd->sym;
-        out->inherit = rd->inherit;
-        if (rd->inv) {
-            const char *nm = rel_name_of(ai, rd->inv);
+        /* §7.073 行为读 schema（NOSCHEMA / 无行时回退 AI_RELS） */
+        out->trans = (uint8_t)rel_is_trans(ai, rid);
+        out->sym = (uint8_t)rel_is_sym(ai, rid);
+        out->inherit = (uint8_t)rel_is_inherit(ai, rid);
+        uint8_t iv = rel_inv_of(ai, rid);
+        if (iv) {
+            const char *nm = rel_name_of(ai, iv);
             if (nm) snprintf(out->inv, sizeof out->inv, "%s", nm);
         }
     }
@@ -1124,7 +1199,10 @@ static inline void hypo_frame_text(const AI *ai, size_t k, char *out, size_t cap
 
 static inline int rel_is_excl(const AI *ai, uint8_t rid) {
     if (!ai || rid == 0 || rid > REL_TABLE_MAX) return 0;
-    return ai->rel_excl[rid] != 0;
+    if (ai->rel_excl[rid]) return 1;                 /* 运行期实测优先（不变） */
+    const RelSchema *s = rel_schema_of(ai, rid);
+    if (s) return !!(s->flags & RELB_EXCL);          /* schema 声明兜底（NOSCHEMA 时为 NULL） */
+    return 0;
 }
 static inline Token *rel_excl_witness(AI *ai, const Token *a, uint8_t rid,
                                      const Token *b, int depth) {

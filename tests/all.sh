@@ -176,7 +176,7 @@ pool_task_setup() {   # $1=套件名（没用上） $2=worker 号
     # 数据驱动的行为在套件里根本没被覆盖。
     # `relprops.txt`（谓词代数：trans/sym/inv/syn）同理 —— 它是 generalize 那套的判据数据，
     # 不放进来套件看到的是一张空表，开表/关表的对比就没了。
-    for f in frames.txt relations.txt lexicon.txt patterns.txt relprops.txt policy.txt; do
+    for f in frames.txt relations.txt lexicon.txt patterns.txt relprops.txt policy.txt relations_beh.txt; do
         if [ -f "$ROOT/$f" ]; then cp "$ROOT/$f" "$SB/$f"; fi
     done
     # §6.178 `session.bin`（互动会话图）只给 `session_facts` 那一套用：它是**读**的，

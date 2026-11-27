@@ -6964,11 +6964,10 @@ static inline char *agent_answer_relation_inner(AI *ai, char *const *words, size
     d->has_claim = 1;
     der_goal(d, A, rid, B);
     {
-        const RelDef *rd2 = rel_by_id(rid);
         char why[200];
         if (ai->closed_world)
             snprintf(why, sizeof why, "闭合世界下也判不出来（主语不在知识库里）");
-        else if (rd2 && rd2->excl)
+        else if (rel_is_excl(ai, rid))
             snprintf(why, sizeof why,
                      "独占规则也定不了：可能存在的关系带与它互相包含（比如「猫 是 动物」"
                      "不排除「猫 是 鸟」）");

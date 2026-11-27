@@ -37063,3 +37063,48 @@ First gate went red on `e2e_paper`, `paperprobe`, `tokenop` because they asserte
 
 All three suites then passed in isolation (e2e_paper 7/0, paperprobe 33/0, tokenop 438/438), and the
 gate was re-run.
+
+## §7.073 P0：图原生关系层——schema 数据化 + 推理改读 + 合法性检查（2026-11-27）
+
+P0 不动模型格式（仍 v17），只做“行为数据化 + 读取点替换 + 可审计”：
+
+- 新增 `rel_schema.h`（纯数据层，可单独编译）与 `relations_beh.txt`（9 核心 + 2 别名）；
+  `RelSchema` 含 flags/roles/cons/post/attrs/card/evidence/line，把行为、角色、约束、效果统一进数据。
+- 启动加载：`AIP_NOSCHEMA=1` 时不装载、回退 `AI_RELS`（消融）；缺文件同样回退；非法行逐行报
+  `relations_beh.txt:N 非法：原因`，不静默。
+- 推理改读：`rel_is_trans/rel_is_sym/rel_is_inherit/rel_has_behavior/rel_inv_of/rel_is_excl`
+  成为唯一入口，替换 `think.h`（3 处）、`rel.h`（播种 + 独占）、`agent.h`（1 处）对 `AI_RELS` 字段的直读；
+  `relprops.txt` 仍是 overlay（数据优先，保持现状）。
+- 新命令 `::relbeh [名字]`（130→131）：汇总/明细/别名解析/非法计数/缓存命中；动态关系无 schema 时明确
+  “纯标签，不参与推理”。
+
+### 首跑读数（`tools/rel_schema_blind.py`，新套件 `relschema`）
+
+```
+=> 关系 schema 首跑：9/9
+```
+
+9 核心逐条与旧 `AI_RELS` 一致（含 `怕`=sym 非 excl、`包含` 不传递）、别名同源、7 类非法行带行号被拒、
+`AIP_NOSCHEMA=1` 回退一致、缓存命中、缺文件回退、schema 与回退的推理答案逐字相同（消融）。
+同轮 `relations`/`thinking`/`exclusivity` 套件全绿。
+
+### 边界（P0 明确不做）
+
+- 不扩 id、不改存档（v17；`dyn` 仍 uint8，动态 id>24 没有 `rel_excl` 槽，schema 的 excl 对它们只记录不生效）；
+- 角色/约束/效果只存数据不执行（P1 才 bind→assert/retract）；
+- `dim>0` 一律拒绝（P0 无量纲表；P1 才注册量纲）；
+- `subclass/dir/non-trans` 是注解，不进 RELB 位（P1 赋予执行语义）；
+- 动态关系仍不支持否定/传递推理（P2 扩宽前后保持现状）。
+
+### 过程记录
+
+先做原型（`/tmp/p0`）验证：严格编译、9/9 盲测、与原始基线对照（`relations` 失败集合逐字相同、`thinking`/
+`exclusivity` 全绿）、`::selftest` 10/10、`::save` 重载正常；随后落到仓库，仓库内 `relations` 等套件真绿。
+
+### 门禁红→绿（P0 首轮两处）
+
+1. `relschema` 在新沙箱里找不到 `relations_beh.txt`：`tests/all.sh` 的沙箱预置清单没有它 ⇒ 把数据文件加进
+   `for f in … relations_beh.txt`（新数据文件必须进沙箱，否则套件“看不到自己的数据”）；
+2. `delibtest` 155/156：`rel_has_behavior()` 在 NOSCHEMA 时对 `RELB_PREREQ` 一律返回 0，
+   导致思维循环“缺前提”机制静默失效；改为逐位回退 `AI_RELS`（trans/inherit/sym/excl/prereq）。
+   修复后 `delibtest` **156/156**。

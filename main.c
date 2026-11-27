@@ -576,6 +576,7 @@ typedef enum {
     CMD_CHAIN,
     CMD_GAP,
     CMD_PLAN,
+    CMD_RELBEH,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -783,6 +784,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "relbeh", "[名字]", 1, "基本",
+      "关系 schema 自省（§7.073 P0）：::relbeh 列全部；::relbeh 属于 看行为/角色/约束/效果与来源；非法行与缓存命中一并显示", CMD_RELBEH },
     { "plan", "[run] <问句>", 1, "基本",
       "流程策略（§7.048）：按任务类型选步骤顺序（gap/local/paper/ask/sym/refuse…），::plan run 只执行安全的本地一步并记账 _t/plans.tsv", CMD_PLAN },
     { "gap", "<问句>", 1, "基本",
@@ -4079,9 +4082,76 @@ static void study_cmd(Agent *a, const char *arg) {
     study_stats_print();
 }
 
+
+/* §7.073 P0：关系 schema 自省。 */
+static void relbeh_show(const char *name) {
+    if (!rel_schema_active()) {
+        printf("[关系schema] 当前**回退 AI_RELS**（AIP_NOSCHEMA=1 或无 relations_beh.txt）\n");
+        if (name && *name) {
+            const RelDef *rd = rel_by_name(name);
+            if (!rd) { printf("[关系schema] 图里没有「%s」\n", name); return; }
+            printf("[关系schema] %s id=%u trans=%u inherit=%u sym=%u inv=%s excl=%u prereq=%u（AI_RELS）\n",
+                   rd->name, rd->id, rd->trans, rd->inherit, rd->sym,
+                   rd->inv ? rel_by_id(rd->inv)->name : "-", rd->excl, rd->prereq);
+        }
+        return;
+    }
+    if (name && *name) {
+        const RelSchema *x = NULL;
+        const char *alias_to = NULL;
+        for (size_t i = 0; i < rel_schema_count(); ++i) {
+            const RelSchema *r = rel_schema_at(i);
+            if (!r || r->illegal) continue;
+            if (!r->alias[0] && !strcmp(r->name, name)) { x = r; break; }
+            if (r->alias[0] && !strcmp(r->name, name)) alias_to = r->alias;
+        }
+        if (!x && alias_to) {
+            for (size_t i = 0; i < rel_schema_count(); ++i) {
+                const RelSchema *r = rel_schema_at(i);
+                if (r && !r->illegal && !r->alias[0] && !strcmp(r->name, alias_to)) { x = r; break; }
+            }
+            if (x) { printf("[关系schema] %s 是别名 → %s；", name, alias_to); }
+        }
+        if (!x) { printf("[关系schema] 无 schema：「%s」= 纯标签，不参与推理\n", name); return; }
+        printf("[关系schema] %s id=%u line=%d flags=", x->name, x->id, x->line);
+        int any = 0;
+        for (uint32_t b = 1; b <= RELB_EQUIV; b <<= 1)
+            if (x->flags & b) { printf("%s%s", any ? "," : "", rel_schema_flag_name(b)); any = 1; }
+        if (!any) printf("-");
+        printf(" inv=%s card=%s roles=", x->inv ? (rel_schema_by_id(x->inv) ? rel_schema_by_id(x->inv)->name : "?") : "-",
+               x->card == REL_CARD_SINGLE ? "single" : x->card == REL_CARD_MULTI ? "multi" : "any");
+        for (uint8_t k = 0; k < x->n_roles; ++k) printf("%s%s", k ? "," : "", x->roles[k]);
+        if (x->cons[0][0] || x->post[0][0]) {
+            printf(" cons=");
+            for (int k = 0; k < REL_SCHEMA_ROLES && x->cons[k][0]; ++k) printf("%s%s", k ? "," : "", x->cons[k]);
+            printf(" post=");
+            for (int k = 0; k < REL_SCHEMA_ROLES && x->post[k][0]; ++k) printf("%s%s", k ? "," : "", x->post[k]);
+        }
+        printf(" attrs=%s evidence=%s\n", x->attrs[0] ? x->attrs : "-",
+               x->evidence == REL_EV_AXIOM ? "axiom" : x->evidence == REL_EV_OBSERVED ? "observed" : "inferred");
+        return;
+    }
+    printf("[关系schema] 行 %zu（含非法），非法 %d，缓存 hit=%zu miss=%zu\n",
+           rel_schema_count(), rel_schema_illegal_count(), rel_schema_hits(), rel_schema_misses());
+    for (size_t i = 0; i < rel_schema_count(); ++i) {
+        const RelSchema *x = rel_schema_at(i);
+        if (!x) continue;
+        if (x->illegal) { printf("  [非法] %s line=%d\n", x->name, x->line); continue; }
+        if (x->alias[0]) { printf("  [别名] %s -> %s (line %d)\n", x->name, x->alias, x->line); continue; }
+        printf("  %-6s id=%-2u line=%-3d flags=", x->name, x->id, x->line);
+        int any = 0;
+        for (uint32_t b = 1; b <= RELB_EQUIV; b <<= 1)
+            if (x->flags & b) { printf("%s%s", any ? "," : "", rel_schema_flag_name(b)); any = 1; }
+        printf("%s inv=%s card=%s\n", any ? "" : "-",
+               x->inv ? (rel_schema_by_id(x->inv) ? rel_schema_by_id(x->inv)->name : "?") : "-",
+               x->card == REL_CARD_SINGLE ? "single" : x->card == REL_CARD_MULTI ? "multi" : "any");
+    }
+}
+
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
+    rel_schema_load_file("relations_beh.txt");   /* §7.073 P0：关系行为 schema（NOSCHEMA 时回退） */
     const char *corpus = NULL;
     const char *model_path = DEFAULT_MODEL;
     const char *save_after_train = NULL;
@@ -4103,6 +4173,7 @@ int main(int argc, char **argv) {
 
     Agent *a = agent_new(stdin_perceive, stdout_act, NULL);
     if (!a) { fprintf(stderr, "agent_new 失败\n"); return 1; }
+    rel_schema_seed_excl(a->brain);
     a->brain->tool_hook = toolcall_hook;   /* §6.993 模型可调用工具（::sym） */
     a->brain->curious_hook = aip_curious_hook;   /* §6.995 答不出入好奇心队列 */
     laws_load("laws.txt");   /* §6.760 逻辑律（可选文件） */
@@ -4135,6 +4206,7 @@ int main(int argc, char **argv) {
             unit_apply_graph(a->brain);
             aip_graph_patterns_merge(a->brain);
             loaded = 1;
+            rel_schema_seed_excl(a->brain);   /* §7.073：换脑之后按 schema 回填独占声明 */
             printf("[已加载模型 %s]\n", model_path);
         } else {
             if (!file_exists(model_path))
@@ -6375,6 +6447,12 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_RELBEH: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                relbeh_show(arg ? arg : "");
                 continue;
             }
             case CMD_PLAN: {

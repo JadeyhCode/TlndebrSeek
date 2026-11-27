@@ -1,0 +1,12 @@
+# relations_beh.txt — P0 关系行为/角色/约束/效果（数据，一行一条；`#` 注释；行号用于报错）
+属于 | trans,excl,subclass | inv=包含 | roles=主体,类别 | cons=主体:实例或子类 | card=single | evidence=axiom
+是 | alias=属于
+包含 | dir | inv=属于 | roles=类别,主体 | card=multi | evidence=axiom
+有 | inherit,multi | roles=拥有者,属性 | card=multi | evidence=observed
+会 | inherit,prereq,multi | roles=主体,能力 | card=multi | evidence=observed
+怕 | sym,multi | roles=体验者,对象 | card=multi | evidence=observed
+喜欢 | multi | roles=体验者,对象 | card=multi | evidence=observed
+吃 | dir,non-trans,multi | roles=施事,受事 | cons=施事:有生命,受事:可食 | post=数量($2,-1) | card=multi | evidence=observed
+在 | excl | roles=主体,地点 | card=single | evidence=observed
+需要 | multi | roles=主体,前提 | card=multi | evidence=observed
+爱 | alias=喜欢

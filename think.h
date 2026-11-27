@@ -1402,9 +1402,7 @@ static inline int think_mech_opp_process(AI *ai, Think *t, const ThinkGoal *g, i
 /* ---- 机制②：缺哪条前提 ----
  * 适用性：**关系表**声明了 rd->prereq（以前这里写的是 `rid == REL_CAN`）。 */
 static inline int think_mech_need_applicable(AI *ai, const ThinkGoal *g) {
-    (void)ai;
-    const RelDef *rd = g ? rel_by_id(g->rid) : NULL;
-    return rd && rd->prereq;
+    return g && rel_has_behavior(ai, g->rid, RELB_PREREQ);
 }
 static inline int think_mech_need_process(AI *ai, Think *t, const ThinkGoal *g, int *cls,
                                           int *cache, char *note, size_t note_cap) {
@@ -1439,13 +1437,10 @@ static inline int think_mech_ana_process(AI *ai, Think *t, const ThinkGoal *g, i
  * 适用性：**关系表**声明了 trans（同关系传递）或 inherit（先走「属于」）。
  * 中间词**由图给出**（rel_next_cands 连假设覆盖层一起搜）。 */
 static inline int think_mech_thr_applicable(AI *ai, const ThinkGoal *g) {
-    (void)ai;
-    const RelDef *rd = g ? rel_by_id(g->rid) : NULL;
-    return rd && (rd->trans || rd->inherit);
+    return g && (rel_is_trans(ai, g->rid) || rel_is_inherit(ai, g->rid));
 }
 static inline int think_mech_thr_expand(AI *ai, Think *t, const ThinkGoal *g) {
-    const RelDef *rd = rel_by_id(g->rid);
-    uint8_t hop_rel = rd && rd->trans ? g->rid : (uint8_t)REL_IS_A;
+    uint8_t hop_rel = rel_is_trans(ai, g->rid) ? g->rid : (uint8_t)REL_IS_A;
     Token  *cands[4];
     uint8_t chyp[4];
     size_t nc = rel_next_cands(ai, g->a, hop_rel, 0, cands, chyp, 4);
