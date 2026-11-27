@@ -124,7 +124,7 @@ static inline Token *rule_add(AI *ai, const char *hname, char *const *hargs, siz
 /* 规则的结论 / 第 k 个前提（k 从 1 开始）；没有返回 NULL。 */
 static inline Token *rule_part(AI *ai, const Token *r, const char *relname, size_t k) {
     if (!ai || !r || !relname) return NULL;
-    char rn[24];
+    char rn[64];
     if (k) snprintf(rn, sizeof rn, "%s%zu", relname, k);
     else   snprintf(rn, sizeof rn, "%s", relname);
     uint8_t rid = rel_id_of(ai, rn, 0);
@@ -283,6 +283,87 @@ static inline int rule_unify(AI *ai, const RuleAtom *at, const Token *p, RuleSub
 static inline int rule_solve(AI *ai, const RuleAtom *goal, RuleSubst *s, int depth,
                              RuleTrace *tr, char stack[][64], size_t sn);
 
+/* §7.086 **分层否定（stratification）检查**：规则集里若存在“否定依赖成环”
+ * （p :- 不 q 且 q :- 不 p，或经多跳），否定就没有稳定语义 ⇒ **拒绝整个规则集**，
+ * 不靠深度截断“碰巧”给出答案。返回 1=可分层；0=非分层（err 写原因+例子）。
+ * 分层规则：stratum(H) = max(stratum(P) + (P 是负前提 ? 1 : 0))，迭代到不动点。 */
+#define RULE_STRATA_MAX 256
+static inline int rule_strata(AI *ai, char *err, size_t cap) {
+    if (!ai) return 1;
+    Token *rs[128];
+    size_t nr = rule_list(ai, rs, 128);
+    char names[RULE_STRATA_MAX][40];
+    int stratum[RULE_STRATA_MAX];
+    size_t np = 0;
+    if (err && cap) err[0] = 0;
+    if (!nr) return 1;
+    /* 收集谓词名（头 + 前提；负前提剥掉「不」前缀） */
+    for (size_t i = 0; i < nr; ++i) {
+        Token *h = rule_head(ai, rs[i]);
+        RuleAtom ha;
+        if (!h || !rule_node_to_atom(ai, h, &ha)) continue;
+        const char *cand[RULE_MAX_PREMISE + 1];
+        size_t nc = 0;
+        cand[nc++] = ha.name;
+        size_t npre = rule_npremise(ai, rs[i]);
+        for (size_t k = 1; k <= npre && nc < RULE_MAX_PREMISE + 1; ++k) {
+            Token *pp = rule_part(ai, rs[i], "前提", k);
+            RuleAtom pa;
+            if (!pp || !rule_node_to_atom(ai, pp, &pa)) continue;
+            const char *nm = pa.name;
+            if ((unsigned char)nm[0] == 0xE4 && (unsigned char)nm[1] == 0xB8 &&
+                (unsigned char)nm[2] == 0x8D) nm += 3;
+            cand[nc++] = nm;
+        }
+        for (size_t c = 0; c < nc; ++c) {
+            int found = 0;
+            for (size_t j = 0; j < np; ++j) if (!strcmp(names[j], cand[c])) { found = 1; break; }
+            if (!found && np < RULE_STRATA_MAX) {
+                snprintf(names[np], sizeof names[np], "%s", cand[c]);
+                stratum[np] = 0;
+                np++;
+            }
+        }
+    }
+    if (!np) return 1;
+    /* 迭代：超过 np 次还在变 ⇒ 负环 */
+    for (size_t pass = 0; pass <= np; ++pass) {
+        int changed = 0;
+        for (size_t i = 0; i < nr; ++i) {
+            Token *h = rule_head(ai, rs[i]);
+            RuleAtom ha;
+            if (!h || !rule_node_to_atom(ai, h, &ha)) continue;
+            int hi = -1;
+            for (size_t j = 0; j < np; ++j) if (!strcmp(names[j], ha.name)) { hi = (int)j; break; }
+            if (hi < 0) continue;
+            int need = stratum[hi];
+            size_t npre = rule_npremise(ai, rs[i]);
+            for (size_t k = 1; k <= npre; ++k) {
+                Token *pp = rule_part(ai, rs[i], "前提", k);
+                RuleAtom pa;
+                if (!pp || !rule_node_to_atom(ai, pp, &pa)) continue;
+                int neg = ((unsigned char)pa.name[0] == 0xE4 && (unsigned char)pa.name[1] == 0xB8 &&
+                           (unsigned char)pa.name[2] == 0x8D);
+                const char *nm = neg ? pa.name + 3 : pa.name;
+                int pi = -1;
+                for (size_t j = 0; j < np; ++j) if (!strcmp(names[j], nm)) { pi = (int)j; break; }
+                if (pi < 0) continue;
+                int v = stratum[pi] + (neg ? 1 : 0);
+                if (v > need) need = v;
+            }
+            if (need > stratum[hi]) { stratum[hi] = need; changed = 1; }
+            if (stratum[hi] > (int)np) {
+                if (err && cap)
+                    snprintf(err, cap, "%s 的层数超过谓词数（否定依赖成环）", names[hi]);
+                return 0;
+            }
+        }
+        if (!changed) return 1;
+    }
+    if (err && cap) snprintf(err, cap, "层数迭代 %zu 轮仍不收敛（否定依赖成环）", np);
+    return 0;
+}
+
 /* 第 k 条前提起，能不能全部满足（成功时 s 里带着绑定） */
 static inline int rule_body(AI *ai, const Token *rule, size_t k, RuleSubst *s, int depth,
                             RuleTrace *tr, char stack[][64], size_t sn) {
@@ -439,13 +520,21 @@ static inline int rule_prove(AI *ai, const char *name, char *const *args, size_t
         if (!args[i] || !args[i][0] || args[i][0] == '$') return -1;   /* 目标必须具体 */
         snprintf(goal.args[i], sizeof goal.args[0], "%.39s", args[i]);
     }
+    char serr[128];
+    if (!rule_strata(ai, serr, sizeof serr)) {
+        if (out && cap) snprintf(out, cap, "结构坏了：%s（不猜、不算假）", serr);
+        return -1;
+    }
+    int maxd = (int)aip_policy_int("rule_max_depth", RULE_MAX_DEPTH);
+    if (maxd < 1) maxd = 1;
+    if (maxd > 64) maxd = 64;
     RuleTrace tr;
     memset(&tr, 0, sizeof tr);
     RuleSubst s;
     memset(&s, 0, sizeof s);
     char stack[16][64];
     memset(stack, 0, sizeof stack);
-    int r = rule_solve(ai, &goal, &s, RULE_MAX_DEPTH, &tr, stack, 0);
+    int r = rule_solve(ai, &goal, &s, maxd, &tr, stack, 0);
     if (out && cap) snprintf(out, cap, "%.*s", (int)(cap - 1), tr.text);
     if (r == 1) return 1;
     return tr.depth_limited ? 0 : 0;    /* 未知就是未知（不把"证不出来"说成假） */
@@ -465,6 +554,13 @@ static inline int rule_check(AI *ai, char *out, size_t cap) {
     int bad = 0;
     size_t o = 0;
 #define RC_SAY(...) do { if (out && o < cap) { int w_ = snprintf(out + o, cap - o, __VA_ARGS__);                         if (w_ > 0) o += (size_t)w_; } } while (0)
+    {
+        char serr[128];
+        if (!rule_strata(ai, serr, sizeof serr)) {
+            RC_SAY("非分层否定：%s（规则集整体拒绝：否定依赖成环，没有稳定语义）\n", serr);
+            bad++;
+        }
+    }
     for (size_t i = 0; i < nr; ++i) {
         Token *h = rule_head(ai, rs[i]);
         RuleAtom ha;

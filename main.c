@@ -10225,6 +10225,11 @@ int main(int argc, char **argv) {
                             printf("[过程] 缺口已记成过程 [过程:%s]（%zu 步）"
                                    "—— `::proc run %s` 跑一遍\n", pbare, psteps, pbare);
                     }
+                } else if (out[0]) {
+                    /* §7.086 规则集非分层/结构坏：**不是用法错**，必须说清楚 */
+                    printf("[证明] %s(%s", nm, args[0]);
+                    for (size_t i = 1; i < na; ++i) printf(",%s", args[i]);
+                    printf(") ⇒ **结构坏了（不猜、不算假）**\n  %s\n", out);
                 } else {
                     printf("[用法] 参数要具体（不能是 $变量）；最多 %d 个\n", PRED_MAX_ARGS);
                 }
