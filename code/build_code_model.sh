@@ -49,7 +49,7 @@ fi
 if [ -s code/knowledge/c2.triples ]; then
     sed -i '1i ::ingest code/knowledge/c2.triples' _t/codebuild.in
 fi
-/usr/bin/time -f '  灌图+存盘墙钟 %e s（峰值 RSS %M KB）' ./build_aip --model "$OUT.tmp.bin" < _t/codebuild.in 2>&1 | grep -aE '导入|现在：|已保存|墙钟'
+AIP_MULTIDYN=0 /usr/bin/time -f '  灌图+存盘墙钟 %e s（峰值 RSS %M KB）' ./build_aip --model "$OUT.tmp.bin" < _t/codebuild.in 2>&1 | grep -aE '导入|现在：|已保存|墙钟'
 rm -f "$OUT.tmp.bin"
 
 echo "== 生成的模型 =="

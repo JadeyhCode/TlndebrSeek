@@ -14,6 +14,7 @@
 #define TOKEN_H
 
 #include <stdlib.h>
+#include <stdio.h>
 #include "ptrtag.h"
 #include "share.h"      /* §6.581 池级共享：emb 这类"不带指针的大块"引用计数共享 */
 #include <stdint.h>
@@ -1595,7 +1596,7 @@ static inline int token_multidyn_on(void) {
      * 代码知识模型构建器强制单 dyn；`::code synth` 调用期间也强制单 dyn。 */
     if (g_dyn_force_single) return 0;
     const char *e = getenv("AIP_MULTIDYN");
-    return e && e[0] == '1';   /* §7.083 仍 opt-in：默认开还有其它写入路径未适配（见 docs） */
+    return !(e && e[0] == '0');   /* §7.083 默认开；AIP_MULTIDYN=0 回退覆盖（消融） */
 }
 
 static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bump) {
@@ -1606,6 +1607,10 @@ static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bum
         if (e->main == b && edge_is_plain(e) && e->dyn == dyn_id) return 0;  /* 幂等 */
     }
     if (!token_multidyn_on()) {
+        if (getenv("AIP_MULTIDYN_DBG"))
+            fprintf(stderr, "[mdyn-old] %s -[%u]-> %s force=%d env=%s\n",
+                    a->name ? a->name : "?", (unsigned)dyn_id, b->name ? b->name : "?",
+                    g_dyn_force_single, getenv("AIP_MULTIDYN") ? getenv("AIP_MULTIDYN") : "-");
         /* 旧行为（消融）：复用第一条 plain 边，覆盖 dyn */
         for (size_t i = 0; i < a->count; ++i) {
             AssocEntry *e = &token_assocs(a)[i];
@@ -1625,6 +1630,9 @@ static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bum
         AssocEntry *e = &token_assocs(a)[i];
         if (e->main != b || !edge_is_plain(e)) continue;
         if (e->dyn || e->rel || e->nrel) continue;   /* 已有关系/否定 ⇒ 不能复用 */
+        if (getenv("AIP_MULTIDYN_DBG"))
+            fprintf(stderr, "[mdyn-reuse] %s -[%u]-> %s\n", a->name ? a->name : "?",
+                    (unsigned)dyn_id, b->name ? b->name : "?");
         e->dyn = dyn_id;
         if (a->owner && !pool_rev_has(a->owner, b, a->id,
                                       (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
@@ -1634,6 +1642,9 @@ static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bum
         return 0;
     }
 add_new:
+    if (getenv("AIP_MULTIDYN_DBG"))
+        fprintf(stderr, "[mdyn] + %s -[%u]-> %s\n", a->name ? a->name : "?",
+                (unsigned)dyn_id, b->name ? b->name : "?");
     if (token_add_assoc_ex(a, b, NULL) != 0) return -1;
     {
         AssocEntry *e = &token_assocs(a)[a->count - 1];
