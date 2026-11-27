@@ -28,6 +28,7 @@
 #include "web.h"        /* 网页搜索（默认关，复用 ::net 的门）：::web —— 只抽标题/链接/摘要，一律待证 */
 #include "english.h"    /* 英语问 ⇒ 英语答（只做是非问；中文不碰） */
 #include "symtool.h"    /* §6.988 自省/自修改：::sym */
+#include "effect.h"      /* §7.074 P1 效果执行器（schema post 数据） */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -577,6 +578,7 @@ typedef enum {
     CMD_GAP,
     CMD_PLAN,
     CMD_RELBEH,
+    CMD_EFFECT,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -784,6 +786,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "effect", "<apply|state|retract|log>", 1, "基本",
+      "效果执行器（§7.074 P1）：::effect apply 吃 张三 米饭（要 ::sym write on + 理由）；state/retract/log；效果模板来自 relations_beh.txt 的 post", CMD_EFFECT },
     { "relbeh", "[名字]", 1, "基本",
       "关系 schema 自省（§7.073 P0）：::relbeh 列全部；::relbeh 属于 看行为/角色/约束/效果与来源；非法行与缓存命中一并显示", CMD_RELBEH },
     { "plan", "[run] <问句>", 1, "基本",
@@ -6447,6 +6451,12 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_EFFECT: {
+                const char *arg = strchr(cmd, ' ');
+                if (arg) while (*arg == ' ') arg++;
+                effect_cmd(a->brain, arg ? arg : "");
                 continue;
             }
             case CMD_RELBEH: {

@@ -129,6 +129,23 @@ static inline int rel_schema_illegal_count(void) { return g_rs_illegal; }
 static inline size_t rel_schema_hits(void) { return g_rs_hits; }
 static inline size_t rel_schema_misses(void) { return g_rs_misses; }
 
+/* 顶层逗号切分：括号内的逗号不算（post=`数量($2,-1)` 不能被切成两条）。 */
+static inline char *rel_schema_next_top(char **pp) {
+    if (!pp || !*pp) return NULL;
+    char *s = *pp;
+    if (!*s) { *pp = NULL; return NULL; }
+    int depth = 0;
+    char *p = s;
+    while (*p) {
+        if (*p == '(') depth++;
+        else if (*p == ')') { if (depth > 0) depth--; }
+        else if (*p == ',' && depth == 0) { *p = 0; *pp = p + 1; return s; }
+        p++;
+    }
+    *pp = NULL;
+    return s;
+}
+
 static inline void rel_schema_err(const char *path, int line, const char *why) {
     printf("[关系schema] %s:%d 非法：%s\n", path ? path : "?", line, why);
     g_rs_illegal++;
@@ -182,20 +199,18 @@ static inline int rel_schema_parse_line(const char *path, int line, char *row, c
             } else if (!strcmp(key, "cons")) {
                 char *r = val; int ci = 0;
                 while (r && ci < REL_SCHEMA_ROLES) {
-                    char *comma = strchr(r, ',');
-                    if (comma) *comma = 0;
-                    rel_schema_trim(r);
-                    if (*r) snprintf(s.cons[ci++], REL_SCHEMA_CONS, "%s", r);
-                    r = comma ? comma + 1 : NULL;
+                    char *piece = rel_schema_next_top(&r);
+                    if (!piece) break;
+                    rel_schema_trim(piece);
+                    if (*piece) snprintf(s.cons[ci++], REL_SCHEMA_CONS, "%s", piece);
                 }
             } else if (!strcmp(key, "post")) {
                 char *r = val; int pi = 0;
                 while (r && pi < REL_SCHEMA_ROLES) {
-                    char *comma = strchr(r, ',');
-                    if (comma) *comma = 0;
-                    rel_schema_trim(r);
-                    if (*r) snprintf(s.post[pi++], REL_SCHEMA_POST, "%s", r);
-                    r = comma ? comma + 1 : NULL;
+                    char *piece = rel_schema_next_top(&r);
+                    if (!piece) break;
+                    rel_schema_trim(piece);
+                    if (*piece) snprintf(s.post[pi++], REL_SCHEMA_POST, "%s", piece);
                 }
             } else if (!strcmp(key, "card")) {
                 if (!strcmp(val, "single")) s.card = REL_CARD_SINGLE;

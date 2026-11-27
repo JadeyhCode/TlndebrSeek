@@ -37108,3 +37108,43 @@ P0 不动模型格式（仍 v17），只做“行为数据化 + 读取点替换 
 2. `delibtest` 155/156：`rel_has_behavior()` 在 NOSCHEMA 时对 `RELB_PREREQ` 一律返回 0，
    导致思维循环“缺前提”机制静默失效；改为逐位回退 `AI_RELS`（trans/inherit/sym/excl/prereq）。
    修复后 `delibtest` **156/156**。
+
+## §7.074 P1：效果执行器（post 数据 → assert/retract，带 tick/来源）（2026-11-27）
+
+P1 第一步只做**效果**，不做角色/约束的全量推理、不做“属于”拆分：
+
+- 效果唯一来源是 schema 的 `post`（`吃 | … | post=数量($2,-1)`），**没有**“看到名字「效果」就执行”的分支；
+- 执行由 `::effect apply <关系> <主语> <宾语>` 显式驱动，走 `::sym write on` + `::sym reason` 闸门；
+- 原语固定：bind($N) → assert_state（同步写动态关系边）→ 记录 tick 与来源；
+  `::effect retract` 撤销；`::effect state <主语>` 查状态（关系/值/计数/tick）；`::effect log` 看账本；
+- 帧问题：同一 (主语,关系,值) 重复应用**不重复造边**，只加计数（32→64），不静默覆盖；
+- 约束 defeasible：`cons=施事:有生命,受事:可食` 沿 `属于` BFS（深度≤4）检查；不满足输出
+  “奇怪…不执行”，`--force` 才落且记账；
+- `_t/effects.tsv` 记录 tick、事件、参数、模板、assert/retract/refused、理由；
+- `effect_enable=0` 可整体关（消融）；`关系无 schema` / `无 post` 都明确拒绝。
+
+写入门内**同步落图**：临时关闭 `route_writes` 绕过 micro 审查队列（否则状态要等下一轮才出现），
+执行器自身已过写入门+理由闸门并记账——这是有意的窄口，注释写在 `effect.h`。
+
+### 首跑读数（`tools/effect_blind.py`，新套件 `effect`）
+
+```
+=> 效果执行器首跑：10/10
+```
+
+写入门/理由没开都拒、正向落图（数量=-1, 计数 32）、重复应用幂等计数 64、约束不满足“奇怪且不执行”、
+retract 后状态为空、`effect_enable=0` 消融、无 schema/无 post 拒绝、账本含来源/时刻/理由。
+
+### 边界（本步不做）
+
+- 事件具体化 `[事件:…] --[结果]--> [状态:…]` 尚未建；现在状态是动态关系边 + 账本；
+- 来源在账本里，不在边的字段上（模型格式不动，P2 再考虑）；
+- 约束只做“类可达”BFS，不处理集合/数值约束；
+- 角色槽（roles）只用于约束索引，未接入 pred.h 谓词原子；
+- retract 是单条边删除，不是事务回滚。
+
+### 门禁红→绿（P1 效果执行器）
+
+首轮 `assocaudit` 红：`effect.h` 有 5 处直接访问 `->assocs`（含 `memmove`），绕过了 `token_assocs()`
+访问器（局部加载会接不上）。全部改成 `token_assocs(subj)` / `token_assocs_ro(t)` 后，
+`assocaudit` 通过（访问器处数 461），`effect` 仍 10/10。
