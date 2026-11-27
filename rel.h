@@ -130,6 +130,9 @@ static inline uint8_t rel_dyn_intern(AI *ai, const char *w) {
     memcpy(c, w, n);
     ai->dynrel_name[ai->dynrel_n] = c;
     ai->dynrel_n++;
+    /* §7.081 关系词也进词池：否则多字动态谓语会被分词切成单字（`谓测` → 谓/测），
+     * 结果是「教得进、问不出」。核心关系词在启动时已经这样进池（rel_names_intern）。 */
+    if (ai->pool) (void)pool_token_intern(ai->pool, w);
     return (uint8_t)(REL_DYN_BASE + ai->dynrel_n - 1);
 }
 /* §6.162 **只查**（不登记）：这个谓语已经是个动态关系了吗？有就返回它的 id。
@@ -312,6 +315,38 @@ static inline void rel_schema_seed_excl(AI *ai) {
         const RelSchema *s = rel_schema_of(ai, (uint8_t)rid);
         if (s) ai->rel_excl[rid] = !!(s->flags & RELB_EXCL);
     }
+}
+
+/* §7.081 在**字符串**里找关系词（核心 + 已登记动态），最长匹配/最早出现。
+ * 给 ::gap / ::plan 这类“中文没空格、不能靠分词”的路径用；返回 id，0=没找到。 */
+static inline uint8_t rel_scan_text(const AI *ai, const char *text, const char **out_p) {
+    if (out_p) *out_p = NULL;
+    if (!ai || !text || !*text) return 0;
+    uint8_t best_id = 0;
+    const char *best_p = NULL;
+    size_t best_len = 0;
+    for (uint8_t rid = 1; rid <= REL_CORE_MAX; ++rid) {
+        const char *rn = rel_name_of(ai, rid);
+        if (!rn || !rn[0]) continue;
+        const char *p = strstr(text, rn);
+        if (!p) continue;
+        size_t l = strlen(rn);
+        if (!best_p || p < best_p || (p == best_p && l > best_len)) {
+            best_id = rid; best_p = p; best_len = l;
+        }
+    }
+    for (size_t i = 0; i < ai->dynrel_n; ++i) {
+        const char *rn = ai->dynrel_name[i];
+        if (!rn || !rn[0]) continue;
+        const char *p = strstr(text, rn);
+        if (!p) continue;
+        size_t l = strlen(rn);
+        if (!best_p || p < best_p || (p == best_p && l > best_len)) {
+            best_id = (uint8_t)(REL_DYN_BASE + i); best_p = p; best_len = l;
+        }
+    }
+    if (out_p) *out_p = best_p;
+    return best_id;
 }
 
 static inline const char *rel_neg_of(const AI *ai, uint8_t id) {

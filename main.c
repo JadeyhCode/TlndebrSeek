@@ -3302,12 +3302,8 @@ static const char *plan_label(const char *step) {
 static void plan_gap_kind(AI *ai, const char *q, char *kind, size_t cap) {
     snprintf(kind, cap, "%s", "缺结构");
     const char *rpos = NULL; char rel[32] = {0};
-    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
-        const char *rn = rel_name_of(ai, rid);
-        if (!rn || !rn[0]) continue;
-        const char *p = strstr(q, rn);
-        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
-    }
+    uint8_t srid = rel_scan_text(ai, q, &rpos);
+    if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     if (!rpos) return;
     char sbj[64] = {0}, obj[64] = {0};
     size_t sl = (size_t)(rpos - q);
@@ -3382,11 +3378,9 @@ static int plan_do(Agent *a, const char *arg) {
                 printf("  [流程] %d) gap → %s\n", idx2, gk);
             } else if (!strcmp(s, "local")) {
                 const char *rpos = NULL; char rel[32] = {0};
-                for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
-                    const char *rn = rel_name_of(ai, rid);
-                    if (!rn || !rn[0]) continue;
-                    const char *p = strstr(q, rn);
-                    if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+                {
+                    uint8_t srid = rel_scan_text(ai, q, &rpos);
+                    if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
                 }
                 int can = 0, neg = 0;
                 if (rpos) {
@@ -3652,13 +3646,10 @@ static int gap_do(Agent *a, const char *q) {
     if (!a || !a->brain || !q) return 0;
     AI *ai = a->brain;
     /* **按字符串**找关系词：中文没有空格，分词会把新词切碎，干跑判据不能靠分词。 */
-    const char *rpos = NULL;
-    char rel[32] = {0};
-    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
-        const char *rn = rel_name_of(ai, rid);
-        if (!rn || !rn[0]) continue;
-        const char *p = strstr(q, rn);
-        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+    const char *rpos = NULL; char rel[32] = {0};
+    {
+        uint8_t srid = rel_scan_text(ai, q, &rpos);
+        if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     }
     char sbj[64] = {0}, obj[64] = {0};
     const char *kind = NULL, *evidence = NULL;
@@ -3771,13 +3762,10 @@ static int gap_find_path(AI *ai, Token *A, Token *B, uint8_t rid, char *out, siz
 static int gap_exec(Agent *a, const char *q) {
     if (!a || !a->brain || !q) return 0;
     AI *ai = a->brain;
-    const char *rpos = NULL;
-    char rel[32] = {0};
-    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
-        const char *rn = rel_name_of(ai, rid);
-        if (!rn || !rn[0]) continue;
-        const char *p = strstr(q, rn);
-        if (p && (!rpos || p < rpos)) { rpos = p; snprintf(rel, sizeof rel, "%s", rn); }
+    const char *rpos = NULL; char rel[32] = {0};
+    {
+        uint8_t srid = rel_scan_text(ai, q, &rpos);
+        if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     }
     char sbj[64] = {0}, obj[64] = {0};
     const char *kind = NULL, *evidence = NULL;
@@ -6669,6 +6657,26 @@ int main(int argc, char **argv) {
                         }
                         printf("  %-6s 正 %zu / 否定 %zu\n", rn, pc, nc);
                     }
+                    /* §7.081 动态关系也列出来（只读计数）：教得进也要看得见 */
+                    size_t shown = 0;
+                    printf("[自我] 动态关系（已登记 %zu 个）：\n", ai->dynrel_n);
+                    for (size_t i = 0; i < ai->dynrel_n && shown < 12; ++i) {
+                        uint8_t d = (uint8_t)(i + 1);
+                        size_t pc = 0;
+                        for (uint32_t ti = 0; ti < ai->pool->count; ++ti) {
+                            Token *t = ai->pool->tokens[ti];
+                            if (!t || t->is_garbage) continue;
+                            for (size_t j = 0; j < t->count; ++j) {
+                                const AssocEntry *e = &token_assocs_ro(t)[j];
+                                if (e->main && e->dyn == d) pc++;
+                            }
+                        }
+                        printf("  %-12s id=%u 边 %zu%s\n", ai->dynrel_name[i] ? ai->dynrel_name[i] : "?",
+                               (unsigned)(REL_DYN_BASE + d - 1), pc,
+                               (REL_DYN_BASE + d - 1) > REL_TABLE_MAX ? "（无独占槽）" : "");
+                        shown++;
+                    }
+                    if (!ai->dynrel_n) printf("  （还没有动态关系）\n");
                     continue;
                 }
                 if (!strncmp(arg, "rules", 5)) {
