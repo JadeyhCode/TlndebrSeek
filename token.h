@@ -1582,12 +1582,20 @@ l_create_nrel:
  * 为什么：`e->dyn` 是单字段，旧实现会把上一条动态关系**覆盖**掉（实测同对 3 个谓语只剩 1 个）。
  * 做法：virgin 共现边仍然复用（保持旧行为/边数），已有 dyn≠本 id 时**新增一条边**；
  * 格式不用改——多条同 (main) 边本来就能序列化。 */
+/* §7.083 合成器临时切回“同对单 dyn”（它按“一条运算边”的假设读图）。
+ * 保存/恢复局部；只影响 code_synth 期间写入。 */
+static int g_dyn_force_single = 0;
+static inline int token_multidyn_force_single(int on) {
+    int old = g_dyn_force_single;
+    g_dyn_force_single = on ? 1 : 0;
+    return old;
+}
 static inline int token_multidyn_on(void) {
-    /* §7.082 分阶段：默认**关**（旧覆盖行为），`AIP_MULTIDYN=1` 才开多 dyn。
-     * 原因：`::code synth` 的多变量链仍假设“同一对只有一条运算边”（multivar 实测），
-     * 等消费方全部按多条边处理后再默认打开。 */
+    /* 默认**开**；`AIP_MULTIDYN=0` 回退旧的覆盖行为（消融）。
+     * 代码知识模型构建器强制单 dyn；`::code synth` 调用期间也强制单 dyn。 */
+    if (g_dyn_force_single) return 0;
     const char *e = getenv("AIP_MULTIDYN");
-    return e && e[0] == '1';
+    return e && e[0] == '1';   /* §7.083 仍 opt-in：默认开还有其它写入路径未适配（见 docs） */
 }
 
 static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bump) {

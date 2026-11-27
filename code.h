@@ -2880,7 +2880,7 @@ static inline int code_chain_has_bool(const AI *ai, const char *note) {
     return 0;
 }
 
-static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
+static inline int code_synth_impl(AI *ai, const char *desc, char *note, size_t cap) {
     if (note && cap) note[0] = 0;
     if (!ai || !ai->pool || !desc || !desc[0]) return -2;
     {
@@ -3191,6 +3191,14 @@ static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
 /* §6.807 **多文件工程**：任务 --文件--> 文件:X，每个 X 有 代码 边（一个文件的内容）。
  * 写多个文件、`gcc` 一起编、跑产物。为什么值得单开一条：单文件闭环只能验"一个翻译单元"，
  * 多文件才碰得到头文件/外部符号/链接错误这些真问题。 */
+/* §7.083 合成器读图时按“同对一条运算边”的旧假设 ⇒ 调用期间强制单 dyn，结束后恢复。 */
+static inline int code_synth(AI *ai, const char *desc, char *note, size_t cap) {
+    int saved = token_multidyn_force_single(1);
+    int rc = code_synth_impl(ai, desc, note, cap);
+    token_multidyn_force_single(saved);
+    return rc;
+}
+
 static inline int code_emit_multi(AI *ai, const char *const *names, const char *const *codes,
                                   int n, const char *outbase, char *note, size_t cap) {
     if (!ai || n <= 0 || !outbase) return -3;

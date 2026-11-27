@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""multidyn_blind.py — §7.082 同一对多动态关系（AIP_MULTIDYN=1 开；默认关=旧行为）首跑。"""
+"""multidyn_blind.py — §7.083 同一对多动态关系（AIP_MULTIDYN=1 开；默认关=旧行为）首跑。"""
 import os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -55,7 +55,7 @@ def main():
     checks.append(("动态关系可被 ::gap 认出", "已能回答" in out))
 
     out = run("::ingest c.tsv\n甲 谓一 乙 吗\n甲 谓三 乙 吗\n::rel 甲\n::quit\n")
-    checks.append(("默认（未设 AIP_MULTIDYN）仍是旧覆盖行为（只有最后一条）",
+    checks.append(("默认（未设）仍是旧覆盖行为（只剩最后一条）",
                    "AI > 对" in out and "谓三" in out and
                    out.count("AI > 对") == 1 and len(rel_edges(out)) == 1))
 
