@@ -581,6 +581,7 @@ typedef enum {
     CMD_EFFECT,
     CMD_ROLECHECK,
     CMD_SISPLIT,
+    CMD_RELDYN,
     CMD_SELFTEST,
     CMD_SELF,
     CMD_RELAY,
@@ -788,6 +789,8 @@ static const CmdDef CMDS[] = {
       "数据文件受限自改（§7.062）：::self edit policy.txt key=value（要 ::sym write on + ::sym reason）；备份/限额/账本/::self rollback", CMD_SELF },
     { "selftest", "[repair]", 1, "基本",
       "自检（§7.060）：::selftest 检查焦点容量/注意力预算/列表边界/关系名/词表/存读往返等 10 项；::selftest repair 只修可安全自动修的项目（仍记账）", CMD_SELFTEST },
+    { "reldyn", "[N]", 1, "基本",
+      "动态关系压力读数（§7.078 P2 前置，只读）：登记数/上限、边用到几个、id>24 的独占槽缺口、使用量 top N", CMD_RELDYN },
     { "sisplit", "[主语]", 1, "基本",
       "把现有「属于」边分成 subclass-of / instance-of / unknown（§7.077 P1，只读；按入边证据判断，迁移到 P2 双关系）", CMD_SISPLIT },
     { "rolecheck", "<关系> <主语> <宾语>", 1, "基本",
@@ -4099,6 +4102,52 @@ static void study_cmd(Agent *a, const char *arg) {
  * 只读，不改图；迁移策略：P2 才拆成两个关系 id，本命令先用**入边证据**给分类与不确定性。 */
 typedef struct { size_t subclass, instance, unknown, total; } SiSplitStat;
 
+
+/* §7.078 P2 前置：动态关系压力读数（只读）。
+ * 量化：已登记 n/96、边实际用到几个、id>REL_TABLE_MAX 的有几个（独占槽缺失）、上限告警。 */
+static void reldyn_run(AI *ai, int limit) {
+    if (!ai) return;
+    if (limit <= 0 || limit > 200) limit = 12;
+    size_t edges = 0;
+    size_t used[AI_MAX_DYNREL + 1];
+    memset(used, 0, sizeof used);
+    for (uint32_t i = 0; i < ai->pool->count; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage) continue;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (!e->main || !e->dyn) continue;
+            if (e->dyn <= AI_MAX_DYNREL) used[e->dyn]++;
+            edges++;
+        }
+    }
+    printf("[关系符号] 动态关系 %zu / %d（REL_DYN_BASE=%u, REL_TABLE_MAX=%d）\n",
+           ai->dynrel_n, AI_MAX_DYNREL, (unsigned)REL_DYN_BASE, REL_TABLE_MAX);
+    int over = 0, with_edges = 0;
+    for (size_t i = 0; i < ai->dynrel_n; ++i) {
+        uint8_t id = (uint8_t)(REL_DYN_BASE + i);
+        if (id > REL_TABLE_MAX) over++;
+        if (used[i + 1]) with_edges++;
+    }
+    printf("[关系符号] 边用到 %d 个动态关系（dyn 边共 %zu 条）；id>24 的 %d 个 ⇒ 独占槽缺失（excl 不生效）\n",
+           with_edges, edges, over);
+    if (ai->dynrel_n >= AI_MAX_DYNREL)
+        printf("[关系符号] **已满**：新谓语登记会失败（P2 要扩到 4096）\n");
+    printf("[关系符号] 使用量 top %d：\n", limit);
+    int shown = 0;
+    while (shown < limit) {
+        size_t best = 0, bestc = 0;
+        for (size_t i = 1; i <= AI_MAX_DYNREL && i <= ai->dynrel_n; ++i)
+            if (used[i] > bestc) { bestc = used[i]; best = i; }
+        if (!best) break;
+        printf("  #%zu %s id=%u 边 %zu\n", best, ai->dynrel_name[best - 1] ? ai->dynrel_name[best - 1] : "?",
+               (unsigned)(REL_DYN_BASE + best - 1), bestc);
+        used[best] = 0;
+        shown++;
+    }
+    if (!shown) printf("  （还没有用到的动态关系边）\n");
+}
+
 static void sisplit_run(AI *ai, const char *only) {
     if (!ai || !ai->pool) return;
     size_t n = ai->pool->count;
@@ -6522,6 +6571,11 @@ int main(int argc, char **argv) {
                 const char *arg = strchr(cmd, ' ');
                 if (arg) while (*arg == ' ') arg++;
                 selftest_run(a, arg && !strncmp(arg, "repair", 6));
+                continue;
+            }
+            case CMD_RELDYN: {
+                int lim = (carg && *carg) ? atoi(carg) : 12;
+                reldyn_run(a->brain, lim);
                 continue;
             }
             case CMD_SISPLIT: {
