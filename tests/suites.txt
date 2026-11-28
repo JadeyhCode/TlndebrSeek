@@ -81,6 +81,7 @@ irfrontstats|python3 tools/irfrontstats_blind.py
 irfrontdiff|python3 tools/irfrontdiff_blind.py
 irfrontsummary|python3 tools/irfrontsummary_blind.py
 irfront500|python3 tools/irfront500_blind.py
+irfrontab|python3 tools/irfrontab_blind.py
 # 切分可选：拆解 / 合并 / 中转词容错 / 碎片护栏（本机实测 3.8s）
 segmentation|sh tests/segmentation.sh
 # 反事实：假设世界可推、不越界、能外推、**绝不进图**（本机实测 3.6s）

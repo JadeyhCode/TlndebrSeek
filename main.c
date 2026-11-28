@@ -4340,6 +4340,8 @@ static int parse_atom_cmd(const char *r, char *nm, size_t ncap,
     return *na > 0;
 }
 
+const char *g_aip_model_path = "model.bin";
+
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
@@ -4385,6 +4387,7 @@ int main(int argc, char **argv) {
 
     /* 2) 没给语料 → 尝试加载模型 */
     int loaded = 0;
+    g_aip_model_path = model_path;
     if (!corpus && file_exists(model_path)) {
         AI *m = ai_load_file(model_path);
         if (m) {

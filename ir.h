@@ -130,6 +130,72 @@ static inline int ir_front_observe(AI *ai, const char *in, char *out, size_t cap
     return 1;
 }
 
+extern const char *g_aip_model_path;   /* main.c 里设置；给 `::irfront ab` 建临时脑用 */
+
+static inline int irfront_ab_cmd(AI *ai, const char *path) {
+    (void)ai;
+    if (!path || !*path) { printf("[IR A/B] 用法：::irfront ab <文件>（一行一句，最多 200 行）\n"); return 1; }
+    FILE *f = fopen(path, "r");
+    if (!f) { printf("[IR A/B] 打不开文件：%s\n", path); return 1; }
+    Agent *A = agent_new(NULL, NULL, NULL);
+    Agent *B = agent_new(NULL, NULL, NULL);
+    if (!A || !B || !g_aip_model_path) {
+        if (A) agent_free(A);
+        if (B) agent_free(B);
+        fclose(f);
+        printf("[IR A/B] 临时脑建不起来（缺模型路径？）\n");
+        return 1;
+    }
+    AI *na = ai_load_file(g_aip_model_path);
+    AI *nb = ai_load_file(g_aip_model_path);
+    if (!na || !nb) {
+        if (na) ai_free(na);
+        if (nb) ai_free(nb);
+        agent_free(A); agent_free(B); fclose(f);
+        printf("[IR A/B] 模型加载失败：%s\n", g_aip_model_path);
+        return 1;
+    }
+    ai_free(A->brain); A->brain = na;
+    ai_free(B->brain); B->brain = nb;
+    char line[512];
+    int n = 0, cmp = 0, changed = 0, skipped = 0;
+    double t0 = 0, t1 = 0;
+    mkdir("_t", 0755);
+    FILE *led = fopen("_t/ir_front_ab.tsv", "wb");
+    while (fgets(line, sizeof line, f) && n < 200) {
+        size_t l = strlen(line);
+        while (l && (line[l-1] == '\n' || line[l-1] == '\r')) line[--l] = 0;
+        if (!l || line[0] == '#') continue;
+        n++;
+        if (line[0] == ':') { skipped++; continue; }
+        IrAtom at; char canon[512];
+        int has_canon = ir_from_text(B->brain, line, &at) &&
+                        (at.kind == IR_REL || at.kind == IR_QUERY);
+        if (has_canon) ir_render(&at, canon, sizeof canon);
+        else snprintf(canon, sizeof canon, "%s", line);
+        char oa[1024] = {0}, ob[1024] = {0};
+        clock_t c0 = clock();
+        (void)agent_step(A, line, oa, sizeof oa);
+        clock_t c1 = clock();
+        (void)agent_step(B, canon, ob, sizeof ob);
+        clock_t c2 = clock();
+        t0 += (double)(c1 - c0) / CLOCKS_PER_SEC;
+        t1 += (double)(c2 - c1) / CLOCKS_PER_SEC;
+        cmp++;
+        int diff = strcmp(oa, ob) != 0;
+        if (diff) changed++;
+        if (led) fprintf(led, "%d\t%s\t%s\t%s\t%s\t%s\n", n, line, canon, oa, ob,
+                         diff ? "差异" : "一致");
+    }
+    if (led) fclose(led);
+    fclose(f);
+    agent_free(A); agent_free(B);
+    printf("[IR A/B] 比较 %d 句（跳过命令 %d）：差异 %d 句 ｜ 临时脑耗时 %.2fs / %.2fs\n",
+           cmp, skipped, changed, t0, t1);
+    printf("          账本：_t/ir_front_ab.tsv（每句 原文/规范文本/两侧答复/是否差异）\n");
+    return 1;
+}
+
 static inline int irfront_cmd(AI *ai, const char *arg) {
     (void)ai;
     const char *p = arg ? arg : "";
@@ -139,6 +205,11 @@ static inline int irfront_cmd(AI *ai, const char *arg) {
         remove("_t/ir_front_stats.tsv");
         printf("[IR前置] 统计与命中账本已清零\n");
         return 1;
+    }
+    if (!strncmp(p, "ab", 2)) {
+        const char *q = p + 2;
+        while (*q == ' ') q++;
+        return irfront_ab_cmd(ai, q);
     }
     if (!strncmp(p, "summary", 7)) {
         /* §7.102 汇总命中账本（只读）：条数 / 去重原文 / 最近样例 */
