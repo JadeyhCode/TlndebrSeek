@@ -655,6 +655,7 @@ typedef enum {
     CMD_ANALOGY,
     CMD_PATHBENCH,          /* §7.096 路径 p95 压测/剪枝 */
     CMD_IR,                 /* §7.097 IR 边界（只读对照） */
+    CMD_IRPARITY,           /* §7.098 IR 双跑对照 */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1034,6 +1035,8 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "irparity", "<文本>", 1, "基本",
+      "**IR 双跑对照（只读）**：原文→IR→规范文本→IR，比较原子一致与只读真值；不写图", CMD_IRPARITY },
     { "ir", "<文本>", 1, "基本",
       "**IR 边界（只读）**：text→IR 原子→规范文本；不改现有理解路径、不写图；`ir_adapter=0` 回退", CMD_IR },
     { "pathbench", "<A> <B> [N]", 1, "基本",
@@ -8167,6 +8170,10 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_IRPARITY: {
+                irparity_cmd(a->brain, carg ? carg : "");
                 continue;
             }
             case CMD_IR: {

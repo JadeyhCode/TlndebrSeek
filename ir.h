@@ -121,4 +121,66 @@ static inline int ir_cmd(AI *ai, const char *arg) {
     return 1;
 }
 
+/* §7.098 只读双跑对照：原文 → IR → 规范文本 → IR，再对同一关系问题做只读求解，
+ * 比较两边的原子与真值。**不写图、不改理解管线**。 */
+static inline int ir_atom_equal(const IrAtom *x, const IrAtom *y) {
+    if (!x || !y || x->kind != y->kind) return 0;
+    if (x->kind == IR_CMD) return !strcmp(x->cmd, y->cmd);
+    if (x->kind == IR_REL || x->kind == IR_QUERY)
+        return !strcmp(x->a, y->a) && !strcmp(x->rel, y->rel) && !strcmp(x->b, y->b)
+               && x->neg == y->neg && x->q == y->q;
+    return 1;
+}
+
+/* 只读求解：0=能解（truth 带回 +1/-1/0），1=缺词/缺关系（未知），2=结构不对 */
+static inline int ir_solve(AI *ai, const IrAtom *at, int *truth) {
+    if (truth) *truth = 0;
+    if (!ai || !at || (at->kind != IR_REL && at->kind != IR_QUERY)) return 2;
+    Token *a = pool_find(ai->pool, at->a);
+    Token *b = pool_find(ai->pool, at->b);
+    if (!a || !b) return 1;
+    RelId rid = rel_id_of(ai, at->rel, 0);
+    if (!rid) return 1;
+    Proof pf;
+    memset(&pf, 0, sizeof pf);
+    rel_solve(ai, a, rid, b, at->neg ? 1 : 0, &pf);
+    if (truth) *truth = pf.status;
+    return 0;
+}
+
+static inline int irparity_cmd(AI *ai, const char *arg) {
+    if (!arg || !*arg) {
+        printf("[IR对照] 用法：::irparity <一句话>（原文 vs IR 回写；只读）\n");
+        return 1;
+    }
+    long on = aip_policy_int("ir_adapter", 1);
+    if (!on) {
+        printf("[IR对照] 适配器关（ir_adapter=0）：不做 IR 中转\n");
+        return 1;
+    }
+    IrAtom x;
+    (void)ir_from_text(ai, arg, &x);
+    char back[512];
+    ir_render(&x, back, sizeof back);
+    IrAtom y;
+    (void)ir_from_text(ai, back, &y);
+    int same = ir_atom_equal(&x, &y);
+    int tx = 0, ty = 0;
+    int rx = ir_solve(ai, &x, &tx);
+    int ry = ir_solve(ai, &y, &ty);
+    printf("[IR对照] 原文 → %s ｜ 回写 → %s\n", back, ir_kind_name(y.kind));
+    printf("[IR对照] 原子一致=%s", same ? "是" : "否");
+    if (x.kind == IR_REL || x.kind == IR_QUERY)
+        printf(" ｜ 只读真值：原文=%s / 回写=%s",
+               rx ? "未知" : (tx > 0 ? "成立" : (tx < 0 ? "不成立" : "未知")),
+               ry ? "未知" : (ty > 0 ? "成立" : (ty < 0 ? "不成立" : "未知")));
+    printf("\n");
+    if (x.kind == IR_REL || x.kind == IR_QUERY)
+        printf("[IR对照] 结论：%s\n",
+               (same && rx == ry && tx == ty) ? "一致（可安全走 IR）" : "不一致（迁移清单 +1）");
+    else
+        printf("[IR对照] 结论：%s\n", same ? "一致（非关系原子）" : "不一致");
+    return 1;
+}
+
 #endif /* IR_H */
