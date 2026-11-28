@@ -26,7 +26,7 @@ static void ok(int cond, const char *what) {
 static int teach(AI *ai, const char *a, const char *rel, const char *b, int neg) {
     Token *A = pool_token_intern(ai->pool, a);
     Token *B = pool_token_intern(ai->pool, b);
-    uint8_t rid = rel_id_of(ai, rel, 1);
+    RelId rid = rel_id_of(ai, rel, 1);
     if (!A || !B || !rid) return -1;
     return ai_write_rel(ai, A, B, rid, neg, AI_WSRC_RELATION);
 }
@@ -35,7 +35,7 @@ static int knows(AI *ai, const char *a, const char *rel, const char *b, int neg)
     Token *A = pool_find(ai->pool, a);
     Token *B = pool_find(ai->pool, b);
     if (!A || !B) return 0;
-    uint8_t rid = rel_id_of(ai, rel, 0);
+    RelId rid = rel_id_of(ai, rel, 0);
     if (!rid) return 0;
     return neg ? rel_direct_neg(A, rid, B) : rel_direct(A, rid, B);
 }
@@ -148,7 +148,7 @@ int main(void) {
     xb_journal_replay(B, J, XB_MODE_LOCAL_WINS, &r10);
     {
         Token *ta = pool_find(B->pool, "猫"), *tb = pool_find(B->pool, "狗");
-        uint8_t rid = rel_id_of(B, "喵", 0);
+        RelId rid = rel_id_of(B, "喵", 0);
         ok(ta && tb && rid && xb_pair_state(ta, rid, tb, 1) == 1,
            "⑧ 否定搬过去了（B 里「猫 不 喵 狗」为真、肯定那条为假）");
         /* ⚠ 这里只能断言 `xb_pair_state` 的口径：引擎自己的 `rel_direct` 对**动态**关系

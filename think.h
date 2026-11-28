@@ -61,7 +61,7 @@
  * 这三个数**不存盘**（存档格式不动）—— 它们是这一轮 deliberation 的产物。 */
 typedef struct {
     Token  *a, *b;
-    uint8_t rid, neg;
+    RelId rid, neg;
     uint8_t ev, hops;
     uint8_t cred;
 } ThinkFact;
@@ -158,7 +158,7 @@ typedef enum {
 typedef struct {
     ThinkGoalKind kind;
     Token *a, *b;
-    uint8_t rid, want_neg;
+    RelId rid, want_neg;
     int  depth;
     /* TG_THROUGH 用：中间词、它那条边是不是来自假设层、第一跳走哪个关系
      * （传递 = 同一个关系；继承 = 先走「属于」）。都由表和图给，不是这里写死的。 */
@@ -181,7 +181,7 @@ typedef struct {
 typedef struct {
     int      active;
     Token   *subj, *obj;      /* 关系的两端（可以只有 subject） */
-    uint8_t  rid, want_neg;
+    RelId rid, want_neg;
     uint64_t born_tick, last_try;
     size_t   tries;
     int      stalled;         /* 试够了次数，停止再试（但不删） */
@@ -344,7 +344,7 @@ typedef struct {
 
 /* 缓存依据复核（定义在下面「推理沉淀」一节）：直查也要用它 ——
  * 求解器里那道实时闸管不到思维层自己扫边的这条路（测试逮到过）。 */
-static inline int think_cache_supported(AI *ai, Token *a, uint8_t rid, Token *b, int neg);
+static inline int think_cache_supported(AI *ai, Token *a, RelId rid, Token *b, int neg);
 
 /* 机制注册表（定义在下面「机制注册表」一节）：这里只前向声明，
  * 因为 think_of 要保证内建机制已经注册好。 */
@@ -642,7 +642,7 @@ static inline uint32_t think_goal_key(const ThinkGoal *g) {
 /* 压一个目标进议程：**去过重**（同一件事不重复想），
  * 返回 1 = 真的压进去了（调用方据此判断「这一步有没有推进」）。 */
 static inline int think_goal_push(Think *t, ThinkGoalKind kind, Token *a, Token *b,
-                                  uint8_t rid, int want_neg, int depth) {
+                                  RelId rid, int want_neg, int depth) {
     if (!t) return 0;
     ThinkGoal g;
     memset(&g, 0, sizeof g);
@@ -661,7 +661,7 @@ static inline int think_goal_push(Think *t, ThinkGoalKind kind, Token *a, Token 
 
 /* 压一个「由某条注册机制处理」的目标（扩展机制的入口）。 */
 static inline int think_goal_push_mech(Think *t, int mech, ThinkGoalKind kind,
-                                       Token *a, Token *b, uint8_t rid,
+                                       Token *a, Token *b, RelId rid,
                                        int want_neg, int depth) {
     if (!t) return 0;
     size_t before = t->ag_n;
@@ -685,7 +685,7 @@ static inline void think_goal_reset(Think *t) {
 /* ============================ 未解问题 ============================ */
 
 static inline ThinkOpen *think_open_find(Think *t, Token *subj, Token *obj,
-                                         uint8_t rid, int want_neg) {
+                                         RelId rid, int want_neg) {
     if (!t) return NULL;
     for (size_t i = 0; i < THINK_MAX_OPEN; ++i) {
         ThinkOpen *o = &t->open[i];
@@ -699,7 +699,7 @@ static inline ThinkOpen *think_open_find(Think *t, Token *subj, Token *obj,
 
 /* 挂一个未解问题。满了就不挂（并记账 —— 「挂太多问题」本身是元认知要看的事）。 */
 static inline ThinkOpen *think_open_add(Think *t, Token *subj, Token *obj,
-                                        uint8_t rid, int want_neg,
+                                        RelId rid, int want_neg,
                                         const char *text, uint64_t tick) {
     if (!t) return NULL;
     ThinkOpen *same = think_open_find(t, subj, obj, rid, want_neg);
@@ -778,7 +778,7 @@ static inline size_t think_restore_pending(AI *ai) {
         if (nw < 3) continue;
         char jbuf[64];
         const char *aw = NULL, *bw = NULL, *rw = NULL;
-        uint8_t rid = 0;
+        RelId rid = 0;
         int neg = 0, isq = 0;
         /* allow_new = 0：装载只**读**，不许因为恢复个问题就登记新谓语 */
         if (!rel_parse(ai, w, nw, jbuf, sizeof jbuf, &aw, &rid, &neg, &bw, &isq, &rw, 0))
@@ -1442,7 +1442,7 @@ static inline int think_mech_thr_applicable(AI *ai, const ThinkGoal *g) {
 static inline int think_mech_thr_expand(AI *ai, Think *t, const ThinkGoal *g) {
     uint8_t hop_rel = rel_is_trans(ai, g->rid) ? g->rid : (uint8_t)REL_IS_A;
     Token  *cands[4];
-    uint8_t chyp[4];
+    RelId chyp[4];
     size_t nc = rel_next_cands(ai, g->a, hop_rel, 0, cands, chyp, 4);
     int pushed = 0;
     for (size_t i = 0; i < nc && pushed < 2; ++i) {
@@ -1614,7 +1614,7 @@ static inline int think_make_goal(AI *ai, Think *t, char *const *words, size_t n
     if (!rel_shape_ok(words, n)) return 0;
     char jbuf[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, q = 0;
     /* allow_new = 0：**只读**地解析。思维不许因为「想了一下」就把新谓语登记进表。 */
     if (!rel_parse(ai, words, n, jbuf, sizeof jbuf, &aw, &rid, &neg, &bw, &q, &rw, 0))
@@ -2085,7 +2085,7 @@ static inline void think_run(AI *ai, char *const *words, size_t n) {
  * 注意这是**单轮**判定：`rel_solve_ignoring_caches` 把所有缓存都当不存在，
  * 所以「缓存拿缓存当依据」这种情况天然不成立 —— 缓存的依据只能是观测 + 规则。
  * 这是有意的保守：**捷径不许嵌套**，否则一条过时的缓存会拖着后面一串。 */
-static inline int think_cache_supported(AI *ai, Token *a, uint8_t rid, Token *b, int neg) {
+static inline int think_cache_supported(AI *ai, Token *a, RelId rid, Token *b, int neg) {
     if (!ai || !a || !b || rid == 0) return 0;
     /* §6.125 **"记忆里的猜测"不是"跟着前提走的缓存"** —— 它的依据是**类比依据**
      * （同类那个词现在还得有这条关系）。用复核模式问"重推得出来吗"必然失败
@@ -2161,7 +2161,7 @@ static inline void think_revalidate_caches(AI *ai, Think *t) {
                 ai->n_scan_edges++;
                 if (e->role != ASSOC_ROLE_DERIVED || !e->main) continue;
                 still = 1;
-                for (uint8_t rid = 1; rid <= REL_CORE_MAX; ++rid) {
+                for (RelId rid = 1; rid <= REL_CORE_MAX; ++rid) {
                     uint16_t bit = REL_BIT(rid);
                     int neg;
                     if (e->rel & bit)       neg = 0;
@@ -2702,8 +2702,8 @@ static inline int think_thin_question(const AI *ai, Token *w,
         if (!best || e->hits > best->hits) best = e;
     }
     if (best) {
-        uint8_t rid = 0;
-        for (uint8_t r = 1; r <= REL_CORE_MAX; ++r)
+        RelId rid = 0;
+        for (RelId r = 1; r <= REL_CORE_MAX; ++r)
             if (best->rel & REL_BIT(r)) { rid = r; break; }
         const char *rn = rid ? rel_name_of(ai, rid) : NULL;
         if (rn && best->main->name) {
@@ -2722,8 +2722,8 @@ static inline int think_thin_question(const AI *ai, Token *w,
             const AssocEntry *f = &token_assocs(z)[j];
             Token *x = f->main;
             if (f->rel == 0 || !x || x == w || x == z || x->is_garbage || !x->name) continue;
-            uint8_t rid = 0;
-            for (uint8_t r = 1; r <= REL_CORE_MAX; ++r)
+            RelId rid = 0;
+            for (RelId r = 1; r <= REL_CORE_MAX; ++r)
                 if (f->rel & REL_BIT(r)) { rid = r; break; }
             const char *rn = rid ? rel_name_of(ai, rid) : NULL;
             if (!rn) continue;

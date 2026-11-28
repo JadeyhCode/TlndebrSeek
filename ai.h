@@ -611,7 +611,7 @@ static inline float aip_policy_float(const char *key, float def) {
 typedef struct {
     uint32_t a_id, b_id;    /* Token.id（稳定、跨池可比） */
     uint32_t seq;           /* 本 agent 的写入序号（从 1 开始，单调） */
-    uint8_t  rid;           /* 关系 id（0 = 无/不适用，如纯共现边） */
+    RelId rid;           /* 关系 id（0 = 无/不适用，如纯共现边） */
     uint8_t  neg;           /* 1 = 写的否定边 */
     uint8_t  src;           /* AiWriteSrc */
     uint8_t  kind;          /* AIMOD_REL / AIMOD_ASSOC */
@@ -650,7 +650,7 @@ typedef struct {
 typedef struct {
     Token  *a;
     Token  *b;
-    uint8_t rid;
+    RelId rid;
     uint8_t neg;     /* 1 = 假设「不 R」 */
 } HypoFact;
 
@@ -758,7 +758,7 @@ static inline int hypo_drop(Hypo *h, size_t idx) {
 
 /* 哪一层里有这条假设事实？（0 起；-1 = 没有）
  * 「撤回 猫 属于 鸟」要找的就是它 —— 作用域回溯得能指名道姓。 */
-static inline int hypo_layer_of_fact(const Hypo *h, const Token *a, uint8_t rid,
+static inline int hypo_layer_of_fact(const Hypo *h, const Token *a, RelId rid,
                                      const Token *b) {
     if (!h || !a || !b) return -1;
     for (size_t k = 0; k < h->depth; ++k) {
@@ -784,7 +784,7 @@ static inline int hypo_layer_of_subject(const Hypo *h, const Token *t) {
  * 为什么需要它：`hypo_pop` 只能整层弹，"这一步的假设撤了、上一步的还在"做不到 ——
  * 而过程执行（第 9 条 ④）的回退恰恰是**按步**撤：一步失败，只撤这一步刚加的那些假设。
  * 返回 1 = 撤掉了（后面的条目往前挪，不留空位）。 */
-static inline int hypo_del(Hypo *h, const Token *a, const Token *b, uint8_t rid) {
+static inline int hypo_del(Hypo *h, const Token *a, const Token *b, RelId rid) {
     if (!h || h->depth == 0 || !a || !b || rid == 0) return 0;
     HypoFrame *f = &h->fr[h->depth - 1];
     for (size_t i = 0; i < f->n; ++i) {
@@ -798,7 +798,7 @@ static inline int hypo_del(Hypo *h, const Token *a, const Token *b, uint8_t rid)
 }
 
 /* 往最深那一层加一条事实 */
-static inline int hypo_add(Hypo *h, Token *a, Token *b, uint8_t rid, int neg) {
+static inline int hypo_add(Hypo *h, Token *a, Token *b, RelId rid, int neg) {
     if (!h || !a || !b || rid == 0) return 0;
     if (h->depth == 0 && !hypo_push(h, NULL)) return 0;
     HypoFrame *f = &h->fr[h->depth - 1];
@@ -826,7 +826,7 @@ static inline int hypo_frame_visible(const HypoFrame *f, const Token *view_who) 
 
 static inline const HypoFact *hypo_find(const Hypo *h, const Token *view_who,
                                         const Token *a,
-                                        uint8_t rid, const Token *b,
+                                        RelId rid, const Token *b,
                                         Token **out_who) {
     if (!h) return NULL;
     for (size_t k = h->depth; k-- > 0; ) {
@@ -843,7 +843,7 @@ static inline const HypoFact *hypo_find(const Hypo *h, const Token *view_who,
 }
 /* 覆盖层里所有「以 a 为主语、关系 rid、极性 neg_want」的事实（所有层都算） */
 static inline size_t hypo_edges(const Hypo *h, const Token *view_who,
-                                const Token *a, uint8_t rid,
+                                const Token *a, RelId rid,
                                 int neg_want, const HypoFact **out, size_t cap) {
     size_t n = 0;
     if (!h) return 0;
@@ -911,7 +911,7 @@ typedef struct {
     Token  *subj;        /* 这一步讲的是 subj --[rel]--> obj */
     Token  *obj;
     Token  *src;         /* DEFAULT 时：依据是哪个词（最近邻） */
-    uint8_t rid;
+    RelId rid;
     uint8_t neg;         /* 这一步是不是否定 */
     int     truth;       /* +1 真 -1 假 0 未知（GAP 恒为 0） */
     int     sim;         /* DEFAULT 时的相似度 */
@@ -991,7 +991,7 @@ typedef struct AI {
      * 刚学了一条冲突事实、问了"要 改 掉 旧 的 吗"，下一轮用户回「对」就撤旧值。
      * 存 id 不存指针（池可能扩容/搬动），`ask_retract_old == 0` 表示没有待确认的。 */
     uint32_t ask_retract_a, ask_retract_old;
-    uint8_t  ask_retract_rid;
+    RelId ask_retract_rid;
     size_t n_rel_yes;               /* 靠关系推理答「是」的次数 */
     size_t n_rel_no;                /* 靠关系推理答「不是」的次数 */
     size_t n_rel_deep;              /* 其中需要多跳推导（不是直接边）的次数 */
@@ -1105,7 +1105,7 @@ typedef struct AI {
                                       * 2 = 我给了**确定答案**（§6.172：回「不 对」就改口） */
     char   ask_a[64], ask_b[64];
     /* §6.268 上一轮**问句**的（关系, 宾语）—— 供「那狗呢」这种省略问句补全 */
-    uint8_t last_q_rid;
+    RelId last_q_rid;
     uint8_t last_q_neg;
     char    last_q_b[40];
     /* 第 5 步 **回答格式层**（不存盘）：当前/一次性格式名 + 输出缓冲上限 +
@@ -1114,7 +1114,7 @@ typedef struct AI {
     char    fmt_once[40];
     size_t  fmt_out_cap;
     uint8_t fmt_suppress;
-    uint8_t ask_rid;
+    RelId ask_rid;
     uint8_t ask_neg;                 /* 问句本身是不是否定问法 */
     uint8_t ask_fact_neg;            /* 我**断言**的那条事实的极性（kind=2 用） */
     /* **写入闸门：分层判据**（② 档，默认 0 = 关）：实测 imp 落在 0.587~0.725，
@@ -1142,7 +1142,7 @@ typedef struct AI {
     size_t n_hypo_cache;             /* 沉淀过几条条件缓存（给人看） */
     /* **条件缓存的登记表**（§6.119 升格用）：造过哪些"假设下结论"，供撤回后复查。
      * 有界（16 条），满了就丢最老的（登记表只影响"能不能升格"，不影响缓存本身的正确性）。 */
-    struct { Token *A, *B, *P; uint8_t rid, neg; } hc[16];
+    struct { Token *A, *B, *P; RelId rid, neg; } hc[16];
     size_t n_hc;
     /* **N1 参与决策**（思维侧第二条，默认 0 = 关）：思维对象定稿时把它抄到这里
      * （ai.h 在 think.h **之前**，调不到 think_of ⇒ 用一层 AI 级缓存转手），
@@ -1225,7 +1225,7 @@ typedef struct AI {
     int      verify_writes;
     size_t   n_verify_ok;
     size_t   n_verify_miss;
-    int    (*rel_verify_hook)(const Token *a, const Token *b, uint8_t rid, int neg);
+    int    (*rel_verify_hook)(const Token *a, const Token *b, RelId rid, int neg);
     int    (*tool_hook)(struct AI *ai, const char *input, char *out, size_t cap);  /* §6.993 模型调用工具 */
     void   (*curious_hook)(struct AI *ai, const char *q, const char *why);  /* §6.995 答不出时入好奇心队列 */
     int     curious_n;      /* 本会话已入队条数（限额记账） */
@@ -1257,7 +1257,7 @@ typedef struct AI {
     int    q_ellipsis;              /* §6.981 这一轮问题来自「那X呢」补全：不做类比猜 */
     int    enum_pending;            /* §6.987 刚给过「属于 X 的有…」：下一句「还有呢」接着列 */
     char   enum_b[40];
-    uint8_t enum_rid;
+    RelId enum_rid;
     int    enum_neg;
     uint32_t enum_after;
     int    clarify_pending;         /* §6.985 刚反问过「什么关系」：下一句若是关系词就按它答 */
@@ -1394,7 +1394,7 @@ typedef struct AI {
     int    en_pending;
     char   en_pa[128], en_pb[200];       /* 显示用（英文原串） */
     char   en_pa_zh[128], en_pb_zh[200]; /* 写图用（映射后的中文节点名） */
-    uint8_t en_prid;
+    RelId en_prid;
     int    en_pnew_neg, en_pold_neg;
     /* §7.040 最近主语环（带来源：0=问句主语 1=陈述/教学主语），多轮指代用 */
     char   subj_hist[4][64];
@@ -5119,7 +5119,7 @@ static inline OtherModel *other_intern(AI *ai, Token *who) {
 }
 /* 记一条他的信念。同一对词、同一关系 → 覆盖极性（人会说反话）。 */
 static inline int other_belief_learn(AI *ai, OtherModel *om,
-                                     Token *a, Token *b, uint8_t rid, int neg) {
+                                     Token *a, Token *b, RelId rid, int neg) {
     if (!ai || !om || !a || !b || rid == 0 || a == b) return 0;
     /* **指代消解最小版**：谁刚说过话，就记下来 —— 「他/她/它」随后指的就是这个人
      * （只在 `pron_last` 打开时用；关着时这个字段没人读，行为逐字节相同）。 */
@@ -5153,7 +5153,7 @@ static inline int other_belief_learn(AI *ai, OtherModel *om,
     return 1;
 }
 static inline const HypoFact *other_belief_find(const OtherModel *om,
-                                                const Token *a, uint8_t rid,
+                                                const Token *a, RelId rid,
                                                 const Token *b) {
     if (!om || !a || !b || rid == 0) return NULL;
     for (size_t i = 0; i < om->n_bel; ++i)
@@ -5163,7 +5163,7 @@ static inline const HypoFact *other_belief_find(const OtherModel *om,
 }
 /* 以 a 为主语、关系 rid、极性 neg_want 的信念（他可能信好几条） */
 static inline size_t other_belief_edges(const OtherModel *om, const Token *a,
-                                        uint8_t rid, int neg_want,
+                                        RelId rid, int neg_want,
                                         const HypoFact **out, size_t cap) {
     size_t n = 0;
     if (!om || !a) return 0;
@@ -5745,7 +5745,7 @@ static inline void ai_stats(const AI *ai) {
     printf("       世界假设：%s\n", ai->closed_world ? "闭合（没写就是假）" : "开放（没写就是不知道）");
     {
         printf("       关系独占表：");
-        for (uint8_t r = 1; r <= REL_CORE_MAX; ++r) {
+        for (RelId r = 1; r <= REL_CORE_MAX; ++r) {
             const char *nm = NULL;
             switch (r) {
                 case REL_IS_A: nm = "属于"; break;
@@ -5785,7 +5785,7 @@ static inline void ai_stats(const AI *ai) {
 /* 记一条账（只给 id）。§6.580：**冲突但没写**的那种账，宾语可能在本脑里还没有词
  * （判定冲突时我们刻意不建词）⇒ 这里允许 `b_id == 0`，`::mods` 显示成 "?"。
  * 有 id 这一层，账就不依赖"两端都是本池里活着的词"。 */
-static inline void ai_modlog_note_raw(AI *ai, uint32_t a_id, uint32_t b_id, uint8_t rid, int neg,
+static inline void ai_modlog_note_raw(AI *ai, uint32_t a_id, uint32_t b_id, RelId rid, int neg,
                                       AiWriteSrc s, AIModKind kind) {
     if (!ai || !a_id) return;
     AIModLog *L = &ai->modlog;
@@ -5808,7 +5808,7 @@ static inline void ai_modlog_set_why(AI *ai, uint32_t why_id) {
     size_t idx = (ai->modlog.head + AI_MODLOG_MAX - 1u) % AI_MODLOG_MAX;
     ai->modlog.ent[idx].why_id = why_id;
 }
-static inline void ai_modlog_note(AI *ai, Token *a, Token *b, uint8_t rid, int neg,
+static inline void ai_modlog_note(AI *ai, Token *a, Token *b, RelId rid, int neg,
                                   AiWriteSrc s, AIModKind kind) {
     if (!ai || !a || !b) return;
     ai_modlog_note_raw(ai, a->id, b->id, rid, neg, s, kind);
@@ -5828,7 +5828,7 @@ static inline void ai_modlog_note_del(AI *ai, Token *a, Token *b, AiWriteSrc s, 
     ai_modlog_note(ai, a, b, 0, 0, s, kind);
 }
 /* §6.585 撤掉一条**关系位**（不是删整条边）：要带上关系 id，否则 `::mods` 只能显示 "?" */
-static inline void ai_modlog_note_retract(AI *ai, Token *a, Token *b, uint8_t rid, AiWriteSrc s) {
+static inline void ai_modlog_note_retract(AI *ai, Token *a, Token *b, RelId rid, AiWriteSrc s) {
     ai_modlog_note(ai, a, b, rid, 0, s, AIMOD_REL_DEL);
 }
 
@@ -5903,15 +5903,15 @@ static inline int ai_write_assoc(AI *ai, Token *a, Token *b, AiWriteSrc s) {
 /* 关系事实（知识）：记一笔；`route_writes` 打开时**走受审通道**。
  * 两条路的语义相同（MOD_TAG_REL 内部就是 token_tag_rel），差别只在
  * 谁来审查、什么时候落地 —— 所以这是一次**可测量**的开关，不是改行为。 */
-static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, uint8_t rid, int neg, AiWriteSrc s);
+static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, RelId rid, int neg, AiWriteSrc s);
 
-static inline int ai_write_rel(AI *ai, Token *a, Token *b, uint8_t rid, int neg, AiWriteSrc s);
+static inline int ai_write_rel(AI *ai, Token *a, Token *b, RelId rid, int neg, AiWriteSrc s);
 
 /* §6.580 同一条写入通道，但**账里记成哪种动作**由调用方定。
  * 为什么要这个参数：照抄/覆盖和"现场学"写的是**同一张图**（必须同一个通道，
  * 否则又会有第二条写入路径偷偷绕过受审），但账上必须能分开 —— 用户要能看见
  * "这 3 条是外来带进来的""这 1 条明知冲突还是写了"。 */
-static inline int ai_write_rel_k(AI *ai, Token *a, Token *b, uint8_t rid, int neg,
+static inline int ai_write_rel_k(AI *ai, Token *a, Token *b, RelId rid, int neg,
                                  AiWriteSrc s, unsigned kind) {
     if (!ai || !a || !b || rid == 0) return -1;
     ai_write_count(ai, s);
@@ -5928,11 +5928,11 @@ static inline int ai_write_rel_k(AI *ai, Token *a, Token *b, uint8_t rid, int ne
     return rc;
 }
 
-static inline int ai_write_rel(AI *ai, Token *a, Token *b, uint8_t rid, int neg, AiWriteSrc s) {
+static inline int ai_write_rel(AI *ai, Token *a, Token *b, RelId rid, int neg, AiWriteSrc s) {
     return ai_write_rel_k(ai, a, b, rid, neg, s, AIMOD_REL);
 }
 
-static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, uint8_t rid, int neg, AiWriteSrc s) {
+static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, RelId rid, int neg, AiWriteSrc s) {
     (void)s;
     if (!a || !b || a == b) return -1;   /* §6.584 自环不是事实（含动态谓语）*/
     Micro *mk = micro_of(ai);
@@ -5958,7 +5958,7 @@ static inline int ai_write_rel_raw(AI *ai, Token *a, Token *b, uint8_t rid, int 
      * （§6.80）—— 以前这里直接落到 `token_tag_nrel()`，而它只认 `rid < REL_DYN_BASE`
      * ⇒ 对话里说「A 不 <动态谓语> B」整句掉降级答复（实测）。 */
     if (rid >= REL_DYN_BASE)
-        return token_tag_dyn_neg(a, b, (uint8_t)(rid - REL_DYN_BASE + 1), neg, REL_BOOST);
+        return token_tag_dyn_neg(a, b, (uint32_t)(rid - REL_DYN_BASE + 1), neg, REL_BOOST);
     return neg ? token_tag_nrel(a, b, rid, REL_BOOST) : token_tag_rel(a, b, rid, REL_BOOST);
 }
 

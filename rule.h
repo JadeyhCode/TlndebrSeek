@@ -108,12 +108,12 @@ static inline Token *rule_add(AI *ai, const char *hname, char *const *hargs, siz
     snprintf(rn, sizeof rn, RULE_PREFIX "R%d]", maxid + 1);
     Token *r = pool_token_intern(ai->pool, rn);
     if (!r) return NULL;
-    uint8_t rid_head = rel_id_of(ai, "结论", 1);
+    RelId rid_head = rel_id_of(ai, "结论", 1);
     if (!rid_head || ai_write_rel(ai, r, hp, rid_head, 0, AI_WSRC_RELATION) != 0) return NULL;
     for (size_t k = 0; k < np; ++k) {
         char prn[24];
         snprintf(prn, sizeof prn, "前提%zu", k + 1);
-        uint8_t rid = rel_id_of(ai, prn, 1);
+        RelId rid = rel_id_of(ai, prn, 1);
         if (!rid || ai_write_rel(ai, r, pp[k], rid, 0, AI_WSRC_RELATION) != 0) return NULL;
     }
     return r;
@@ -127,9 +127,9 @@ static inline Token *rule_part(AI *ai, const Token *r, const char *relname, size
     char rn[64];
     if (k) snprintf(rn, sizeof rn, "%s%zu", relname, k);
     else   snprintf(rn, sizeof rn, "%s", relname);
-    uint8_t rid = rel_id_of(ai, rn, 0);
+    RelId rid = rel_id_of(ai, rn, 0);
     if (!rid || rid < REL_DYN_BASE) return NULL;
-    uint8_t dyn = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint32_t dyn = (uint32_t)(rid - REL_DYN_BASE + 1);
     for (size_t i = 0; i < r->count; ++i) {
         const AssocEntry *e = &token_assocs_ro(r)[i];
         if (e->dyn == dyn && e->main) return e->main;
@@ -697,7 +697,7 @@ static inline int rule_fwd_derive(AI *ai, const RuleAtom *hg) {
     if (!ai || !hg || hg->n < 2) return 0;
     for (size_t k = 0; k < hg->n; ++k)
         if (hg->args[k][0] == '$') return 0;      /* 没绑全 ⇒ 不落（不猜） */
-    uint8_t rid = rel_id_of(ai, hg->name, 0);
+    RelId rid = rel_id_of(ai, hg->name, 0);
     const char *a = hg->args[0];
     const char *b = hg->args[1];
     if (rid) {

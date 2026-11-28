@@ -110,7 +110,7 @@ static inline const char *sym_state(const Token *t) {
 }
 
 /* 一条边的关系名（静态关系按位，动态关系按 dyn）：返回 rid，neg 回填 */
-static inline uint8_t sym_assoc_rid(AI *ai, const AssocEntry *e, int *neg) {
+static inline RelId sym_assoc_rid(AI *ai, const AssocEntry *e, int *neg) {
     (void)ai;
     if (neg) *neg = 0;
     if (!e) return 0;
@@ -123,13 +123,13 @@ static inline uint8_t sym_assoc_rid(AI *ai, const AssocEntry *e, int *neg) {
             return id;
         }
     }
-    if (e->dyn) return (uint8_t)(REL_DYN_BASE + e->dyn - 1);
+    if (e->dyn) return (RelId)(REL_DYN_BASE + e->dyn - 1);
     return 0;
 }
 
 static inline void sym_print_edge(AI *ai, const AssocEntry *e, const char *other) {
     int neg = 0;
-    uint8_t rid = sym_assoc_rid(ai, e, &neg);
+    RelId rid = sym_assoc_rid(ai, e, &neg);
     const char *rn = rid ? rel_name_of(ai, rid) : "共现";
     const char *role = (e->role == ASSOC_ROLE_DERIVED) ? "推论"
                      : (e->role == ASSOC_ROLE_INNATE) ? "基准" : "观测";
@@ -168,7 +168,7 @@ static inline void sym_links_json(AI *ai, Token *t) {
         AssocEntry *e = &token_assocs(t)[i];
         if (!e->main || !e->main->name) continue;
         int neg = 0;
-        uint8_t rid = sym_assoc_rid(NULL, e, &neg);
+        RelId rid = sym_assoc_rid(NULL, e, &neg);
         const char *rn = rid ? rel_name_of(ai, rid) : "共现";
         const char *role = (e->role == ASSOC_ROLE_DERIVED) ? "推论"
                          : (e->role == ASSOC_ROLE_INNATE) ? "基准" : "观测";
@@ -188,7 +188,7 @@ static inline void sym_links_json(AI *ai, Token *t) {
         if (sid >= ai->pool->count) continue;
         Token *s = ai->pool->tokens[sid];
         if (!s || s->is_garbage || !s->name) continue;
-        uint8_t rid = (uint8_t)(meta & 0x7FFFu);
+        RelId rid = (uint8_t)(meta & 0x7FFFu);
         const char *rn = rel_name_of(ai, rid);
         sym_printf("%s{\"from\":", ni ? "," : "");
         sym_json_str(s->name);
@@ -321,7 +321,7 @@ static inline void sym_cmd_links(AI *ai, const char *name) {
     size_t ni = 0;
     for (uint32_t ent = t->rev_head; ent && ni < 64; ent = ai->pool->rev_next[ent - 1]) {
         uint32_t meta = ai->pool->rev_meta[ent - 1];
-        uint8_t rid = (uint8_t)(meta & 0x7FFFu);
+        RelId rid = (uint8_t)(meta & 0x7FFFu);
         int neg = (meta & 0x8000u) ? 1 : 0;
         uint32_t sid = ai->pool->rev_src[ent - 1];
         if (sid >= ai->pool->count) continue;
@@ -343,7 +343,7 @@ static inline size_t sym_move_edges(AI *ai, Token *from, Token *to) {
         AssocEntry *e = &token_assocs(from)[i];
         if (!e->main || e->main == from) continue;
         int neg = 0;
-        uint8_t rid = sym_assoc_rid(ai, e, &neg);
+        RelId rid = sym_assoc_rid(ai, e, &neg);
         if (!rid) continue;
         if (ai_write_rel(ai, to, e->main, rid, neg, AI_WSRC_RELATION) == 0) moved++;
         agent_teach_mark(ai, to, rid, e->main, neg);
@@ -355,7 +355,7 @@ static inline size_t sym_move_edges(AI *ai, Token *from, Token *to) {
             AssocEntry *e = &token_assocs(t)[i];
             if (e->main != from) continue;
             int neg = 0;
-            uint8_t rid = sym_assoc_rid(ai, e, &neg);
+            RelId rid = sym_assoc_rid(ai, e, &neg);
             if (!rid) continue;
             if (ai_write_rel(ai, t, to, rid, neg, AI_WSRC_RELATION) == 0) moved++;
             agent_teach_mark(ai, t, rid, to, neg);
@@ -402,13 +402,13 @@ static inline void sym_after_write(AI *ai, const char *what) {
 typedef struct {
     int kind;        /* 1=加边 2=删边 3=改边 4=删符号 */
     Token *a, *b, *sym;
-    uint8_t rid, old_rid;
+    RelId rid, old_rid;
     int neg;
 } SymUndo;
 static SymUndo g_sym_undo[SYM_UNDO_MAX];
 static int g_sym_undo_n = 0;
 
-static inline void sym_undo_push(int kind, Token *a, Token *b, uint8_t rid, uint8_t old_rid, int neg, Token *sym) {
+static inline void sym_undo_push(int kind, Token *a, Token *b, RelId rid, RelId old_rid, int neg, Token *sym) {
     if (g_sym_undo_n == SYM_UNDO_MAX) {
         memmove(&g_sym_undo[0], &g_sym_undo[1], sizeof g_sym_undo[0] * (SYM_UNDO_MAX - 1));
         g_sym_undo_n--;
@@ -417,7 +417,7 @@ static inline void sym_undo_push(int kind, Token *a, Token *b, uint8_t rid, uint
     u->kind = kind; u->a = a; u->b = b; u->rid = rid; u->old_rid = old_rid; u->neg = neg; u->sym = sym;
 }
 
-static inline int sym_drop_edge(Token *a, Token *b, uint8_t rid) {
+static inline int sym_drop_edge(Token *a, Token *b, RelId rid) {
     if (!a || !b) return 0;
     for (size_t i = 0; i < a->count; ++i) {
         AssocEntry *e = &token_assocs(a)[i];
@@ -579,7 +579,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         if (!sym_write_gate()) return;
         if (g_sym_dry) {
             Token *A0 = pool_find(ai->pool, a), *B0 = pool_find(ai->pool, b);
-            uint8_t rid0 = rel_id_of(ai, r, 0);
+            RelId rid0 = rel_id_of(ai, r, 0);
             int has = (A0 && B0 && rid0 && rel_direct(A0, rid0, B0));
             sym_printf("[预览] %s %s %s %s：", op, a, r, b);
             if (!strcmp(op, "add")) sym_printf(has ? "已存在，不需要写\n" : "会新增一条边（不写）\n");
@@ -589,7 +589,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         }
         Token *A = pool_token_intern(ai->pool, a);
         Token *B = pool_token_intern(ai->pool, b);
-        uint8_t rid = rel_id_of(ai, r, 1);
+        RelId rid = rel_id_of(ai, r, 1);
         if (!A || !B || !rid) { sym_printf("[符号] 参数不对（A/B/关系 至少一个不认识）\n"); return; }
         if (!strcmp(op, "add")) {
             if (ai_write_rel(ai, A, B, rid, 0, AI_WSRC_RELATION) != 0) { sym_printf("[符号] 写不进\n"); return; }
@@ -624,7 +624,7 @@ static inline void sym_cmd(AI *ai, const char *arg) {
         }
         if (!strcmp(op, "mod")) {
             char *nr = strtok_r(NULL, " \t", &save);
-            uint8_t nrid = nr ? rel_id_of(ai, nr, 1) : 0;
+            RelId nrid = nr ? rel_id_of(ai, nr, 1) : 0;
             if (!nrid) { sym_printf("[用法] ::sym edge mod <A> <旧关系> <B> <新关系>\n"); return; }
             for (size_t i = 0; i < A->count; ++i) {
                 AssocEntry *e = &token_assocs(A)[i];

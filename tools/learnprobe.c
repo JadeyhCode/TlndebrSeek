@@ -43,7 +43,7 @@ static const char *say(AI *ai, const char *s) {
 
 static int knows(AI *ai, const char *a, const char *rel, const char *b, int neg) {
     Token *A = pool_find(ai->pool, a), *B = pool_find(ai->pool, b);
-    uint8_t rid = rel_id_of(ai, rel, 0);
+    RelId rid = rel_id_of(ai, rel, 0);
     if (!A || !B || !rid) return 0;
     return neg ? rel_direct_neg(A, rid, B) : rel_direct(A, rid, B);
 }

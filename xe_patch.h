@@ -82,14 +82,14 @@ static inline void xe_graph_fp(AI *ai, char *out, size_t cap) {
 }
 
 /* 删除一条边：核心关系清位，动态关系清 dyn（不动其它位，零格式改动）*/
-static inline int xe_unlink(AI *ai, Token *a, Token *b, uint8_t rid) {
+static inline int xe_unlink(AI *ai, Token *a, Token *b, RelId rid) {
     (void)ai;   /* 删边只动 a 的边表，不需要 AI */
     if (!a || !b || !rid) return -1;
     for (size_t i = 0; i < a->count; ++i) {
         AssocEntry *e = &token_assocs(a)[i];
         if (e->main != b) continue;
         if (rid >= REL_DYN_BASE) {
-            if (e->dyn == (uint8_t)(rid - REL_DYN_BASE + 1)) { e->dyn = 0; a->edges_dirty = 1; return 0; }
+            if (e->dyn == (uint32_t)(rid - REL_DYN_BASE + 1)) { e->dyn = 0; a->edges_dirty = 1; return 0; }
         } else if (e->rel & REL_BIT(rid)) {
             e->rel &= (uint16_t)~REL_BIT(rid); a->edges_dirty = 1; return 0;
         }
@@ -100,7 +100,7 @@ static inline int xe_unlink(AI *ai, Token *a, Token *b, uint8_t rid) {
 static inline int xe_patch_record_edge(XePatch *p, AI *ai, const char *from,
                                        const char *rel, const char *to, int add) {
     Token *a = xe_tok(ai, from), *b = xe_tok(ai, to);
-    uint8_t rid = xe_rid(ai, rel);
+    RelId rid = xe_rid(ai, rel);
     if (!a || !b || !rid) return -1;
     if (add) { if (xe_link(a, b, rid) != 0) return -1; }
     else     { if (xe_unlink(ai, a, b, rid) != 0) return -1; }
@@ -149,7 +149,7 @@ static inline int xe_patch_apply(AI *ai, const XePatch *p, int force) {
     if (!force && p->base_fp[0] && strcmp(fp, p->base_fp) != 0) return -2;
     for (size_t i = 0; i < p->n; ++i) {
         Token *a = xe_tok(ai, p->e[i].from), *b = xe_tok(ai, p->e[i].to);
-        uint8_t rid = xe_rid(ai, p->e[i].rel);
+        RelId rid = xe_rid(ai, p->e[i].rel);
         if (!a || !b || !rid) return -1;
         int rc = p->e[i].add ? xe_link(a, b, rid) : xe_unlink(ai, a, b, rid);
         if (rc != 0) return -1;

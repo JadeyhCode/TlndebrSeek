@@ -34,7 +34,7 @@ static inline size_t fr_from_graph(AI *ai, FrameSet *fs) {
         for (size_t q = 0; q < fn->count; ++q) {
             const AssocEntry *ae = &token_assocs_ro(fn)[q];
             if (!ae->dyn || !ae->main || !ae->main->name) continue;
-            const char *dn = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + ae->dyn - 1));
+            const char *dn = rel_dyn_name(ai, (RelId)(REL_DYN_BASE + ae->dyn - 1));
             if (!dn) continue;
             if (!strcmp(dn, "问法") || !strcmp(dn, "答法")) {
                 FrTemplates *T = !strcmp(dn, "答法") ? &fe->ans : &fe->ask;

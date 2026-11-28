@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
         snprintf(sb, sizeof sb, "w%06ld", ib);
         Token *A = pool_find(a->pool, sa), *B = pool_find(a->pool, sb);
         if (!A || !B) continue;
-        uint8_t rid = (rnd(10) == 0) ? dyn : RIDS[rnd((unsigned)(sizeof RIDS / sizeof RIDS[0]))];
+        RelId rid = (rnd(10) == 0) ? dyn : RIDS[rnd((unsigned)(sizeof RIDS / sizeof RIDS[0]))];
         if (rid && ai_write_rel(a, A, B, rid, 0, AI_WSRC_RELATION) == 0) made++;
     }
     double t_fact = (double)(clock() - t0) / CLOCKS_PER_SEC;

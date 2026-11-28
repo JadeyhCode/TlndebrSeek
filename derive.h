@@ -49,24 +49,24 @@ static inline void der_source(Derivation *d, const char *note) {
     DerStep *s = der_add(d, DER_SOURCE);
     if (s) cot_copy(s->note, sizeof s->note, note);
 }
-static inline DerStep *der_goal(Derivation *d, Token *a, uint8_t rid, Token *b) {
+static inline DerStep *der_goal(Derivation *d, Token *a, RelId rid, Token *b) {
     DerStep *s = der_add(d, DER_GOAL);
     if (s) { s->subj = a; s->obj = b; s->rid = rid; }
     return s;
 }
-static inline DerStep *der_fact(Derivation *d, Token *a, uint8_t rid, Token *b,
+static inline DerStep *der_fact(Derivation *d, Token *a, RelId rid, Token *b,
                                 int neg, int truth) {
     DerStep *s = der_add(d, DER_FACT);
     if (s) { s->subj = a; s->obj = b; s->rid = rid; s->neg = (uint8_t)neg; s->truth = truth; }
     return s;
 }
-static inline DerStep *der_rule(Derivation *d, uint8_t rule, Token *a, uint8_t rid,
+static inline DerStep *der_rule(Derivation *d, uint8_t rule, Token *a, RelId rid,
                                 Token *b, int truth) {
     DerStep *s = der_add(d, DER_RULE);
     if (s) { s->rule = rule; s->subj = a; s->obj = b; s->rid = rid; s->truth = truth; }
     return s;
 }
-static inline DerStep *der_default(Derivation *d, Token *a, Token *src, uint8_t rid,
+static inline DerStep *der_default(Derivation *d, Token *a, Token *src, RelId rid,
                                    Token *b, int sim, int truth) {
     DerStep *s = der_add(d, DER_DEFAULT);
     if (s) { s->subj = a; s->src = src; s->obj = b; s->rid = rid;
@@ -89,7 +89,7 @@ static inline void der_conclude(Derivation *d, int truth, int conf) {
 /* 把求解器给出的 Proof 变成 Derivation。
  * Proof 是一串「走到哪个词、用了哪条规则」，这里翻译成带规则的步骤：
  * 每一跳是一条 FACT（直接边）或 RULE（传递/继承/对称/逆关系）或 DEFAULT（类比）。 */
-static inline void der_from_proof(AI *ai, Derivation *d, const Token *a, uint8_t rid,
+static inline void der_from_proof(AI *ai, Derivation *d, const Token *a, RelId rid,
                                   const Token *b, const Proof *pf) {
     (void)ai;
     der_reset(d);
@@ -169,7 +169,7 @@ static inline int der_verify(AI *ai, Derivation *d) {
     if (!ai || !d) return 1;
     d->gaps = 0; d->guessed = 0;
     /* 被问的关系（GOAL 上记着），规则合法性要对着它判 */
-    uint8_t goal_rid = 0;
+    RelId goal_rid = 0;
     for (size_t i = 0; i < d->n; ++i)
         if (d->step[i].kind == DER_GOAL) { goal_rid = d->step[i].rid; break; }
     /* 规则合法性按**被问的那个关系**判（goal），不是按这一跳的关系判：

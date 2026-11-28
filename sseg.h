@@ -196,7 +196,7 @@ static inline void sseg_run(AI *ai, const char *text) {
         for (size_t k = 0; k < t->count; ++k) {
             const AssocEntry *e = &token_assocs_ro(t)[k];
             if (!e->main || !e->main->name || !e->dyn) continue;
-            const char *rn = rel_name_of(ai, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+            const char *rn = rel_name_of(ai, (RelId)(REL_DYN_BASE + e->dyn - 1));
             if (rn && (strstr(rn, "词性") || strstr(rn, "词类")))
                 printf("[词性] %s：%s\n", c->name, e->main->name);
         }

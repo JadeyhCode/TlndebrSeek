@@ -396,7 +396,7 @@ typedef struct {
     Token   *target;                    /* 对哪个符号节点动手 */
     Token   *main;                      /* 边的另一头 / 新符号节点要连回谁 */
     Token   *action;                    /* 设动作 */
-    uint8_t  rel_id;                    /* 打关系 / 沉淀 */
+    RelId    rel_id;                    /* 打关系 / 沉淀（§7.089 扩宽） */
     uint8_t  neg;                       /* 沉淀时：记的是不是「不 R」 */
     uint8_t  flags;                     /* 复合意图的开关位（见 MOD_FLAG_*） */
     uint32_t bump;                      /* 加权 */
@@ -1925,7 +1925,7 @@ static inline int micro_apply_one(AI *ai, const ModIntent *m, char *note, size_t
          *   （实测被 `AIP_ROUTE=1` 的 revision/consolidate 两套抓住）。 */
         int rc = (m->rel_id >= REL_DYN_BASE)
                      ? token_tag_dyn_neg(m->target, m->main,
-                                         (uint8_t)(m->rel_id - REL_DYN_BASE + 1),
+                                         (uint32_t)(m->rel_id - REL_DYN_BASE + 1),
                                          m->neg ? 1 : 0, m->bump)
                      : (m->neg ? token_tag_nrel(m->target, m->main, m->rel_id,
                                          m->bump ? m->bump : REL_BOOST)

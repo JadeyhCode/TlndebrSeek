@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
         char *e3b[3] = { "己", "庚", "辛" };
         Token *pbad = pred_make(a, "坏例", e3b, 3);
         char rn[24];
-        uint8_t rid = rel_id_of(a, pred_arg_relname(2, rn, sizeof rn), 0);
+        RelId rid = rel_id_of(a, pred_arg_relname(2, rn, sizeof rn), 0);
         if (pbad && rid) {
             for (size_t i = 0; i < pbad->count; ++i) {
                 AssocEntry *e = &token_assocs(pbad)[i];

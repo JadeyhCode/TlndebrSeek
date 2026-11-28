@@ -1253,7 +1253,7 @@ static void test_merged_neg(void) {
     AI *ai = ai_new();
     char jbuf[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, isq = 0;
     /* 合写 */
     char *(w1[4]) = {(char *)"猫", (char *)"不会", (char *)"飞", (char *)"吗"};
@@ -1264,7 +1264,7 @@ static void test_merged_neg(void) {
        "`rel_word` 归一是**关系词本身**（「会」，不是输入那个「不会」）—— 不然会拼出「不 不会」");
     /* 两词写法：同答案 */
     const char *aw2 = NULL, *bw2 = NULL, *rw2 = NULL;
-    uint8_t rid2 = 0; int neg2 = 0, isq2 = 0;
+    RelId rid2 = 0; int neg2 = 0, isq2 = 0;
     char *(w2[5]) = {(char *)"猫", (char *)"不", (char *)"会", (char *)"飞", (char *)"吗"};
     int p2 = rel_parse(ai, w2, 5, jbuf, sizeof jbuf, &aw2, &rid2, &neg2, &bw2, &isq2, &rw2, 0);
     ok(p2 && rid2 == rid && neg2 == neg && isq2 == isq && rw2 && rw && strcmp(rw2, rw) == 0,
@@ -1280,7 +1280,7 @@ static void test_merged_neg(void) {
     char *(w5[4]) = {(char *)"猫", (char *)"会", (char *)"飞", (char *)"吗"};
     ok(rel_parse(ai, w5, 4, jbuf, sizeof jbuf, &aw, &rid, &neg, &bw, &isq, &rw, 0) && neg == 0,
        "肯定句（猫 会 飞 吗）否定位是 0 —— 没把关系词当成否定");
-    { uint8_t m = 0; ok(!rel_merged_neg_id("会", &m) && !rel_merged_neg_id("不", &m),
+    { RelId m = 0; ok(!rel_merged_neg_id("会", &m) && !rel_merged_neg_id("不", &m),
                         "`rel_merged_neg_id` 不认「会」（关系词）也不认孤零零的「不」"); }
     /* 关系文件装载器也认合写（不然 `甲2 不会 乙2` 这种行会被静默丢掉） */
     {
@@ -2098,7 +2098,7 @@ static void test_answer_analogy(void) {
     /* (旧的 conf 变量已不用) */
     { /* 先钉"退在哪一步"：解析得过吗？rel_guess 单独能成吗？ */
         const char *aw = NULL, *bw = NULL, *rw = NULL;
-        uint8_t rid = 0; int is_q = 0, is_neg = 0;
+        RelId rid = 0; int is_q = 0, is_neg = 0;
         char jb[64];
         int pk = rel_parse(ai, w, 4, jb, sizeof jb, &aw, &rid, &is_neg, &bw, &is_q, &rw, 0);
         ok(pk && is_q && rid != 0 && aw && bw, "`rel_parse` 认得出这是个关系问句（否则答复层压根进不去）");
@@ -2874,7 +2874,7 @@ static void test_dyn_neg(void) {
     printf("== ㉚ 动态关系的否定（旗子借 nrel 第 15 位） ==\n");
     AI *ai = ai_new();
     Token *a = T(ai, "喵甲"), *b = T(ai, "喵乙"), *c = T(ai, "喵丙");
-    uint8_t rid = rel_id_of(ai, "喵谓", 1);          /* allow_new=1 ⇒ 登记成动态谓语 */
+    RelId rid = rel_id_of(ai, "喵谓", 1);          /* allow_new=1 ⇒ 登记成动态谓语 */
     ok(rid >= REL_DYN_BASE, "「喵谓」登记成**动态关系**（清单外的谓语）");
     uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
     ok(token_tag_dyn_neg(a, b, d, 1, REL_BOOST) == 0, "打一条**否定**的动态关系边");
@@ -3122,7 +3122,7 @@ static void test_alias_and_posterior(void) {
     {
         AI *a2 = ai_new();
         Token *me = T(a2, "我6"), *fish = T(a2, "鱼6");
-        uint8_t rid = rel_id_of(a2, "拥有", 1);
+        RelId rid = rel_id_of(a2, "拥有", 1);
         ok(rid == REL_HAS && token_tag_rel(me, fish, rid, REL_BOOST) == 0, "学「我 拥有 鱼6」");
         ok(rel_direct(me, REL_HAS, fish), "问「我 有 鱼6」能对上（同一个关系位）");
         ai_free(a2);

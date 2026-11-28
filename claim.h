@@ -115,7 +115,7 @@ static inline int claim_accept(AI *ai, Token *node, char *out, size_t cap) {
     if (!ai || !node || !node->name || node->is_garbage) return 0;   /* 已经确认/丢掉的不再处理 */
     char src[24], a[40], r[24], b[40];
     if (!claim_parse(node->name, src, sizeof src, a, sizeof a, r, sizeof r, b, sizeof b)) return 0;
-    uint8_t rid = rel_id_of(ai, r, 0);
+    RelId rid = rel_id_of(ai, r, 0);
     if (!rid) rid = rel_id_of(ai, r, 1);
     Token *A = pool_token_intern(ai->pool, a);
     Token *B = pool_token_intern(ai->pool, b);
@@ -152,7 +152,7 @@ static inline int claim_promote_two(AI *ai, Token *keep, Token *drop, char *out,
     if (!ai || !keep || !keep->name) return 0;
     char src[24], a[40], r[24], b[40];
     if (!claim_parse(keep->name, src, sizeof src, a, sizeof a, r, sizeof r, b, sizeof b)) return 0;
-    uint8_t rid = rel_id_of(ai, r, 0);
+    RelId rid = rel_id_of(ai, r, 0);
     if (!rid) rid = rel_id_of(ai, r, 1);
     Token *A = pool_token_intern(ai->pool, a);
     Token *B = pool_token_intern(ai->pool, b);

@@ -37628,3 +37628,51 @@ rule_max_depth=2 ⇒ 超出深度上限（不猜）
 - 无单位数值只允许用于大于/小于/等于；时间关系的无单位一侧判不可比（不默认秒）；
 - `::cmp` 独立于 schema 推理（消融 NOSCHEMA 仍工作），schema 行是给推理/审计看的；
 - 单位表仍在内置 `units.h`（`::unit` 可同步到图），P4 再谈完全下沉。
+
+## §7.089 P2b-4：RelId 扩宽到 uint16，动态关系 **4096**（2026-11-27）
+
+把关系 id 从 `uint8_t` 全面扩到 `typedef uint16_t RelId`（核心 1..9，动态 10..4105）：
+
+- `AI_MAX_DYNREL 245 → 4096`；`REL_TABLE_MAX = REL_DYN_BASE + AI_MAX_DYNREL - 1 = 4105`；
+- `rel_by_id/rel_name_of/rel_id_of/rel_dyn_*/rel_inv_of/rel_scan_text/rel_parse` 等
+  API 与 `ProofStep.rel/hyp`、`Hypo.rid`、`ModIntent.rel_id`、`Derivation.rid` 等字段全部扩宽；
+- 大量 `(uint8_t)(rid - REL_DYN_BASE + 1)` 截断点改成 `uint32_t`（`rel_direct*`、`micro_apply`、
+  `code.h` 的 `d_*`、`ai_write_rel_raw`、`agent.h` 的 `kdyn` 等）；
+- 显示路径（`::rel`/`::sym links`/`sseg`/`symtool`）里 `(uint8_t)(REL_DYN_BASE + e->dyn - 1)`
+  一并改 `RelId`，否则 3999 会显示成 159 的名字（实测踩过）；
+- `rel_parse` 内部的 `uint8_t id` 是最后一处“问句截断”：4009 → 169，导致高 id 问不出（已改 RelId）；
+- **存档格式不变**：v18 的 dyn 已是 LEB128（≤4105 两字节）；`MODEL_VERSION` 仍 18，
+  v14/v15/v17 旧档照常读。
+
+### 实测
+
+```
+灌 5000 谓语 ⇒ 动态关系 4096 / 4096（REL_TABLE_MAX=4105）
+甲3999 谓嶟 乙3999 吗 ⇒ 对
+::save（v18）⇒ 读回 4096 dyn，高 id 边仍可问
+```
+
+### 首跑读数（`tools/relwide_blind.py` 重写，套件 `relwide`）
+
+```
+=> RelId 扩宽/4096 首跑：8/8
+```
+
+满额、告警、高 id 可问、v18 存读、旧档可读/新档 18、软上限 8 消融、读数一致。
+其余关系层盲测（relschema 9/9、effect 10/10、dynquery 7/7、multidyn 6/6、relinduce 8/8、
+datalog 7/7、plansearch 7/7、comparetime 10/10）与 `model_roundtrip`/`features`/`exclusivity` 均通过。
+
+### 边界
+
+- `AI` 常驻内存增加约 **86 KB/agent**（`rel_excl` 三组数组 4106 项）；多 agent 池要按数量算；
+- 4096 个动态关系名都进词池（+4096 符号节点），分词/扫描是 O(n) 线性；
+- `rel_excl_build()` 仍只测核心关系；`rev_meta` 15 位（≤32767）仍够 4105；
+- 核心关系仍是 16 位掩码，未改动；
+- 2.5B 边规模下，每边 `dyn` 仍 uint32（v18 已有），内存评估见 P4。
+
+### 门禁红→绿（RelId 轮）：探针 `optest.c` 的 `uint8_t m`
+
+首轮门禁用 `-Werror` 编译 71 个探针时，`tools/optest.c:1283` 用 `uint8_t m` 接
+`rel_merged_neg_id(..., &m)`（现在要 `RelId *`）⇒ 探针编译失败、整包 0 套。
+修：探针里所有 `uint8_t rid*` 跟着扩成 `RelId`，`m` 也改 `RelId`；
+`tests/probes_build.sh` 全量重编 **PROBES OK**（含编译+运行）。

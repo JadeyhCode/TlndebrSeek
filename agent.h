@@ -61,7 +61,7 @@ static inline size_t ai_teach_evict(AI *ai);   /* §6.597 定义在下面（教�
  * 只给**学习路径**用（语料/推论不标）。`mod_off` 时不留（跟 `[修正:…]` 同一个规矩）。 */
 /* §7.034 最近学到的事实环（跨轮）：长对话里“最近学了什么”靠它，不只靠最近一句用户原话。
  * 存格式化后的字符串（不存 Token 指针：GC 会搬/删）。 */
-static inline void agent_note_fact(AI *ai, Token *A, uint8_t rid, Token *B, int neg) {
+static inline void agent_note_fact(AI *ai, Token *A, RelId rid, Token *B, int neg) {
     if (!ai || !A || !B || !rid || !A->name || !B->name) return;
     const char *rn = rel_name_of(ai, rid);
     if (!rn) return;
@@ -72,7 +72,7 @@ static inline void agent_note_fact(AI *ai, Token *A, uint8_t rid, Token *B, int 
     if (ai->facts_n < 8) ai->facts_n++;
 }
 
-static inline void agent_teach_mark(AI *ai, Token *A, uint8_t rid, Token *B, int neg) {
+static inline void agent_teach_mark(AI *ai, Token *A, RelId rid, Token *B, int neg) {
     if (!ai || !A || !B || rid == 0 || rid >= REL_DYN_BASE) return;
     agent_note_fact(ai, A, rid, B, neg);
     if (micro_of(ai)->safe.mod_off) return;
@@ -1608,7 +1608,7 @@ static inline void aip_patterns_report(void) {
  * 语义约定：引导语末尾带 `?` 表示"这是问句框架"（§6.374），读回来时摘掉并记进 g_lead_q。 */
 static inline void aip_graph_patterns_merge(AI *ai) {
     if (!ai || !ai->pool) return;
-    uint8_t rid = rel_id_of(ai, "有", 0);
+    RelId rid = rel_id_of(ai, "有", 0);
     if (!rid) return;
     uint16_t bit = (uint16_t)(1u << (rid - 1));
     const char *libs[2] = { "引导语库", "没听懂库" };
@@ -1657,7 +1657,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
      * 只认**在库里登记过**的词（不扫全图的 同义 边），免得把 §6.781 的说法归一表也吸进来。 */
     {
         Token *lib = pool_find(ai->pool, "同义词库");
-        uint8_t rid_syn = rel_id_of(ai, "同义", 0);
+        RelId rid_syn = rel_id_of(ai, "同义", 0);
         if (lib && rid_syn)
             for (size_t k = 0; k < lib->count; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1679,7 +1679,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.807 词缀库：`词缀库 --[有]--> 们` + `们 --[词缀位置]--> post` */
     {
         Token *lib = pool_find(ai->pool, "词缀库");
-        uint8_t rid_pos = rel_id_of(ai, "词缀位置", 0);
+        RelId rid_pos = rel_id_of(ai, "词缀位置", 0);
         if (lib && rid_pos)
             for (size_t k = 0; k < lib->count && g_aff_n < AIP_AFFIX_MAX; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1734,7 +1734,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.808 词类库：`词类库 --[有]--> weather` + `weather --[词]--> 天气`（每个词一条，带权重的原样） */
     {
         Token *lib = pool_find(ai->pool, "词类库");
-        uint8_t rid_word = rel_id_of(ai, "词", 0);
+        RelId rid_word = rel_id_of(ai, "词", 0);
         if (lib && rid_word)
             for (size_t k = 0; k < lib->count && g_class_n < AIP_CLASS_MAX; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1764,7 +1764,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
      * 模板可能很长（上限 340），所以按**整串**当对象词存；键去重（先出现的赢，和文件加载同规矩）。 */
     {
         Token *lib = pool_find(ai->pool, "答复库");
-        uint8_t rid_txt = rel_id_of(ai, "答复", 0);
+        RelId rid_txt = rel_id_of(ai, "答复", 0);
         if (lib && rid_txt)
             for (size_t k = 0; k < lib->count && g_say_n < AI_SAY_MAX; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1823,8 +1823,8 @@ static inline void aip_graph_patterns_merge(AI *ai) {
      * 匹配逻辑（关键词 AND）一个字没改，只是数据可来自图。 */
     {
         Token *lib = pool_find(ai->pool, "答复规则库");
-        uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
-        uint8_t rid_tx = rel_id_of(ai, "回复", 0);
+        RelId rid_kw = rel_id_of(ai, "关键词", 0);
+        RelId rid_tx = rel_id_of(ai, "回复", 0);
         if (lib && rid_kw && rid_tx)
             for (size_t k = 0; k < lib->count && g_reply_n < AIP_REPLY_MAX; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1880,7 +1880,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.812 裸回话词表（三组：肯定/否定/不懂）：`裸回话库 --[有]--> 肯定` + `肯定 --[词]--> 对` */
     {
         Token *lib = pool_find(ai->pool, "裸回话库");
-        uint8_t rid_word = rel_id_of(ai, "词", 0);
+        RelId rid_word = rel_id_of(ai, "词", 0);
         if (lib && rid_word)
             for (size_t k = 0; k < lib->count; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1906,7 +1906,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.813 关系别名：`关系别名库 --[有]--> 拥有` + `拥有 --[规范关系]--> 有` */
     {
         Token *lib = pool_find(ai->pool, "关系别名库");
-        uint8_t rid_std = rel_id_of(ai, "规范关系", 0);
+        RelId rid_std = rel_id_of(ai, "规范关系", 0);
         if (lib && rid_std)
             for (size_t k = 0; k < lib->count; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1944,7 +1944,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.813 代词库（四组）：`代词库 --[有]--> 指代` + `指代 --[词]--> 它` */
     {
         Token *lib = pool_find(ai->pool, "代词库");
-        uint8_t rid_word = rel_id_of(ai, "词", 0);
+        RelId rid_word = rel_id_of(ai, "词", 0);
         if (lib && rid_word)
             for (size_t k = 0; k < lib->count; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -1969,7 +1969,7 @@ static inline void aip_graph_patterns_merge(AI *ai) {
     /* §6.813 判词组（六组）：`判词组库 --[有]--> 判词肯定` + `判词肯定 --[词]--> 对` */
     {
         Token *lib = pool_find(ai->pool, "判词组库");
-        uint8_t rid_word = rel_id_of(ai, "词", 0);
+        RelId rid_word = rel_id_of(ai, "词", 0);
         if (lib && rid_word)
             for (size_t k = 0; k < lib->count; ++k) {
                 const AssocEntry *e = &token_assocs_ro(lib)[k];
@@ -2358,8 +2358,8 @@ static inline int agent_norm_name_q(char *const *w, size_t n, char **nw, size_t 
 /* §6.269 分词会把「不 喜欢」**合成一个词**「不喜欢」：占位问句里 `words[1]` 因此不是
  * `不` 也不是关系词 ⇒ `A 不 R 什么` / `谁 不 R B` 整句掉闲聊（实测「我 不 喜欢 什么」
  * 答「你 想 说 的 时候 再 说」）。这里统一剥掉词首的「不」再查关系 id，并带出否定标志。 */
-static inline uint8_t agent_rid_maybe_neg(AI *ai, const char *w, int *neg) {
-    uint8_t rid = w ? rel_id_of(ai, w, 0) : 0;
+static inline RelId agent_rid_maybe_neg(AI *ai, const char *w, int *neg) {
+    RelId rid = w ? rel_id_of(ai, w, 0) : 0;
     if (!rid && w) {
         const char *no = "不";
         size_t nl = strlen(no);                 /* UTF-8：3 字节 */
@@ -2601,7 +2601,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
         const char *hint = (last == rpos + 1 + sl1 + 1) ? words[rpos + 1 + sl1] : NULL;   /* 类别提示（可为空）*/
         Token *a = pool_find(ai->pool, words[0]);
         int rneg = 0;
-        uint8_t rid = agent_rid_maybe_neg(ai, words[rpos], &rneg);
+        RelId rid = agent_rid_maybe_neg(ai, words[rpos], &rneg);
         if (qn) rneg = 1;
         /* §6.270 试过但**证不出正例**：分词会把生词切成单字（`上海` → 上/海），
          * 短语形状根本进不到这里，所以「主语不认识」这条分支一直是死代码 ⇒ 撤掉
@@ -2617,7 +2617,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
         if (a->name && (!strcmp(a->name, "你") || !strcmp(a->name, "您") ||
                         !strcmp(a->name, "你们"))) return NULL;
         Token *out[8];
-        uint8_t from_hyp[8];
+        RelId from_hyp[8];
         size_t got = rel_next_cands(ai, a, rid, rneg, out, from_hyp,
                                     (size_t)(sizeof out / sizeof out[0]));
         char buf[256];
@@ -2690,7 +2690,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
                 }
             } else {
                 Token *out2[8];
-                uint8_t hyp2[8];
+                RelId hyp2[8];
                 size_t got2 = rel_next_cands(ai, a2, rjd, rjneg, out2, hyp2,
                                              (size_t)(sizeof out2 / sizeof out2[0]));
                 size_t o2 = agent_list_head(buf, sizeof buf, subj, rjneg,
@@ -2727,7 +2727,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
         const char *catw = has_cat ? words[base] : NULL;
         Token *cat = catw ? pool_find(ai->pool, catw) : NULL;
         if (has_cat && !cat) return NULL;               /* 类别词不在图里 ⇒ 不接（不猜）*/
-        uint8_t rid = agent_rid_maybe_neg(ai, words[base + (has_cat ? 1 : 0)], &oq_neg);
+        RelId rid = agent_rid_maybe_neg(ai, words[base + (has_cat ? 1 : 0)], &oq_neg);
         Token *b = pool_find(ai->pool, words[base + (has_cat ? 2 : 1)]);
         if (rid == 0 || !b) return NULL;
         char buf[256];
@@ -2761,7 +2761,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
              ent && ncd < (sizeof cand / sizeof cand[0]);
              ent = ai->pool->rev_next[ent - 1]) {
             uint32_t meta = ai->pool->rev_meta[ent - 1];
-            if ((uint8_t)(meta & 0x7FFFu) != rid) continue;
+            if ((uint16_t)(meta & 0x7FFFu) != rid) continue;
             if (((meta & 0x8000u) != 0) != (oq_neg != 0)) continue;
             uint32_t sid = ai->pool->rev_src[ent - 1];
             if (sid >= ai->pool->count) continue;
@@ -2869,7 +2869,7 @@ static inline char *agent_open_relation(AI *ai, char *const *words, size_t n, fl
  *     ⇒ 验证器的自查查不到它，**永远不会把"猜的"变成"知道的"**。
  * 幂等 + 有界（同一个 A-关系-B 只记一条；上限 `AI_GUESS_MEM_MAX` 条防长会话无界增长）。 */
 #define AI_GUESS_MEM_MAX 512
-static inline void agent_guess_remember(AI *ai, Token *A, uint8_t rid, Token *B,
+static inline void agent_guess_remember(AI *ai, Token *A, RelId rid, Token *B,
                                        const Token *sib) {
     if (!ai || !ai->rel_remember || !A || !B || rid == 0 || rid >= REL_DYN_BASE) return;
     if (A == B) return;                             /* §6.584 自环不是猜测 */
@@ -2919,12 +2919,12 @@ static inline void agent_guess_remember(AI *ai, Token *A, uint8_t rid, Token *B,
  *   ② `rel_sibling_with`：**同类互推**（同一个上位下的兄弟有这条关系）—— 结构相似度当 `sim`
  *      喂给验证器（不够近就会被拒），措辞明说「同类里谁 也 R B（类比，不是直接知识）」。
  * 返回 1 = 答了（`resp`/`out_conf` 已填，cot 与账都已记）；0 = 没猜出来（调用方照旧说不知道）。 */
-static inline void agent_hypo_cache(AI *ai, Token *A, uint8_t rid, Token *B, int neg, int truth);
+static inline void agent_hypo_cache(AI *ai, Token *A, RelId rid, Token *B, int neg, int truth);
 
 #define AGENT_GUESS_NEIGHBOR 1   /* 允许：最近邻 / 结构相似（rel_guess） */
 #define AGENT_GUESS_SIBLING  2   /* 允许：同类互推（兄弟有这条关系） */
 
-static inline int agent_guess_answer(AI *ai, Token *A, uint8_t rid, Token *B, int want_neg,
+static inline int agent_guess_answer(AI *ai, Token *A, RelId rid, Token *B, int want_neg,
                                      int kinds,
                                      Derivation *d, char *line, size_t linecap,
                                      char *resp, size_t respcap, float *out_conf) {
@@ -3022,7 +3022,7 @@ static inline int agent_guess_answer(AI *ai, Token *A, uint8_t rid, Token *B, in
 static inline char *agent_analogy_fallback(AI *ai, char *const *words, size_t n, float *out_conf) {
     if (!ai || !ai->rel_analogy || !words || n < 3 || n > 6) return NULL;
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     if (!rel_parse(ai, words, n, jbuf, sizeof jbuf, &aw, &rid, &is_neg, &bw, &is_q, &rw, 0))
@@ -3306,7 +3306,7 @@ static inline char *agent_why_other(AI *ai, char *const *words, size_t n,
     if (rn2 < 3) return NULL;
     char jb2[64];
     const char *aw2 = NULL, *bw2 = NULL, *rw2 = NULL;
-    uint8_t rid2 = 0;
+    RelId rid2 = 0;
     int neg2 = 0, q2 = 0;
     if (!rel_parse(ai, r2, rn2, jb2, sizeof jb2, &aw2, &rid2, &neg2, &bw2, &q2, &rw2, 0))
         return NULL;
@@ -3438,7 +3438,7 @@ static inline char *agent_provenance(AI *ai, char *const *words, size_t n, float
     if (n < skip + 3) return NULL;
     char jb[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, q = 0;
     if (!rel_parse(ai, words + skip, n - skip, jb, sizeof jb, &aw, &rid, &neg, &bw, &q, &rw, 0))
         return NULL;
@@ -3554,7 +3554,7 @@ static inline char *agent_provenance(AI *ai, char *const *words, size_t n, float
 static inline const char *agent_reason_find(AI *ai, const char *a, const char *r,
                                             const char *b);   /* §6.627 定义在后面 */
 static inline int agent_reason_fact_parse(AI *ai, char *const *fact, size_t fn,
-                                          char *abuf, size_t acap, uint8_t *out_rid,
+                                          char *abuf, size_t acap, RelId *out_rid,
                                           char *bbuf, size_t bcap);   /* §6.629 见后面 */
 
 static inline char *agent_why_question(AI *ai, char *const *words, size_t n,
@@ -3583,7 +3583,7 @@ static inline char *agent_why_question(AI *ai, char *const *words, size_t n,
     while (rn > 3 && (!strcmp(rest[rn - 1], "呢") || !strcmp(rest[rn - 1], "吗"))) rn--;
     char jb[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, q = 0;
     if (!rel_parse(ai, rest, rn, jb, sizeof jb, &aw, &rid, &neg, &bw, &q, &rw, 0)) {
         /* §6.615 **「为什么 A 在 B」**：`rel_parse` 不认四段式（A 住 在 B）。先试"地点"读法；
@@ -3626,7 +3626,7 @@ static inline char *agent_why_question(AI *ai, char *const *words, size_t n,
          * 但原因表里可能有（`[教:…]` 那条 `A 很 Y` 的原因）。先用共享解析器试一次。 */
         {
             char ab[64], bb[64];
-            uint8_t arid2 = 0;
+            RelId arid2 = 0;
             if (agent_reason_fact_parse(ai, rest, rn, ab, sizeof ab, &arid2, bb, sizeof bb)) {
                 const char *why3 = agent_reason_find(ai, ab, rel_name_of(ai, arid2), bb);
                 if (why3) {
@@ -3749,7 +3749,7 @@ static inline int agent_rewrite_ellipsis(const AI *ai, const char *in, char *out
      * 「猫属于动物 / 那狗呢」以前掉兜底。退回到"上一轮学到的那条事实"（g_lf_*）。
      * ⚠ 别把这条写成 [shape]：形状行跑在 §6.268 之前，会把"上一句是问句"的情况也吃掉
      * （实测 holdout5 从 12 掉到 11）。 */
-    uint8_t rid_eff = ai->last_q_rid;
+    RelId rid_eff = ai->last_q_rid;
     const char *b_eff = ai->last_q_b;
     int neg_eff = ai->last_q_neg;
     char fb_b[40];
@@ -3841,7 +3841,7 @@ static inline int agent_rewrite_coref(AI *ai, const char *in, char *out, size_t 
     if (!w1 || n1 < 3) { if (w1) ai_free_words(w1, n1); return 0; }
     char jb[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, q = 0;
     int okp = rel_parse(ai, w1, n1, jb, sizeof jb, &aw, &rid, &neg, &bw, &q, &rw, 0);
     /* ⚠ `aw/bw` 指向的是 ai_tokenize 分配的**词串**，free 之后就是悬垂指针 ——
@@ -3973,7 +3973,7 @@ static inline int agent_self_ability(AI *ai, const char *input, char *out, size_
     if (rel_id_of(ai, obj, 0) != 0 || !strcmp(obj, "属于") || !strcmp(obj, "是") ||
         !strncmp(obj, "属于", strlen("属于")) || !strncmp(obj, "是", strlen("是"))) return 0;
     Token *b0 = pool_find(ai->pool, obj);
-    uint8_t rid = rel_id_of(ai, "会", 0);
+    RelId rid = rel_id_of(ai, "会", 0);
     if (b0 && rid) {
         Token *me = pool_find(ai->pool, "你");
         /* 图里有这条事实就直接答（A-不-A 形状关系层解析不出来，别指望流水线）。 */
@@ -4041,7 +4041,7 @@ static inline char *agent_forget_request(AI *ai, char *const *words, size_t n, f
     if (n - rest < 3) return NULL;
     char jb[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, q = 0;
     if (!rel_parse(ai, words + rest, n - rest, jb, sizeof jb, &aw, &rid, &neg, &bw, &q, &rw, 0))
         return NULL;
@@ -4116,7 +4116,7 @@ static inline char *agent_conj_both(AI *ai, char *const *w0, size_t n0, int *out
     const char *rw = words[ri];
     if (!agent_subj_ok(aw) || !agent_subj_ok(bw)) return NULL;
     if (!agent_obj_ok(cw)) return NULL;
-    uint8_t rid = rel_id_of(ai, rw, 0);
+    RelId rid = rel_id_of(ai, rw, 0);
     if (!rid && strcmp(rw, "是") == 0) rid = REL_IS_A;
     if (!rid) return NULL;
     Token *A = pool_find(ai->pool, aw), *B = pool_find(ai->pool, bw), *C = pool_find(ai->pool, cw);
@@ -4232,7 +4232,7 @@ static inline char *agent_multi_subj(AI *ai, char *const *words, size_t n,
     }
     if (!strcmp(words[ri], "都") || !strcmp(words[ri], "也")) ri++;
     if (ri + 1 >= last) return NULL;
-    uint8_t rid = rel_id_of(ai, words[ri], 0);
+    RelId rid = rel_id_of(ai, words[ri], 0);
     if (!rid && !strcmp(words[ri], "是")) rid = REL_IS_A;
     if (!rid) return NULL;
     char bw[64];
@@ -4318,7 +4318,7 @@ static inline char *agent_or_ask(AI *ai, char *const *words, size_t n, int *out_
     if (last < 5) return NULL;
     /* 选择问句的判据：带「吗/呢」或用了「还是」。**「或」不带「吗」不一定是问句**
      * （`我 喜欢 猫 或 狗` 是陈述，不能按问句答 —— 实测就是这么错的）。 */
-    uint8_t rid = rel_id_of(ai, words[1], 0);
+    RelId rid = rel_id_of(ai, words[1], 0);
     if (!rid) return NULL;
     size_t p = 0;
     for (size_t i = 2; i + 1 < last; ++i) {
@@ -4388,7 +4388,7 @@ static inline char *agent_conj_obj(AI *ai, char *const *w0, size_t n0, int *out_
         last--; is_q = 1;
     }
     if (last < 4) return NULL;
-    uint8_t rid = rel_id_of(ai, words[1], 0);          /* 关系词固定在第二个 */
+    RelId rid = rel_id_of(ai, words[1], 0);          /* 关系词固定在第二个 */
     if (!rid) return NULL;
     const char *aw = words[0];
     if (!agent_subj_ok(aw)) return NULL;
@@ -4570,7 +4570,7 @@ static inline int agent_attr_teach_raw(AI *ai, const char *input, char *out, siz
     {
         Token *A = pool_token_intern(ai->pool, w[0]);
         Token *Y = pool_token_intern(ai->pool, w[2]);
-        uint8_t arid = rel_id_of(ai, "属性", 1);
+        RelId arid = rel_id_of(ai, "属性", 1);
         if (A && Y && A != Y && arid) {
             if (ai_write_rel(ai, A, Y, arid, 0, AI_WSRC_RELATION) == 0) {
                 agent_teach_mark(ai, A, arid, Y, 0);
@@ -4593,7 +4593,7 @@ static inline int agent_attr_teach_raw(AI *ai, const char *input, char *out, siz
  *   · 学：`A R B 因为 C`（因果在后）或 `因为 C ，A R B`（因果在前，靠逗号分）；
  *   · 答：`为什么 A R B` ⇒ 「因为 C —— 你 教 我 的（我 没 验 过 对 不 对）」。
  * ⚠ 它不是图里的边，也不进存档（图只有 A R B 三元组）—— 关掉进程就没了，登记在案。 */
-static inline void agent_reason_note(AI *ai, const char *a, uint8_t rid, const char *b,
+static inline void agent_reason_note(AI *ai, const char *a, RelId rid, const char *b,
                                      const char *why) {
     if (!ai || !a || !b || !why || !why[0] || rid == 0) return;
     const char *rn = rel_name_of(ai, rid);
@@ -4622,10 +4622,10 @@ static inline const char *agent_reason_find(AI *ai, const char *a, const char *r
  *   ① 关系词在中间（`企鹅 属于 鸟类`）；
  *   ② **程度词 + 形容词**（`灵狐兽 很 冷` ⇒ 关系「属性」）—— 这样"为什么 X 很 Y"也能有原因。 */
 static inline int agent_reason_fact_parse(AI *ai, char *const *fact, size_t fn,
-                                          char *abuf, size_t acap, uint8_t *out_rid,
+                                          char *abuf, size_t acap, RelId *out_rid,
                                           char *bbuf, size_t bcap) {
     if (!ai || !fact || fn < 3 || !abuf || !bbuf || !out_rid) return 0;
-    size_t ri = fn; uint8_t rid = 0;
+    size_t ri = fn; RelId rid = 0;
     for (size_t i = 1; i + 1 < fn; ++i) {
         uint8_t id = rel_id_of(ai, fact[i], 0);
         if (id) { ri = i; rid = id; break; }
@@ -4698,7 +4698,7 @@ static inline int agent_learn_reason(AI *ai, char *const *words, size_t n, char 
         }
         if (fn < 3) return 0;
         static char ab2[64], bb2[64];
-        uint8_t rid = 0;
+        RelId rid = 0;
         if (!agent_reason_fact_parse(ai, fact, fn, ab2, sizeof ab2, &rid, bb2, sizeof bb2)) return 0;
         Token *A2 = pool_token_intern(ai->pool, ab2);
         Token *B2 = pool_token_intern(ai->pool, bb2);
@@ -4735,7 +4735,7 @@ static inline int agent_learn_reason(AI *ai, char *const *words, size_t n, char 
         /* 事实侧自己拼 A/R/B（`企鹅` 常被切成 企/鹅，交给 `rel_parse` 会拼不对；
          * 也支持"程度词 + 形容词"那种属性事实）。 */
         static char abuf[64], bbuf[64];
-        uint8_t rid = 0;
+        RelId rid = 0;
         if (!agent_reason_fact_parse(ai, fact, fn, abuf, sizeof abuf, &rid, bbuf, sizeof bbuf))
             return 0;
         const char *aw = abuf, *bw = bbuf, *rw = rel_name_of(ai, rid);
@@ -4810,10 +4810,10 @@ static inline int agent_prov_pred_raw(AI *ai, const char *input, char *out, size
          *   ① `怕(甲,乙)`      —— 名字就是关系词（关系在前）
          *   ② `猫(属于,动物)`  —— 名字是主语、第一个参数是关系词（A R B 的形状）
          * 这是 §6.669 修的错位：只试 ① 会把 ② 误判成"没记过"。 */
-        uint8_t rid2 = rel_id_of(ai, name, 0);
+        RelId rid2 = rel_id_of(ai, name, 0);
         const char *sa = args[0], *sb = args[1];
         if (!rid2) {
-            uint8_t ridm = rel_id_of(ai, args[0], 0);
+            RelId ridm = rel_id_of(ai, args[0], 0);
             if (ridm) { rid2 = ridm; sa = name; sb = args[1]; }
         }
         Token *A2 = pool_find(ai->pool, sa), *B2 = pool_find(ai->pool, sb);
@@ -4936,7 +4936,7 @@ static inline int agent_claim_answer(AI *ai, char *const *words, size_t n,
     size_t wn = n;
     if (wn >= 4 && (!strcmp(words[wn - 1], "吗") || !strcmp(words[wn - 1], "呢"))) wn--;
     if (wn < 3) return 0;
-    uint8_t rid = rel_id_of(ai, words[1], 0);
+    RelId rid = rel_id_of(ai, words[1], 0);
     if (!rid) return 0;
     const char *rn = rel_name_of(ai, rid);
     if (!rn) return 0;
@@ -5024,7 +5024,7 @@ static inline int agent_claim_confirm(AI *ai, char *const *words, size_t n,
         der_filln(out, cap, tp ? tp : "那 就 当 没 听 说 过 —— 不 记（$1 $2 $3）", a3, 3);
         return 1;
     }
-    uint8_t rid = rel_id_of(ai, r, 0);
+    RelId rid = rel_id_of(ai, r, 0);
     if (!rid) rid = rel_id_of(ai, r, 1);
     Token *A = pool_token_intern(ai->pool, a), *B = pool_token_intern(ai->pool, b);
     if (!rid || !A || !B || A == B) return 0;
@@ -5092,7 +5092,7 @@ static inline int agent_claim_statement(AI *ai, char *const *words, size_t n,
     if (!ai || !words || n < 4 || !out || cap == 0) return 0;
     if (!agent_is_hedge(words[0])) return 0;
     /* 事实侧：找第一个关系词（和 §6.627 一个思路：`企鹅` 常被切碎，自己拼） */
-    size_t ri = n; uint8_t rid = 0;
+    size_t ri = n; RelId rid = 0;
     for (size_t i = 1; i + 1 < n; ++i) {
         uint8_t id = rel_id_of(ai, words[i], 0);
         if (id) { ri = i; rid = id; break; }
@@ -5232,7 +5232,7 @@ static inline int agent_learn_kinship(AI *ai, char *const *words, size_t n, char
     al[al_n] = 0;
     Token *A = pool_token_intern(ai->pool, al);
     Token *K = pool_token_intern(ai->pool, k);
-    uint8_t rid = rel_id_of(ai, "亲属", 1);
+    RelId rid = rel_id_of(ai, "亲属", 1);
     if (!A || !K || A == K || !rid) return 0;
     if (ai_write_rel(ai, A, K, rid, 0, AI_WSRC_RELATION) != 0) return 0;
     agent_teach_mark(ai, A, rid, K, 0);
@@ -5285,7 +5285,7 @@ static inline int agent_learn_kinship_raw(AI *ai, const char *input, char *out, 
     if (!agent_is_kinship(w[4])) return 0;
     Token *A = pool_token_intern(ai->pool, w[0]);
     Token *K = pool_token_intern(ai->pool, w[4]);
-    uint8_t rid = rel_id_of(ai, "亲属", 1);
+    RelId rid = rel_id_of(ai, "亲属", 1);
     if (!A || !K || A == K || !rid) return 0;
     if (ai_write_rel(ai, A, K, rid, 0, AI_WSRC_RELATION) != 0) return 0;
     agent_teach_mark(ai, A, rid, K, 0);
@@ -5306,7 +5306,7 @@ static inline int agent_attr_question(AI *ai, char *const *words, size_t n, char
     /* §6.970b `X Y 吗`（不带程度词）：教过 X --[属性]--> Y 就答对 */
     if (n == 3) {
         Token *A = pool_find(ai->pool, words[0]), *Y = pool_find(ai->pool, words[1]);
-        uint8_t arid = rel_id_of(ai, "属性", 0);
+        RelId arid = rel_id_of(ai, "属性", 0);
         if (arid && A && Y && rel_direct(A, arid, Y)) {
             const char *t = ai_say_tpl("关系.属性对");
             const char *const a[2] = { words[0], words[1] };
@@ -5331,7 +5331,7 @@ static inline int agent_attr_question(AI *ai, char *const *words, size_t n, char
     al[al_n] = 0;
     const char *yl = words[di + 1];
     if (!al[0] || !yl || !yl[0]) return 0;
-    uint8_t arid = rel_id_of(ai, "属性", 0);
+    RelId arid = rel_id_of(ai, "属性", 0);
     Token *A = pool_find(ai->pool, al), *Y = pool_find(ai->pool, yl);
     if (arid && A && Y && rel_direct(A, arid, Y)) {
         const char *t = ai_say_tpl("关系.属性对");
@@ -5414,7 +5414,7 @@ static inline size_t aip_words_nopunct(char *const *words, size_t n,
 
 /* §6.589 把 `A --rid--> old` 的**关系位**清掉（共现留着、推论/猜测不动）。
  * 一处实现：§6.586 的"回「对」"和 §6.589 的"不对，X"共用。返回 1 = 真的清了。 */
-static inline int agent_retract_clear(Token *A, uint8_t rid, Token *old) {
+static inline int agent_retract_clear(Token *A, RelId rid, Token *old) {
     if (!A || !old || rid == 0 || rid >= REL_DYN_BASE) return 0;
     uint16_t bit = REL_BIT(rid);
     int hit = 0;
@@ -5430,7 +5430,7 @@ static inline int agent_retract_clear(Token *A, uint8_t rid, Token *old) {
 }
 
 /* §6.586 前向声明：学习路径里要"挂上待确认改口"，实现在下面（追问回话那一带）。 */
-static inline void agent_retract_arm(AI *ai, Token *a, Token *old, uint8_t rid);
+static inline void agent_retract_arm(AI *ai, Token *a, Token *old, RelId rid);
 
 /* §6.589 **所有学习路径共用的"学完处理冲突"**：
  *   · 这一轮是「不对，X」的更正 ⇒ 直接撤旧值、回「改 过来 了」（返回 1，调用方直接返回 resp）；
@@ -5439,7 +5439,7 @@ static inline void agent_retract_arm(AI *ai, Token *a, Token *old, uint8_t rid);
  * 冲突**看不见**（实测「不对，猫 属于 猫科」两条都留着）。 */
 /* §7.031 冲突也是注意力来源：新学的值和旧值打架时，把主语推进焦点（来源「冲突」），
  * 并记一行 `_t/conflict.tsv`（主语/关系/新值/旧值）。冲突比“未解”更该被追问。 */
-static inline void agent_note_conflict(AI *ai, Token *A, uint8_t rid, Token *newB, Token *oldB) {
+static inline void agent_note_conflict(AI *ai, Token *A, RelId rid, Token *newB, Token *oldB) {
     if (!ai || !A) return;
     int dup = 0;
     for (size_t i = 0; i < ai->conflict_n; ++i) if (ai->conflict_tok[i] == A) dup = 1;
@@ -5457,7 +5457,7 @@ static inline void agent_note_conflict(AI *ai, Token *A, uint8_t rid, Token *new
     }
 }
 
-static inline int agent_conflict_after(AI *ai, Token *A, uint8_t rid, Token *B, Token *conflict,
+static inline int agent_conflict_after(AI *ai, Token *A, RelId rid, Token *B, Token *conflict,
                                       char *resp, size_t cap, const char *aw, const char *rw) {
     if (!conflict || !A || !conflict || conflict == B) return 0;
     agent_note_conflict(ai, A, rid, B, conflict);   /* §7.031 冲突进注意力 */
@@ -5551,7 +5551,7 @@ static inline char *agent_learn_relation(AI *ai, char *const *words, size_t n,
     }
 
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     /* 登记新谓语是**有副作用**的，所以先只验形状（不碰关系表），
@@ -5825,7 +5825,7 @@ static inline char *agent_learn_new_words(AI *ai, char *const *words, size_t n,
     if (ai_has_question_word(words, n)) return NULL;
     /* 找第一个**已知核心关系词**（不调用 allow_new ⇒ 绝不登记新谓语） */
     size_t ri = 0;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, neg_sep = 0;
     for (size_t i = 1; i + 1 < n; ++i) {
         uint8_t id = rel_id_of(ai, words[i], 0);
@@ -5833,7 +5833,7 @@ static inline char *agent_learn_new_words(AI *ai, char *const *words, size_t n,
         /* §6.173c **合写否定**（`不是`/`不会`/`不属于`）：分词器把它切成**一个**词，
          * 那就用 `rel_merged_neg_id`（与两词写法共用同一份声明）认出来；
          * 否定已经含在这个词里了，措辞别再补一个「不」。 */
-        uint8_t mid = 0;
+        RelId mid = 0;
         if (rel_merged_neg_id(words[i], &mid) && mid && mid < REL_DYN_BASE) {
             ri = i; rid = mid; neg = 1; break;
         }
@@ -6110,7 +6110,7 @@ static inline char *agent_set_hypothesis(AI *ai, char *const *words, size_t n,
                 how = "按主语";
             } else if (f1 > f0) {
                 const char *aw = NULL, *bw = NULL, *rw = NULL;
-                uint8_t rid = 0;
+                RelId rid = 0;
                 int is_neg = 0, is_q = 0;
                 char jbuf[64];
                 if (rel_parse(ai, words + f0, f1 - f0, jbuf, sizeof jbuf,
@@ -6179,7 +6179,7 @@ static inline char *agent_set_hypothesis(AI *ai, char *const *words, size_t n,
         }
     }
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     if (off >= n) return NULL;
@@ -6320,7 +6320,7 @@ static inline void ai_hypo_cache_sweep(AI *ai) {
     if (!ai || !ai->hypo_cache || ai->n_hc == 0) return;
     for (size_t i = 0; i < ai->n_hc; ) {
         Token *A = ai->hc[i].A, *B = ai->hc[i].B, *P = ai->hc[i].P;
-        uint8_t rid = ai->hc[i].rid;
+        RelId rid = ai->hc[i].rid;
         int neg = ai->hc[i].neg;
         if (!A || !B || !P || ai_premise_holds(ai, P)) { ++i; continue; }   /* 条件还活着：不动 */
         if (!rel_solve_ignoring_caches(ai, A, rid, B, neg)) { ++i; continue; }  /* 还推不出：留着 */
@@ -6346,7 +6346,7 @@ static inline void ai_hypo_cache_sweep(AI *ai) {
  * 前提的成立条件就是"这层假设还活着"（`ai_premise_holds` 里按指纹判 ✓）。
  * 栈一撤 / 换成别的假设 ⇒ 指纹不匹配 ⇒ 缓存自动失效（不需要去删它）。
  * ⚠ 默认关（`::hypo cache on` / `AIP_HYPOCACHE=1`）。 */
-static inline void agent_hypo_cache(AI *ai, Token *A, uint8_t rid, Token *B, int neg, int truth) {
+static inline void agent_hypo_cache(AI *ai, Token *A, RelId rid, Token *B, int neg, int truth) {
     if (!ai || !ai->hypo_cache || !A || !B || rid == 0 || truth == 0) return;
     if (ai->hypo.depth == 0) return;                 /* 没有假设就没有"条件" */
     char fp[32];
@@ -6708,7 +6708,7 @@ static inline void agent_ask_restore(AI *ai) {
         *bar = 0; q = bar + 1;
     }
     if (nf < 6) return;
-    uint8_t rid = rel_id_of(ai, f[3], 0);
+    RelId rid = rel_id_of(ai, f[3], 0);
     if (!rid) return;
     if (!pool_find(ai->pool, f[4]) || !pool_find(ai->pool, f[5])) return;
     snprintf(ai->ask_a, sizeof ai->ask_a, "%s", f[4]);
@@ -6721,7 +6721,7 @@ static inline void agent_ask_restore(AI *ai) {
     ai->ask_pending = 1;
 }
 
-static inline void agent_askback_arm_name(AI *ai, const char *a, uint8_t rid,
+static inline void agent_askback_arm_name(AI *ai, const char *a, RelId rid,
                                          int is_neg, const char *b,
                                          int kind, int fact_neg) {
     if (!ai || !ai->askback || !a || !b || !a[0] || !b[0] || rid == 0) return;
@@ -6753,12 +6753,12 @@ static inline void agent_ask_new_word_arm(AI *ai, char *const *words, size_t n) 
     for (size_t i = 0; i < last; ++i)
         if (!words[i] || !words[i][0] || words[i][0] == '[') return;
     size_t ri = 0;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int neg = 0, neg_sep = 0;
     for (size_t i = 1; i + 1 < last; ++i) {
         uint8_t id = rel_id_of(ai, words[i], 0);
         if (id && id < REL_DYN_BASE) { ri = i; rid = id; break; }
-        uint8_t mid = 0;
+        RelId mid = 0;
         if (rel_merged_neg_id(words[i], &mid) && mid && mid < REL_DYN_BASE) {
             ri = i; rid = mid; neg = 1; break;       /* 合写否定：不是/不会 */
         }
@@ -6790,7 +6790,7 @@ static inline void agent_ask_new_word_arm(AI *ai, char *const *words, size_t n) 
     agent_askback_arm_name(ai, A, rid, neg, B, 1, neg);
 }
 
-static inline void agent_askback_arm(AI *ai, const Token *A, uint8_t rid,
+static inline void agent_askback_arm(AI *ai, const Token *A, RelId rid,
                                      int is_neg, const Token *B, int as_other,
                                      int kind, int fact_neg) {
     if (!ai || !ai->askback || as_other) return;
@@ -6802,7 +6802,7 @@ static inline char *agent_answer_relation_inner(AI *ai, char *const *words, size
                                                float *out_conf, int as_other) {
     if (!ai || ai->rel_off || !words || n < 4 || n > 7) return NULL;
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     /* allow_new=0：**问句只查不建**。早先这里也会登记，于是随便问一句
@@ -7142,7 +7142,7 @@ static inline char *agent_learn_belief(AI *ai, char *const *words, size_t n,
     }
     if (!two_char_name && strcmp(words[0], "我") == 0) return NULL;  /* 我自己的看法不是「别人」的 */
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     /* 只认**陈述**；「他 觉得 X 吗」是问他的立场，交给视角那条路 */
@@ -7256,7 +7256,7 @@ static inline int other_obj_narrows(AI *ai, const Token *x, const Token *b) {
 }
 
 /* 把所有人名下与 (a, rid, b) 同类的说法并进一个窗，再交四态判定。 */
-static inline void other_belief_view(AI *ai, const Token *a, uint8_t rid, const Token *b,
+static inline void other_belief_view(AI *ai, const Token *a, RelId rid, const Token *b,
                                      OtherBeliefView *v) {
     if (!v) return;
     memset(v, 0, sizeof *v);
@@ -7307,7 +7307,7 @@ static inline void other_belief_view(AI *ai, const Token *a, uint8_t rid, const 
 
 /* 打印一个窗口（`::others <A> <关系> <B>` 用）。返回四态判定，便于调用方再加工。 */
 static inline OtherBeliefVerdict other_belief_view_print(AI *ai, const Token *a,
-                                                         uint8_t rid, const Token *b) {
+                                                         RelId rid, const Token *b) {
     const char *rn = rel_name_of(ai, rid);
     OtherBeliefView v;
     other_belief_view(ai, a, rid, b, &v);
@@ -7600,7 +7600,7 @@ static inline int proc_step_run(AI *ai, Token *root, const AssocEntry *se, int i
                 proc_subst_args(pr, cb2, sizeof cb2);
                 Token *csb = pool_find(ai->pool, cs);
                 Token *cob = pool_find(ai->pool, cb2);
-                uint8_t crid = rel_id_of(ai, cr, 0);
+                RelId crid = rel_id_of(ai, cr, 0);
                 if (!csb || !cob || crid == 0) {
                     printf("    %s %-12s ⚠ 断点：要核的「%s %s %s」认不全（主语/关系/宾语得是图里的）\n",
                            label, act->name ? act->name : "?", cs, cr, cb2);
@@ -8353,7 +8353,7 @@ static inline int dialog_trigger_try_others(AI *ai, char *const *words, size_t n
     /* ③ 交给关系解析（认不出就整条不触发 —— 宁可漏，不可误触发） */
     char jbuf[64];
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     if (!rel_parse(ai, words + j, n - j, jbuf, sizeof jbuf, &aw, &rid, &is_neg,
                    &bw, &is_q, &rw, 0) || !is_q || rid == 0)
@@ -8600,11 +8600,11 @@ static inline int agent_identity_note(AI *ai, char *const *words, size_t n,
     /* §6.626 先看**亲属/身份**：教过 `小明 是 我 的 表弟` ⇒ 这里答"小明 是你 的 表弟"，
      * 比"我不知道名字"有用得多。 */
     {
-        uint8_t krid = rel_id_of(ai, "亲属", 0);
+        RelId krid = rel_id_of(ai, "亲属", 0);
         if (krid) {
             /* ⚠ **动态关系不在 `rel` 位掩码里**：它存在 `e->dyn`（1 基，`rid - REL_DYN_BASE + 1`）。
              * 我第一版写的是 `e->rel & REL_BIT(krid)` —— 永远不成立（实测「小明 是谁」还是答"不知道名字"）。 */
-            uint8_t kdyn = (krid >= REL_DYN_BASE) ? (uint8_t)(krid - REL_DYN_BASE + 1) : 0;
+            uint8_t kdyn = (krid >= REL_DYN_BASE) ? (uint32_t)(krid - REL_DYN_BASE + 1) : 0;
             for (size_t i = 0; i < A->count; ++i) {
                 const AssocEntry *e = &token_assocs_ro(A)[i];
                 if (kdyn ? (e->dyn != kdyn) : !(e->rel & REL_BIT(krid))) continue;
@@ -8643,7 +8643,7 @@ static inline int agent_unknown_relation_note(AI *ai, char *const *words, size_t
                                               char *out, size_t cap) {
     if (!ai || !words || n < 4 || n > 7 || !out || cap == 0) return 0;
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jb[64];
     if (!rel_parse(ai, words, n, jb, sizeof jb, &aw, &rid, &is_neg, &bw, &is_q, &rw, 0))
@@ -8697,7 +8697,7 @@ static inline char *agent_answer_relation(AI *ai, char *const *words, size_t n,
      *   ② 他的视角：他没说过这个 → 老老实实说不知道他怎么想，
      *      不许拿我的知识冒充他的想法（原来就是这么答的，那不算视角推理）。 */
     const char *aw = NULL, *bw = NULL, *rw = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     int is_q = 0, is_neg = 0;
     char jbuf[64];
     Token *A = NULL, *B = NULL;
@@ -8837,7 +8837,7 @@ static inline int agent_retract_pending(AI *ai) {
     return ai && ai->ask_retract_old != 0;
 }
 
-static inline void agent_retract_arm(AI *ai, Token *a, Token *old, uint8_t rid) {
+static inline void agent_retract_arm(AI *ai, Token *a, Token *old, RelId rid) {
     if (!ai) return;
     if (!a || !old || rid == 0) { ai->ask_retract_a = ai->ask_retract_old = 0; ai->ask_retract_rid = 0; return; }
     ai->ask_retract_a = a->id;
@@ -8878,7 +8878,7 @@ static inline int agent_retract_reply(AI *ai, const char *input, char *out, size
     if (!yes && !no) { agent_retract_disarm(ai); return 0; }   /* 不是回答我：当没说 */
     Token *A = pool_token_by_id(ai->pool, ai->ask_retract_a);
     Token *old = pool_token_by_id(ai->pool, ai->ask_retract_old);
-    uint8_t rid = ai->ask_retract_rid;
+    RelId rid = ai->ask_retract_rid;
     agent_retract_disarm(ai);
     if (!A || !old || !rid) return 0;
     if (no) {
@@ -8970,7 +8970,7 @@ static inline int agent_askback_reply(AI *ai, const char *input, char *out, size
      * 用户现在回话确认了 ⇒ 到**写路径**上再造词（与 `::teach` 同一个口径）。 */
     Token *A = pool_find(ai->pool, ai->ask_a);
     Token *B = pool_find(ai->pool, ai->ask_b);
-    uint8_t rid = ai->ask_rid;
+    RelId rid = ai->ask_rid;
     int fact_neg = ai->ask_fact_neg;    /* 先取下来：drop 会把字段清干净（§6.188） */
     agent_ask_drop(ai);                 /* 这条追问用过就没了（无论成不成；标记标垃圾） */
     if (!A && ai->ask_a[0] && strlen(ai->ask_a) <= 12) A = pool_token_intern(ai->pool, ai->ask_a);
@@ -9069,7 +9069,7 @@ static inline int agent_correct_reply(AI *ai, const char *input, char *out, size
     if (!is_corr && !is_conf) { agent_ask_drop(ai); return 0; }   /* 不是短回话：作废 */
     Token *A = pool_find(ai->pool, ai->ask_a);
     Token *B = pool_find(ai->pool, ai->ask_b);
-    uint8_t rid = ai->ask_rid;
+    RelId rid = ai->ask_rid;
     int fact_neg = ai->ask_fact_neg;
     agent_ask_drop(ai);
     if (!A || !B || rid == 0) return 0;
@@ -9249,7 +9249,7 @@ static inline char *agent_learn_multi(AI *ai, char *const *words, size_t n, floa
         /* 记下这句的谓语/宾语，供下一句省略用 */
         {
             char jb[64]; const char *aw2 = NULL, *bw2 = NULL, *rw2 = NULL;
-            uint8_t rid2 = 0; int neg2 = 0, q2 = 0;
+            RelId rid2 = 0; int neg2 = 0, q2 = 0;
             if (rel_parse(ai, cw, cn, jb, sizeof jb, &aw2, &rid2, &neg2, &bw2, &q2, &rw2, 0) &&
                 rw2 && bw2 && strlen(rw2) < sizeof prev_rw && strlen(bw2) < sizeof prev_obj) {
                 snprintf(prev_rw, sizeof prev_rw, "%s", rw2);
@@ -10037,10 +10037,10 @@ static inline int agent_serial_verb(AI *ai, char *const *words, size_t n, char *
     if (!words[n - 1] || (strcmp(words[n - 1], "吗") != 0 && strcmp(words[n - 1], "呢"))) return 0;
     size_t last = n - 1;
     if (last < 4) return 0;
-    uint8_t rid[4], rpos[4];
+    RelId rid[4], rpos[4];
     size_t nr = 0;
     for (size_t i = 1; i + 1 < last && nr < 4; ++i) {
-        uint8_t r = rel_id_of(ai, words[i], 0);
+        RelId r = rel_id_of(ai, words[i], 0);
         if (r == 0) continue;
         rid[nr] = r; rpos[nr] = (uint8_t)i; nr++;
     }
@@ -10109,10 +10109,10 @@ static inline int agent_clarify_reply(AI *ai, const char *input, char *out, size
     size_t n = 0;
     char **w = ai_tokenize(ai, input, &n);
     if (!w || n == 0 || n > 3) { ai_free_words(w, n); ai->clarify_pending = 0; return 0; }
-    uint8_t rid = 0;
+    RelId rid = 0;
     const char *rname = NULL;
     for (size_t i = 0; i < n; ++i) {
-        uint8_t r = rel_id_of(ai, w[i], 0);
+        RelId r = rel_id_of(ai, w[i], 0);
         if (r) { rid = r; rname = rel_name_of(ai, r); break; }
     }
     if (!rid) { ai_free_words(w, n); ai->clarify_pending = 0; return 0; }
@@ -10783,7 +10783,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
             }
             Token *A = pool_token_intern(ai->pool, subj);
             Token *Y = pool_token_intern(ai->pool, adj);
-            uint8_t arid = rel_id_of(ai, "属性", 1);
+            RelId arid = rel_id_of(ai, "属性", 1);
             if (subj[0] && adj[0] && A && Y && A != Y && arid &&
                 ai_write_rel(ai, A, Y, arid, 0, AI_WSRC_RELATION) == 0) {
                 agent_teach_mark(ai, A, arid, Y, 0);
@@ -10934,7 +10934,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         }
         char fb[64];
         const char *fa = NULL, *fr = NULL, *fob = NULL;
-        uint8_t frid = 0;
+        RelId frid = 0;
         int fneg = 0, fq = 0;
         if (!rel_parse(ai, words, n, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
             ai->seg_sliding = 0;
@@ -10956,7 +10956,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (!ai->char_stream && ai->seg_sliding && ai->reseg_fix && words && n >= 2) {
         char fb[64];
         const char *fa = NULL, *fr = NULL, *fob = NULL;
-        uint8_t frid = 0;
+        RelId frid = 0;
         int fneg = 0, fq = 0;
         if (!rel_parse(ai, words, n, fb, sizeof fb, &fa, &frid, &fneg, &fob, &fq, &fr, 0)) {
             int fixed = 0;
@@ -11075,7 +11075,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
     if (words && n >= 3) {
         char jb[64];
         const char *aw2 = NULL, *bw2 = NULL, *rw2 = NULL;
-        uint8_t rid2 = 0;
+        RelId rid2 = 0;
         int neg2 = 0, q2 = 0;
         int rp = rel_parse(ai, words, n, jb, sizeof jb, &aw2, &rid2, &neg2, &bw2, &q2, &rw2, 0);
         if (rp && q2 && rid2 && bw2 && strlen(bw2) < sizeof ai->last_q_b) {

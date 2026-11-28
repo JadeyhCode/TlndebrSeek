@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
             AssocEntry *e = &t->assocs[j];
             if (!e->rel && !e->nrel) continue;
             tot_rel++;
-            for (uint8_t rid = 1; rid <= REL_CORE_MAX; ++rid) {
+            for (RelId rid = 1; rid <= REL_CORE_MAX; ++rid) {
                 uint16_t bit = REL_BIT(rid);
                 if ((e->rel & bit) && (e->nrel & bit)) {
                     both++;

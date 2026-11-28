@@ -76,10 +76,10 @@ typedef struct {
  * 动态谓语（§6.80：否定旗子在 `nrel` 第 15 位）单独走一遍边扫描 ——
  * `rel_direct_neg` 对动态关系一律返回 0（"否定只支持核心关系"），
  * 照抄不能跟着这个口径看不见动态否定。 */
-static inline int xb_pair_state(const Token *A, uint8_t rid, const Token *B, int neg) {
+static inline int xb_pair_state(const Token *A, RelId rid, const Token *B, int neg) {
     if (!A || !B || rid == 0) return 0;
     if (rid >= REL_DYN_BASE) {
-        uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+        uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
         for (size_t i = 0; i < A->count; ++i) {
             const AssocEntry *e = &token_assocs_ro(A)[i];
             if (e->main != B || e->dyn != d) continue;
@@ -95,7 +95,7 @@ static inline int xb_pair_state(const Token *A, uint8_t rid, const Token *B, int
 
 /* 独占关系里"本地已有的那个别的值"（没有就 NULL）。
  * 只对肯定事实问：`A 不 R C` 与 `A R B` 不一定打架（否定常常是说"它不属于那个更细的类"）。*/
-static inline Token *xb_excl_other(AI *ai, const Token *A, uint8_t rid, const Token *B, int neg) {
+static inline Token *xb_excl_other(AI *ai, const Token *A, RelId rid, const Token *B, int neg) {
     if (!ai || !A || neg) return NULL;
     if (rid >= REL_DYN_BASE) return NULL;          /* 动态谓语不参与独占判定（表里没声明）*/
     if (!rel_is_excl(ai, rid)) return NULL;
@@ -144,7 +144,7 @@ static inline int xb_journal_save(AI *ai, const char *path) {
             if (!e->main || !e->main->name || e->main->name[0] == '[') continue;
             /* 动态谓语（§6.80）：按名字记，不记 id —— 跨脑的 id 不可比 */
             if (e->dyn) {
-                uint8_t drid = (uint8_t)(REL_DYN_BASE + e->dyn - 1);
+                RelId drid = (RelId)(REL_DYN_BASE + e->dyn - 1);
                 const char *dn = rel_dyn_name(ai, drid);
                 if (dn) {
                     fprintf(f, "R\t%s\t%s\t%s\t%d\n", t->name, dn, e->main->name,
@@ -216,7 +216,7 @@ static inline int xb_journal_replay(AI *ai, const char *path, XbMode mode, XbRes
         /* 谓词名 → 目标脑自己的关系 id。`allow_new=1`：要带走的事实里可能有
          * 目标脑还没登记过的动态谓语（比如「想念」），不登记就等于丢知识。
          * `check` 模式不登记（干跑不许改图）⇒ 认不出就算坏行。 */
-        uint8_t rid = rel_id_of(ai, rn, mode == XB_MODE_CHECK ? 0 : 1);
+        RelId rid = rel_id_of(ai, rn, mode == XB_MODE_CHECK ? 0 : 1);
         if (!rid) { r.bad++; continue; }
         /* **先查后建**：冲突判定要两端都在本地才判得出来；不在的词**不提前建** ——
          * 否则"冲突没写"却留下一个没有边的空词（实测过：冲突 1 条、新建词 1 个）。

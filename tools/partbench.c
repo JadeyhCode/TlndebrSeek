@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
 
     /* 只问前 N 个"有边的词"：每次问都会触发一次按需读回 */
     const size_t N = 50;
-    uint8_t rid = rel_id_of(A, "属于", 0);
+    RelId rid = rel_id_of(A, "属于", 0);
     size_t asked = 0;
     for (size_t i = 0; i < ntok && asked < N; ++i) {
         Token *t = A->pool->tokens[i];

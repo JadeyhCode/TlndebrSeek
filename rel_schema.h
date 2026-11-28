@@ -60,7 +60,7 @@ typedef struct {
 } RelSchema;
 
 typedef struct {
-    uint8_t     (*id_of)(const char *name);      /* 核心关系名 → id（无则 0） */
+    uint16_t    (*id_of)(const char *name);      /* 核心关系名 → id（无则 0）；§7.089 扩宽 */
     const char *(*inv_of_name)(const char *name);/* 核心关系名 → 逆关系名（无则 NULL） */
 } RelSchemaHooks;
 

@@ -70,7 +70,7 @@ static inline int en_starts_vowel(const char *s) {
 }
 
 /* 关系 → 英文短语（输出用）。返回 1 = 有对应说法。 */
-static inline int en_phrase(uint8_t rid, const char *obj, char *out, size_t cap) {
+static inline int en_phrase(RelId rid, const char *obj, char *out, size_t cap) {
     switch (rid) {
     case REL_IS_A: snprintf(out, cap, "%s", en_starts_vowel(obj) ? "is an" : "is a"); return 1;
     case REL_CAN:  snprintf(out, cap, "can"); return 1;
@@ -99,7 +99,7 @@ static inline int en_is(const char **w, const size_t *wl, int i, const char *lit
 }
 
 /* 解析英语是非问。成功返回 1，并给出 A / B / 关系。 */
-static inline int en_parse(AI *ai, const char *q, char *A, size_t acap, char *B, size_t bcap, uint8_t *rid) {
+static inline int en_parse(AI *ai, const char *q, char *A, size_t acap, char *B, size_t bcap, RelId *rid) {
     if (!q || !A || !B || !rid || !en_ascii_only(q) || !ai) return 0;
     char buf[512];
     size_t n = 0;
@@ -488,7 +488,7 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             if (neg_at == st) st++;
             if (st < nw && (en_is(w, wl, st, "a") || en_is(w, wl, st, "an") || en_is(w, wl, st, "the"))) st++;
             if (st >= nw) return 0;
-            uint8_t rid = rel_id_of(ai, en_is(w, wl, k, "are") ? "are" : "is", 0);
+            RelId rid = rel_id_of(ai, en_is(w, wl, k, "are") ? "are" : "is", 0);
             if (!rid) return 0;
             char A[128], B[200];
             en_join(w, wl, 0, k, A, sizeof A);
@@ -552,7 +552,7 @@ static inline int english_teach(AI *ai, const char *q, char *out, size_t cap) {
             int st = k + 1;
             if (neg_at == st) st++;
             if (st >= nw) return 0;
-            uint8_t rid = rel_id_of(ai, "can", 0);
+            RelId rid = rel_id_of(ai, "can", 0);
             if (!rid) return 0;
             char A[128], B[200];
             en_join(w, wl, 0, k, A, sizeof A);
@@ -612,7 +612,7 @@ static inline const char *english_unknown_word(AI *ai, const char *q, char *buf,
 /* 返回：1=答了 / -1=是非问解析成功但词没映射 / 0=不是简单是非问 */
 static inline int english_rewrite(AI *ai, const char *q, char *out, size_t cap) {
     char A[128], B[200];
-    uint8_t rid = 0;
+    RelId rid = 0;
     if (!en_parse(ai, q, A, sizeof A, B, sizeof B, &rid)) return 0;
     if (!out || !cap) return 0;
     const Token *ta = en_to_token(ai, A);
@@ -664,7 +664,7 @@ static inline int english_hint(AI *ai, const char *q, char *out, size_t cap) {
     }
     if (!alpha || !qmark || digit) return 0;
     char A[128], B[200];
-    uint8_t rid = 0;
+    RelId rid = 0;
     if (en_parse(ai, q, A, sizeof A, B, sizeof B, &rid)) return 0;   /* 是非问：上面已经答了 */
     /* 纯英文问句不是是非问 ⇒ 一律给英文指引：中文流水线对英文开放问句只会瞎答
      * （实测 `What is a cat?` 被检索答成"我也想养一只"），那比明说"我只答是非问"更糟。 */

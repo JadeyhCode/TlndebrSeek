@@ -98,7 +98,7 @@ int main(void) {
         ok(claim_at(a, 0, &one) == 1 && claim_accept(a, one.node, line, sizeof line) == 1,
            "::claim accept ⇒ 升格一条");
         Token *A = pool_find(a->pool, one.a), *B = pool_find(a->pool, one.b);
-        uint8_t rid = rel_id_of(a, one.r, 0);
+        RelId rid = rel_id_of(a, one.r, 0);
         ok(rid && A && B && rel_direct(A, rid, B), "升格之后**事实层**才有这条（其余仍待证）");
         {
             Claim rest[16];

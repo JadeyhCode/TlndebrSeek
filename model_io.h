@@ -966,7 +966,7 @@ v16_loaded:
     ai->der_style = DER_STYLE_PLAIN;
     ai->closed_world = 0;
     ai->view_who = NULL;
-    for (int i = 0; i <= REL_TABLE_MAX; ++i) ai->rel_excl[i] = 0;
+    memset(ai->rel_excl, 0, sizeof ai->rel_excl);
     ai->rel_excl[REL_IS_A] = 1;
     ai->rel_excl[REL_AT] = 1;
     ai->rel_excl[REL_NEED] = 0;
@@ -1089,7 +1089,7 @@ v16_loaded:
             for (uint32_t k = 0; k < nb; ++k) {
                 Token *ba = mio_tok(np, mr_u32(&r));
                 Token *bb = mio_tok(np, mr_u32(&r));
-                uint8_t brid = mr_u8(&r);
+                RelId brid = mr_u8(&r);
                 uint8_t bneg = mr_u8(&r);
                 if (r.err) goto fail_ai;
                 if (!ba || !bb) goto fail_ai;
@@ -1276,7 +1276,7 @@ v16_loaded:
                 for (size_t ei = 0; ei < t->count; ++ei) {
                     const AssocEntry *e = &token_assocs(t)[ei];
                     if (!e->main) continue;
-                    for (uint8_t r = 1; r < REL_DYN_BASE; ++r) {
+                    for (RelId r = 1; r < REL_DYN_BASE; ++r) {
                         uint16_t bit = REL_BIT(r);
                         if (e->rel & bit)  pool_rev_add(rp, e->main, t->id, r, 0);
                         if (e->nrel & bit) pool_rev_add(rp, e->main, t->id, r, 1);

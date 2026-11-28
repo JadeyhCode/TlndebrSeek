@@ -23,22 +23,22 @@ static inline Token *xe_tok(AI *ai, const char *name) {
 }
 
 /* 关系 id 原样返回（核心关系 < REL_DYN_BASE，动态关系 >= 它）*/
-static inline uint8_t xe_rid(AI *ai, const char *rel) {
+static inline RelId xe_rid(AI *ai, const char *rel) {
     return rel_id_of(ai, rel, 1);
 }
 
 /* 核心关系与动态关系分开打边 */
-static inline int xe_link(Token *a, Token *b, uint8_t rid) {
+static inline int xe_link(Token *a, Token *b, RelId rid) {
     if (!a || !b || !rid) return -1;
-    if (rid >= REL_DYN_BASE) return token_tag_dyn(a, b, (uint8_t)(rid - REL_DYN_BASE + 1), 1);
+    if (rid >= REL_DYN_BASE) return token_tag_dyn(a, b, (uint32_t)(rid - REL_DYN_BASE + 1), 1);
     return token_tag_rel(a, b, rid, 1);
 }
 
 /* 一条边是不是这个关系（核心看 rel/nrel 位，动态看 dyn + 第 15 位）*/
-static inline int xe_edge_is(const AssocEntry *e, uint8_t rid) {
+static inline int xe_edge_is(const AssocEntry *e, RelId rid) {
     if (!e || !e->main || !rid) return 0;
     if (rid >= REL_DYN_BASE)
-        return e->dyn == (uint8_t)(rid - REL_DYN_BASE + 1);
+        return e->dyn == (uint32_t)(rid - REL_DYN_BASE + 1);
     return (e->rel & REL_BIT(rid)) != 0;
 }
 

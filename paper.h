@@ -117,7 +117,7 @@ static inline int paper_graph_canon(AI *ai, const char *w, char *out, size_t cap
     for (size_t j = 0; j < t->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(t)[j];
         if (!e->main || !e->main->name || !e->dyn) continue;
-        const char *dn = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+        const char *dn = rel_dyn_name(ai, (RelId)(REL_DYN_BASE + e->dyn - 1));
         if (!dn) continue;
         if (strcmp(dn, "同义") && strcmp(dn, "别名") && strcmp(dn, "等同")) continue;
         size_t l = strlen(e->main->name);
@@ -181,7 +181,7 @@ static const char *const PAPER_SPLIT_VERBS[] = { "吃", "喝", "用", "住", "�
 static inline int paper_graph_list(AI *ai, const char *lib, char out[][64], int max) {
     if (!ai || !ai->pool) return 0;
     Token *L = pool_find(ai->pool, lib);
-    uint8_t rid = rel_id_of(ai, "有", 0);
+    RelId rid = rel_id_of(ai, "有", 0);
     if (!L || !rid || rid >= REL_DYN_BASE) return 0;
     int n = 0;
     for (size_t k = 0; k < L->count && n < max; ++k) {

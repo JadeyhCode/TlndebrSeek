@@ -194,8 +194,9 @@ typedef enum {
 /* §6.633 16 → 64：阶段二要用"动态关系"当**结构槽**（谓词参数 `参数1..8`、规则前提 `前提1..6`、
  * 结论 `结论`），老上限 16 一用就满、把用户自己教的新谓语挤掉。表是 `char*[64]`（+384 字节），
  * 存档里只存 `n` 条名字，旧档（≤16 条）照样读 —— 不动格式。 */
-#define AI_MAX_DYNREL  245     /* §7.080 P2a：96→245（uint8 关系 id 的上限；4096 需 RelId 扩宽，P2b） */
-#define REL_TABLE_MAX  255     /* §7.080 运行时关系表最大 id（覆盖 uint8 全部动态 id；数组 5KB/agent） */
+typedef uint16_t RelId;   /* §7.089 P2b-4 关系 id（核心 1..9，动态 10..4105） */
+#define AI_MAX_DYNREL  4096   /* §7.089 245→4096（RelId 扩宽后） */
+#define REL_TABLE_MAX  (REL_DYN_BASE + AI_MAX_DYNREL - 1)  /* §7.089 4105 */
 
 /* ---- 关系 id（rel.h 的 AI_RELS 用它们）---- */
 #define REL_BIT(id) (uint16_t)(1u << ((id) - 1u))
@@ -1599,7 +1600,7 @@ static inline int token_multidyn_on(void) {
     return !(e && e[0] == '0');   /* §7.083 默认开；AIP_MULTIDYN=0 回退覆盖（消融） */
 }
 
-static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bump) {
+static inline int token_tag_dyn(Token *a, Token *b, uint32_t dyn_id, uint32_t bump) {
     if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
     if (!a || !b || a == b || dyn_id == 0) return -1;
     for (size_t i = 0; i < a->count; ++i) {
@@ -1607,10 +1608,6 @@ static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bum
         if (e->main == b && edge_is_plain(e) && e->dyn == dyn_id) return 0;  /* 幂等 */
     }
     if (!token_multidyn_on()) {
-        if (getenv("AIP_MULTIDYN_DBG"))
-            fprintf(stderr, "[mdyn-old] %s -[%u]-> %s force=%d env=%s\n",
-                    a->name ? a->name : "?", (unsigned)dyn_id, b->name ? b->name : "?",
-                    g_dyn_force_single, getenv("AIP_MULTIDYN") ? getenv("AIP_MULTIDYN") : "-");
         /* 旧行为（消融）：复用第一条 plain 边，覆盖 dyn */
         for (size_t i = 0; i < a->count; ++i) {
             AssocEntry *e = &token_assocs(a)[i];
@@ -1630,9 +1627,6 @@ static inline int token_tag_dyn(Token *a, Token *b, uint8_t dyn_id, uint32_t bum
         AssocEntry *e = &token_assocs(a)[i];
         if (e->main != b || !edge_is_plain(e)) continue;
         if (e->dyn || e->rel || e->nrel) continue;   /* 已有关系/否定 ⇒ 不能复用 */
-        if (getenv("AIP_MULTIDYN_DBG"))
-            fprintf(stderr, "[mdyn-reuse] %s -[%u]-> %s\n", a->name ? a->name : "?",
-                    (unsigned)dyn_id, b->name ? b->name : "?");
         e->dyn = dyn_id;
         if (a->owner && !pool_rev_has(a->owner, b, a->id,
                                       (uint32_t)(REL_DYN_BASE + dyn_id - 1), 0))
@@ -1657,7 +1651,7 @@ add_new:
 }
 
 /* 动态关系 + 否定：`dyn` 记关系 id，`nrel` 的 15 位记"是否定"（见 REL_NEG_DYN_BIT） */
-static inline int token_tag_dyn_neg(Token *a, Token *b, uint8_t dyn_id, int neg, uint32_t bump) {
+static inline int token_tag_dyn_neg(Token *a, Token *b, uint32_t dyn_id, int neg, uint32_t bump) {
     if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
     int rc = token_tag_dyn(a, b, dyn_id, bump);
     if (rc != 0) return rc;

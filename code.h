@@ -391,9 +391,9 @@ static inline int code_test_file(AI *ai, const char *rel, char *note, size_t cap
 /* §6.711 输入契约：描述里点名的「通道」（命令行 / 标准输入）。
  * 数据：通道 --[关键词]--> 词；种类 --[通道:X]--> 模板。C 里不点通道名/模板名。 */
 static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
-    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
+    RelId rid_kw = rel_id_of(ai, "关键词", 0);
     if (rid_kw < REL_DYN_BASE || !desc || !desc[0]) return NULL;
-    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
+    uint32_t d_kw = (uint32_t)(rid_kw - REL_DYN_BASE + 1);
     Token *best = NULL;
     size_t best_len = 0;
     for (size_t i = 0; i < ai->pool->count; ++i) {
@@ -417,9 +417,9 @@ static inline Token *code_chan_in_desc(AI *ai, const char *desc) {
  * 才退回下面两张引导表（bootstrap，等数据补齐后删）。 */
 static int code_shape_word_graph(AI *ai, const char *desc, const char *relname) {
     if (!ai || !ai->pool || !desc || !relname) return 0;
-    uint8_t rid = rel_id_of(ai, relname, 0);
+    RelId rid = rel_id_of(ai, relname, 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     static const char PFX[] = "形状词:";
     for (size_t i = 0; i < ai->pool->count; ++i) {
         Token *t = ai->pool->tokens[i];
@@ -450,11 +450,11 @@ static inline int code_desc_wants_scalar(AI *ai, const char *desc) {
  * 它只能当链尾；放在中间会先打一行数组、再把后面的结果打出来（blind45 的脏链就是这么来的）。 */
 static inline int code_op_self_prints(AI *ai, Token *op) {
     if (!ai || !op) return 0;
-    uint8_t rid_out = rel_id_of(ai, "输出", 0);
-    uint8_t rid_st = rel_id_of(ai, "语句", 0);
+    RelId rid_out = rel_id_of(ai, "输出", 0);
+    RelId rid_st = rel_id_of(ai, "语句", 0);
     if (rid_out < REL_DYN_BASE || rid_st < REL_DYN_BASE) return 0;
-    uint8_t d_out = (uint8_t)(rid_out - REL_DYN_BASE + 1);
-    uint8_t d_st = (uint8_t)(rid_st - REL_DYN_BASE + 1);
+    uint32_t d_out = (uint32_t)(rid_out - REL_DYN_BASE + 1);
+    uint32_t d_st = (uint32_t)(rid_st - REL_DYN_BASE + 1);
     int no_print = 0, has_printf = 0;
     for (size_t j = 0; j < op->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(op)[j];
@@ -480,11 +480,11 @@ static inline int code_desc_wants_array(AI *ai, const char *desc) {
 
 static inline int code_op_in_shape(AI *ai, Token *op) {
     if (!ai || !op) return 1;
-    uint8_t rid_tp = rel_id_of(ai, "模板", 0);
-    uint8_t rid_kd = rel_id_of(ai, "种类", 0);
+    RelId rid_tp = rel_id_of(ai, "模板", 0);
+    RelId rid_kd = rel_id_of(ai, "种类", 0);
     if (rid_tp < REL_DYN_BASE || rid_kd < REL_DYN_BASE) return 1;
-    uint8_t d_tp = (uint8_t)(rid_tp - REL_DYN_BASE + 1);
-    uint8_t d_kd = (uint8_t)(rid_kd - REL_DYN_BASE + 1);
+    uint32_t d_tp = (uint32_t)(rid_tp - REL_DYN_BASE + 1);
+    uint32_t d_kd = (uint32_t)(rid_kd - REL_DYN_BASE + 1);
     Token *tmpl = NULL;
     for (size_t j = 0; j < op->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(op)[j];
@@ -505,9 +505,9 @@ static inline int code_op_in_shape(AI *ai, Token *op) {
 
 static inline int code_op_out_shape(AI *ai, Token *op) {
     if (!ai || !op) return 1;
-    uint8_t rid_out = rel_id_of(ai, "输出", 0);
+    RelId rid_out = rel_id_of(ai, "输出", 0);
     if (rid_out < REL_DYN_BASE) return 1;
-    uint8_t d_out = (uint8_t)(rid_out - REL_DYN_BASE + 1);
+    uint32_t d_out = (uint32_t)(rid_out - REL_DYN_BASE + 1);
     Token *o = NULL;
     for (size_t j = 0; j < op->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(op)[j];
@@ -524,11 +524,11 @@ static inline int code_op_out_shape(AI *ai, Token *op) {
 /* §6.861 模板自身的类别：模板 --[种类]--> 种类:X --[类别]--> 类别:Y（与 code_op_category 同理）。 */
 static inline Token *code_tmpl_category(AI *ai, Token *tmpl) {
     if (!ai || !tmpl) return NULL;
-    uint8_t rid_kind = rel_id_of(ai, "种类", 0);
-    uint8_t rid_cls = rel_id_of(ai, "类别", 0);
+    RelId rid_kind = rel_id_of(ai, "种类", 0);
+    RelId rid_cls = rel_id_of(ai, "类别", 0);
     if (rid_kind < REL_DYN_BASE || rid_cls < REL_DYN_BASE) return NULL;
-    uint8_t d_kind = (uint8_t)(rid_kind - REL_DYN_BASE + 1);
-    uint8_t d_cls = (uint8_t)(rid_cls - REL_DYN_BASE + 1);
+    uint32_t d_kind = (uint32_t)(rid_kind - REL_DYN_BASE + 1);
+    uint32_t d_cls = (uint32_t)(rid_cls - REL_DYN_BASE + 1);
     Token *kind = NULL;
     for (size_t j = 0; j < tmpl->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(tmpl)[j];
@@ -545,9 +545,9 @@ static inline Token *code_tmpl_category(AI *ai, Token *tmpl) {
 /* §6.711 选模板：描述里点名了另一个通道 ⇒ 换该通道下同一「种类」的模板。 */
 static inline Token *code_pick_template(AI *ai, Token *tmpl, const char *desc) {
     if (!tmpl || !desc || !desc[0]) return tmpl;
-    uint8_t rid_kind = rel_id_of(ai, "种类", 0);
+    RelId rid_kind = rel_id_of(ai, "种类", 0);
     if (rid_kind < REL_DYN_BASE) return tmpl;
-    uint8_t d_kind = (uint8_t)(rid_kind - REL_DYN_BASE + 1);
+    uint32_t d_kind = (uint32_t)(rid_kind - REL_DYN_BASE + 1);
     Token *ktok = NULL;
     for (size_t j = 0; j < tmpl->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(tmpl)[j];
@@ -555,9 +555,9 @@ static inline Token *code_pick_template(AI *ai, Token *tmpl, const char *desc) {
     }
     Token *chan = ktok ? code_chan_in_desc(ai, desc) : NULL;
     if (!chan || !chan->name) return tmpl;
-    uint8_t rid_ch = rel_id_of(ai, chan->name, 0);
+    RelId rid_ch = rel_id_of(ai, chan->name, 0);
     if (rid_ch < REL_DYN_BASE) return tmpl;
-    uint8_t d_ch = (uint8_t)(rid_ch - REL_DYN_BASE + 1);
+    uint32_t d_ch = (uint32_t)(rid_ch - REL_DYN_BASE + 1);
     for (size_t j = 0; j < ktok->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(ktok)[j];
         if (e->main && e->main->name && e->dyn == d_ch &&
@@ -635,9 +635,9 @@ static inline int code_emit(AI *ai, Token *tmpl, const char *bodytext,
                             const char **fcodes, const char **fnames, int nf,
                             const char *outbase, const char *head, char *note, size_t cap) {
     if (!ai || !tmpl || !tmpl->name || !outbase) return -3;
-    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+    RelId rid_cd = rel_id_of(ai, "代码", 0);
     if (rid_cd < REL_DYN_BASE) return -3;
-    uint8_t dyn_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
+    uint32_t dyn_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
     const char *tcode = NULL;
     for (size_t j = 0; j < tmpl->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(tmpl)[j];
@@ -693,16 +693,16 @@ static inline int code_emit(AI *ai, Token *tmpl, const char *bodytext,
  * -2 = 内存不够或写文件失败。C 里不点任何任务/配方名。 */
 static inline int code_compose(AI *ai, Token *job, const char *desc, char *note, size_t cap, const char *kind) {
     if (!ai || !job || !job->name) return -3;
-    uint8_t rid_tp = rel_id_of(ai, "模板", 0);
-    uint8_t rid_use = rel_id_of(ai, "用", 0);
-    uint8_t rid_body = rel_id_of(ai, "主体", 0);
-    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+    RelId rid_tp = rel_id_of(ai, "模板", 0);
+    RelId rid_use = rel_id_of(ai, "用", 0);
+    RelId rid_body = rel_id_of(ai, "主体", 0);
+    RelId rid_cd = rel_id_of(ai, "代码", 0);
     if (rid_tp < REL_DYN_BASE || rid_use < REL_DYN_BASE ||
         rid_body < REL_DYN_BASE || rid_cd < REL_DYN_BASE) return -3;
-    uint8_t d_tp = (uint8_t)(rid_tp - REL_DYN_BASE + 1);
-    uint8_t d_use = (uint8_t)(rid_use - REL_DYN_BASE + 1);
-    uint8_t d_body = (uint8_t)(rid_body - REL_DYN_BASE + 1);
-    uint8_t dyn_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
+    uint32_t d_tp = (uint32_t)(rid_tp - REL_DYN_BASE + 1);
+    uint32_t d_use = (uint32_t)(rid_use - REL_DYN_BASE + 1);
+    uint32_t d_body = (uint32_t)(rid_body - REL_DYN_BASE + 1);
+    uint32_t dyn_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
     Token *tmpl = NULL, *body = NULL;
     for (size_t j = 0; j < job->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(job)[j];
@@ -753,9 +753,9 @@ static inline int code_compose(AI *ai, Token *job, const char *desc, char *note,
 static inline void code_norm_desc(AI *ai, const char *desc, char *out, size_t cap) {
     if (!out || cap == 0) return;
     snprintf(out, cap, "%s", desc ? desc : "");
-    uint8_t rid_f = rel_id_of(ai, "虚词", 0);
+    RelId rid_f = rel_id_of(ai, "虚词", 0);
     if (rid_f < REL_DYN_BASE) return;
-    uint8_t d_f = (uint8_t)(rid_f - REL_DYN_BASE + 1);
+    uint32_t d_f = (uint32_t)(rid_f - REL_DYN_BASE + 1);
     for (size_t i = 0; i < ai->pool->count; ++i) {
         Token *t = ai->pool->tokens[i];
         if (!t || !t->name || !t->name[0]) continue;
@@ -776,13 +776,13 @@ static inline void code_norm_desc(AI *ai, const char *desc, char *out, size_t ca
 /* §6.726 算子类别：op -> 模板 -> 种类 -> 类别（标量/数组/字符串/矩阵） */
 static inline Token *code_op_category(AI *ai, Token *op) {
     if (!ai || !op) return NULL;
-    uint8_t rid_tp = rel_id_of(ai, "模板", 0);
-    uint8_t rid_kind = rel_id_of(ai, "种类", 0);
-    uint8_t rid_cls = rel_id_of(ai, "类别", 0);
+    RelId rid_tp = rel_id_of(ai, "模板", 0);
+    RelId rid_kind = rel_id_of(ai, "种类", 0);
+    RelId rid_cls = rel_id_of(ai, "类别", 0);
     if (rid_tp < REL_DYN_BASE || rid_kind < REL_DYN_BASE || rid_cls < REL_DYN_BASE) return NULL;
-    uint8_t d_tp = (uint8_t)(rid_tp - REL_DYN_BASE + 1);
-    uint8_t d_kind = (uint8_t)(rid_kind - REL_DYN_BASE + 1);
-    uint8_t d_cls = (uint8_t)(rid_cls - REL_DYN_BASE + 1);
+    uint32_t d_tp = (uint32_t)(rid_tp - REL_DYN_BASE + 1);
+    uint32_t d_kind = (uint32_t)(rid_kind - REL_DYN_BASE + 1);
+    uint32_t d_cls = (uint32_t)(rid_cls - REL_DYN_BASE + 1);
     Token *tmpl = NULL, *kind = NULL;
     for (size_t j = 0; j < op->count; ++j) {
         const AssocEntry *e = &token_assocs_ro(op)[j];
@@ -964,9 +964,9 @@ static inline double code_cover_ratio(const char *desc, Token *unit, uint8_t d_k
 /* §6.941 停用词查图：`停用词:X --[停用]--> 1`；图里没有就不算停用（数据负责）。 */
 static int code_stop2_graph(AI *ai, const char *g) {
     if (!ai || !ai->pool || !g) return 0;
-    uint8_t rid = rel_id_of(ai, "停用", 0);
+    RelId rid = rel_id_of(ai, "停用", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     static const char PFX[] = "停用词:";
     for (size_t i = 0; i < ai->pool->count; ++i) {
         Token *t = ai->pool->tokens[i];
@@ -1001,9 +1001,9 @@ static inline int code_word_known(AI *ai, const char *g) {
 /* §6.940 输出形态词：图数据 `形态词:X --[要形态]--> 1`；查不到才退回内置表（bootstrap）。 */
 static int code_form_word_graph(AI *ai, const char *desc, const char *kn, char *missing, size_t cap) {
     if (!ai || !ai->pool || !desc) return 0;
-    uint8_t rid = rel_id_of(ai, "要形态", 0);
+    RelId rid = rel_id_of(ai, "要形态", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     static const char PFX[] = "形态词:";
     int bad = 0;
     for (size_t i = 0; i < ai->pool->count; ++i) {
@@ -1084,15 +1084,15 @@ static inline int code_py_template(AI *ai, const char *desc,
     if (!ai || !ai->pool || !desc || !body || !tests) return 0;
     body[0] = tests[0] = 0;
     if (name && ncap) name[0] = 0;
-    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
-    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
-    uint8_t rid_ts = rel_id_of(ai, "测试", 0);
-    uint8_t rid_ex = rel_id_of(ai, "排除", 0);
+    RelId rid_kw = rel_id_of(ai, "关键词", 0);
+    RelId rid_cd = rel_id_of(ai, "代码", 0);
+    RelId rid_ts = rel_id_of(ai, "测试", 0);
+    RelId rid_ex = rel_id_of(ai, "排除", 0);
     if (rid_kw < REL_DYN_BASE || rid_cd < REL_DYN_BASE || rid_ts < REL_DYN_BASE) return 0;
-    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
-    uint8_t d_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
-    uint8_t d_ts = (uint8_t)(rid_ts - REL_DYN_BASE + 1);
-    uint8_t d_ex = (rid_ex >= REL_DYN_BASE) ? (uint8_t)(rid_ex - REL_DYN_BASE + 1) : 0;
+    uint32_t d_kw = (uint32_t)(rid_kw - REL_DYN_BASE + 1);
+    uint32_t d_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
+    uint32_t d_ts = (uint32_t)(rid_ts - REL_DYN_BASE + 1);
+    uint8_t d_ex = (rid_ex >= REL_DYN_BASE) ? (uint32_t)(rid_ex - REL_DYN_BASE + 1) : 0;
     static const char PFX[] = "py模板:";
     Token *best = NULL;
     size_t best_pos = (size_t)-1, best_len = 0;
@@ -1142,13 +1142,13 @@ static inline int code_py_template(AI *ai, const char *desc,
  * 单值链不许硬答（宁可拒绝也不打错一个数）。 */
 static int code_desc_two_results(AI *ai, const char *desc, const char **which) {
     if (!ai || !ai->pool || !desc) return 0;
-    uint8_t rid = rel_id_of(ai, "触发", 0);
-    uint8_t ridc = rel_id_of(ai, "条件", 0);
-    uint8_t ride = rel_id_of(ai, "排除", 0);
+    RelId rid = rel_id_of(ai, "触发", 0);
+    RelId ridc = rel_id_of(ai, "条件", 0);
+    RelId ride = rel_id_of(ai, "排除", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
-    uint8_t dc = (ridc >= REL_DYN_BASE) ? (uint8_t)(ridc - REL_DYN_BASE + 1) : 0;
-    uint8_t de = (ride >= REL_DYN_BASE) ? (uint8_t)(ride - REL_DYN_BASE + 1) : 0;
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
+    uint8_t dc = (ridc >= REL_DYN_BASE) ? (uint32_t)(ridc - REL_DYN_BASE + 1) : 0;
+    uint8_t de = (ride >= REL_DYN_BASE) ? (uint32_t)(ride - REL_DYN_BASE + 1) : 0;
     static const char PFX[] = "双结果:";
     for (size_t i = 0; i < ai->pool->count; ++i) {
         Token *t = ai->pool->tokens[i];
@@ -1178,21 +1178,21 @@ static int code_desc_two_results(AI *ai, const char *desc, const char **which) {
 
 static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_param, char *note, size_t cap) {
     if (!ai || !ai->pool || !desc || !desc[0]) return -1;
-    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
-    uint8_t rid_stmt = rel_id_of(ai, "语句", 0);
-    uint8_t rid_tp = rel_id_of(ai, "模板", 0);
+    RelId rid_kw = rel_id_of(ai, "关键词", 0);
+    RelId rid_stmt = rel_id_of(ai, "语句", 0);
+    RelId rid_tp = rel_id_of(ai, "模板", 0);
     if (rid_kw < REL_DYN_BASE || rid_stmt < REL_DYN_BASE || rid_tp < REL_DYN_BASE) return -1;
-    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
-    uint8_t d_stmt = (uint8_t)(rid_stmt - REL_DYN_BASE + 1);
-    uint8_t d_tp = (uint8_t)(rid_tp - REL_DYN_BASE + 1);
+    uint32_t d_kw = (uint32_t)(rid_kw - REL_DYN_BASE + 1);
+    uint32_t d_stmt = (uint32_t)(rid_stmt - REL_DYN_BASE + 1);
+    uint32_t d_tp = (uint32_t)(rid_tp - REL_DYN_BASE + 1);
     /* §6.726 描述里点名的大类（数组/字符串/矩阵）：类别不符的运算直接跳过 */
     Token *desc_cat = NULL;
     size_t desc_cat_pos = (size_t)-1;
     {
-        uint8_t rid_cls = rel_id_of(ai, "类别", 0);
-        uint8_t rid_word = rel_id_of(ai, "词", 0);
+        RelId rid_cls = rel_id_of(ai, "类别", 0);
+        RelId rid_word = rel_id_of(ai, "词", 0);
         if (rid_cls >= REL_DYN_BASE && rid_word >= REL_DYN_BASE) {
-            uint8_t d_word = (uint8_t)(rid_word - REL_DYN_BASE + 1);
+            uint32_t d_word = (uint32_t)(rid_word - REL_DYN_BASE + 1);
             /* 取**最早出现**的大类词（"读入矩阵…再输出数组的和"应该判成矩阵，不是数组） */
             for (size_t i = 0; i < ai->pool->count; ++i) {
                 Token *ct = ai->pool->tokens[i];
@@ -1255,10 +1255,10 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         if (need_param) {
             /* §6.723 只在"参数化运算"里找：描述里带具体数字，比任务关键词更具体 */
-            uint8_t rid_p0 = rel_id_of(ai, "参数", 0);
+            RelId rid_p0 = rel_id_of(ai, "参数", 0);
             int has_p = 0;
             if (rid_p0 >= REL_DYN_BASE) {
-                uint8_t d_p0 = (uint8_t)(rid_p0 - REL_DYN_BASE + 1);
+                uint32_t d_p0 = (uint32_t)(rid_p0 - REL_DYN_BASE + 1);
                 for (size_t j = 0; j < t->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(t)[j];
                     if (e->main && e->dyn == d_p0) { has_p = 1; break; }
@@ -1279,9 +1279,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         /* §6.729 要求词：运算可以要求描述里**必须**出现某个词（同一关键词下消歧） */
         {
-            uint8_t rid_need = rel_id_of(ai, "要求", 0);
+            RelId rid_need = rel_id_of(ai, "要求", 0);
             if (rid_need >= REL_DYN_BASE) {
-                uint8_t d_need = (uint8_t)(rid_need - REL_DYN_BASE + 1);
+                uint32_t d_need = (uint32_t)(rid_need - REL_DYN_BASE + 1);
                 int unmet = 0;
                 for (size_t j = 0; j < t->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(t)[j];
@@ -1295,9 +1295,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         /* §6.826 **前序/后序约束**：某个词出现在命中位置**之前/之后**时让位。
          * 用来拆“最大值与第二大”这类复合表达（第二大 前面有 最大值 ⇒ 不是它在起作用）。 */
         {
-            uint8_t rid_pre = rel_id_of(ai, "前序无", 0);
+            RelId rid_pre = rel_id_of(ai, "前序无", 0);
             if (rid_pre >= REL_DYN_BASE) {
-                uint8_t d_pre = (uint8_t)(rid_pre - REL_DYN_BASE + 1);
+                uint32_t d_pre = (uint32_t)(rid_pre - REL_DYN_BASE + 1);
                 int yield_now = 0;
                 for (size_t j = 0; j < t->count && !yield_now; ++j) {
                     const AssocEntry *e = &token_assocs_ro(t)[j];
@@ -1310,9 +1310,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         /* §6.722 运算也可以有排除词：描述里出现就说明"不是这个运算"（不硬答） */
         {
-            uint8_t rid_ex = rel_id_of(ai, "排除", 0);
+            RelId rid_ex = rel_id_of(ai, "排除", 0);
             if (rid_ex >= REL_DYN_BASE) {
-                uint8_t d_ex = (uint8_t)(rid_ex - REL_DYN_BASE + 1);
+                uint32_t d_ex = (uint32_t)(rid_ex - REL_DYN_BASE + 1);
                 int excluded = 0;
                 for (size_t j = 0; j < t->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(t)[j];
@@ -1325,9 +1325,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         }
         npv[n] = 0;
         {
-            uint8_t rid_p = rel_id_of(ai, "参数", 0);
+            RelId rid_p = rel_id_of(ai, "参数", 0);
             if (rid_p >= REL_DYN_BASE) {
-                uint8_t d_p = (uint8_t)(rid_p - REL_DYN_BASE + 1);
+                uint32_t d_p = (uint32_t)(rid_p - REL_DYN_BASE + 1);
                 int has_param = 0;
                 for (size_t j = 0; j < t->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(t)[j];
@@ -1390,9 +1390,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                      * `前N个` 的 P 被前面的 2 抢走（P=2 而不是 3）。所以这里先把 has_pp 算出来。 */
                     int has_pp = 0;
                     {
-                        uint8_t rid_pp0 = rel_id_of(ai, "模式参数", 0);
+                        RelId rid_pp0 = rel_id_of(ai, "模式参数", 0);
                         if (rid_pp0 >= REL_DYN_BASE) {
-                            uint8_t d_pp0 = (uint8_t)(rid_pp0 - REL_DYN_BASE + 1);
+                            uint32_t d_pp0 = (uint32_t)(rid_pp0 - REL_DYN_BASE + 1);
                             for (size_t j = 0; j < t->count && !has_pp; ++j)
                                 if (token_assocs_ro(t)[j].main && token_assocs_ro(t)[j].dyn == d_pp0) has_pp = 1;
                         }
@@ -1646,11 +1646,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
      * 数据里声明了“需要 y”的算子，必须排到“产出 y”的算子之后；其余算子的相对顺序不动。
      * 这是“行数 × 最长行”这类两步题的**结构性**支持（不靠复合关键词硬凑）。 */
     {
-        uint8_t rid_need = rel_id_of(ai, "链需要", 0);
-        uint8_t rid_prod = rel_id_of(ai, "链产出", 0);
+        RelId rid_need = rel_id_of(ai, "链需要", 0);
+        RelId rid_prod = rel_id_of(ai, "链产出", 0);
         if (rid_need >= REL_DYN_BASE && rid_prod >= REL_DYN_BASE) {
-            uint8_t d_need = (uint8_t)(rid_need - REL_DYN_BASE + 1);
-            uint8_t d_prod = (uint8_t)(rid_prod - REL_DYN_BASE + 1);
+            uint32_t d_need = (uint32_t)(rid_need - REL_DYN_BASE + 1);
+            uint32_t d_prod = (uint32_t)(rid_prod - REL_DYN_BASE + 1);
             for (int i = 0; i < n; ++i) {
                 for (size_t j = 0; j < ops[i]->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(ops[i])[j];
@@ -1745,9 +1745,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
      * 让数组算子挂到标量模板上，编译直接炸）。按模板种类的大类把不相容的算子剔掉。 */
     {
         Token *tkind = NULL;
-        uint8_t rid_kind2 = rel_id_of(ai, "种类", 0);
+        RelId rid_kind2 = rel_id_of(ai, "种类", 0);
         if (rid_kind2 >= REL_DYN_BASE) {
-            uint8_t d_k2 = (uint8_t)(rid_kind2 - REL_DYN_BASE + 1);
+            uint32_t d_k2 = (uint32_t)(rid_kind2 - REL_DYN_BASE + 1);
             for (size_t j = 0; j < tmpl->count; ++j) {
                 const AssocEntry *e = &token_assocs_ro(tmpl)[j];
                 if (e->main && e->dyn == d_k2) { tkind = e->main; break; }
@@ -1757,9 +1757,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         (void)tcat;
         Token *tcat2 = NULL;
         if (tkind) {
-            uint8_t rid_cls2 = rel_id_of(ai, "类别", 0);
+            RelId rid_cls2 = rel_id_of(ai, "类别", 0);
             if (rid_cls2 >= REL_DYN_BASE) {
-                uint8_t d_c2 = (uint8_t)(rid_cls2 - REL_DYN_BASE + 1);
+                uint32_t d_c2 = (uint32_t)(rid_cls2 - REL_DYN_BASE + 1);
                 for (size_t j = 0; j < tkind->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(tkind)[j];
                     if (e->main && e->dyn == d_c2) { tcat2 = e->main; break; }
@@ -1791,12 +1791,12 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
         Token *cand = NULL;
         size_t cpos = 0, clen = 0;
         int ncand = 0;
-        uint8_t rid_kw2 = rel_id_of(ai, "关键词", 0);
-        uint8_t rid_st2 = rel_id_of(ai, "语句", 0);
+        RelId rid_kw2 = rel_id_of(ai, "关键词", 0);
+        RelId rid_st2 = rel_id_of(ai, "语句", 0);
         uint8_t d_kw2 = 0, d_st2 = 0;
         if (rid_kw2 >= REL_DYN_BASE && rid_st2 >= REL_DYN_BASE) {
-            d_kw2 = (uint8_t)(rid_kw2 - REL_DYN_BASE + 1);
-            d_st2 = (uint8_t)(rid_st2 - REL_DYN_BASE + 1);
+            d_kw2 = (uint32_t)(rid_kw2 - REL_DYN_BASE + 1);
+            d_st2 = (uint32_t)(rid_st2 - REL_DYN_BASE + 1);
             for (size_t ti = 0; ti < ai->pool->count && ncand <= 1; ++ti) {
                 Token *t2 = ai->pool->tokens[ti];
                 if (!t2 || !t2->name) continue;
@@ -1815,10 +1815,10 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
                 {
                     int os = code_op_out_shape(ai, t2);
                     if (os != 0 && os != 1) continue;
-                    uint8_t rid_out2 = rel_id_of(ai, "输出", 0);
+                    RelId rid_out2 = rel_id_of(ai, "输出", 0);
                     int nonint = 0;
                     if (rid_out2 >= REL_DYN_BASE) {
-                        uint8_t d_out2 = (uint8_t)(rid_out2 - REL_DYN_BASE + 1);
+                        uint32_t d_out2 = (uint32_t)(rid_out2 - REL_DYN_BASE + 1);
                         for (size_t q3 = 0; q3 < t2->count; ++q3) {
                             const AssocEntry *e3 = &token_assocs_ro(t2)[q3];
                             if (!e3->main || !e3->main->name || e3->dyn != d_out2) continue;
@@ -1880,11 +1880,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     const char *startvar = NULL;
     Token *ktok = NULL;
     {
-        uint8_t rid_kind = rel_id_of(ai, "种类", 0);
-        uint8_t rid_start = rel_id_of(ai, "起始", 0);
+        RelId rid_kind = rel_id_of(ai, "种类", 0);
+        RelId rid_start = rel_id_of(ai, "起始", 0);
         if (rid_kind >= REL_DYN_BASE && rid_start >= REL_DYN_BASE) {
-            uint8_t d_kind = (uint8_t)(rid_kind - REL_DYN_BASE + 1);
-            uint8_t d_start = (uint8_t)(rid_start - REL_DYN_BASE + 1);
+            uint32_t d_kind = (uint32_t)(rid_kind - REL_DYN_BASE + 1);
+            uint32_t d_start = (uint32_t)(rid_start - REL_DYN_BASE + 1);
             for (size_t j = 0; j < tmpl->count; ++j) {
                 const AssocEntry *e = &token_assocs_ro(tmpl)[j];
                 if (e->main && e->dyn == d_kind) { ktok = e->main; break; }
@@ -1899,9 +1899,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     /* §6.724 形状一致性：描述点名的形状（一串数 / 两个数 / 一行字）必须和模板种类相符，
      * 否则宁可拒绝（"一串数里最大的"不能被"两个命令行整数取大"硬答）。 */
     {
-        uint8_t rid_shape = rel_id_of(ai, "形状", 0);
+        RelId rid_shape = rel_id_of(ai, "形状", 0);
         if (rid_shape >= REL_DYN_BASE && ktok) {
-            uint8_t d_shape = (uint8_t)(rid_shape - REL_DYN_BASE + 1);
+            uint32_t d_shape = (uint32_t)(rid_shape - REL_DYN_BASE + 1);
             int other_kind = 0;
             for (size_t i = 0; i < ai->pool->count && !other_kind; ++i) {
                 Token *kt = ai->pool->tokens[i];
@@ -1930,11 +1930,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     /* §6.717 单运算链：只有标了 单链 的种类才允许（整数种类不标，避免抢走"平方和"这类配方）。
      * §6.723 例外：参数化运算（描述里带具体数字）本身够具体，单条就允许。 */
     if (n == 1 && !need_param) {
-        uint8_t rid_single = rel_id_of(ai, "单链", 0);
+        RelId rid_single = rel_id_of(ai, "单链", 0);
         if (getenv("AIP_CHAINDBG"))
             fprintf(stderr, "[chain] 单链检查 mlen=%zu rid_single=%u ktok=%s\n", mlen[0], rid_single, ktok ? ktok->name : "(无)");
         if (rid_single < REL_DYN_BASE || !ktok) return -1;
-        uint8_t d_single = (uint8_t)(rid_single - REL_DYN_BASE + 1);
+        uint32_t d_single = (uint32_t)(rid_single - REL_DYN_BASE + 1);
         int ok_single = 0;
         for (size_t j = 0; j < ktok->count; ++j) {
             const AssocEntry *e = &token_assocs_ro(ktok)[j];
@@ -1966,9 +1966,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     const char *decls[4];
     int nd = 0;
     {
-        uint8_t rid_decl = rel_id_of(ai, "声明", 0);
+        RelId rid_decl = rel_id_of(ai, "声明", 0);
         if (rid_decl >= REL_DYN_BASE) {
-            uint8_t d_decl = (uint8_t)(rid_decl - REL_DYN_BASE + 1);
+            uint32_t d_decl = (uint32_t)(rid_decl - REL_DYN_BASE + 1);
             for (int i = 0; i < n; ++i) {
                 for (size_t j = 0; j < ops[i]->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(ops[i])[j];
@@ -1984,9 +1984,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     const char *decllines[4];
     int ndl = 0;
     {
-        uint8_t rid_dl = rel_id_of(ai, "声明行", 0);
+        RelId rid_dl = rel_id_of(ai, "声明行", 0);
         if (rid_dl >= REL_DYN_BASE) {
-            uint8_t d_dl = (uint8_t)(rid_dl - REL_DYN_BASE + 1);
+            uint32_t d_dl = (uint32_t)(rid_dl - REL_DYN_BASE + 1);
             for (int i = 0; i < n; ++i) {
                 for (size_t j = 0; j < ops[i]->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(ops[i])[j];
@@ -2003,11 +2003,11 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
     const char *fnames[CODE_MAX_PIECES];
     int nf = 0;
     {
-        uint8_t rid_use = rel_id_of(ai, "用", 0);
-        uint8_t rid_fc = rel_id_of(ai, "代码", 0);
+        RelId rid_use = rel_id_of(ai, "用", 0);
+        RelId rid_fc = rel_id_of(ai, "代码", 0);
         if (rid_use >= REL_DYN_BASE && rid_fc >= REL_DYN_BASE) {
-            uint8_t d_use = (uint8_t)(rid_use - REL_DYN_BASE + 1);
-            uint8_t d_fc = (uint8_t)(rid_fc - REL_DYN_BASE + 1);
+            uint32_t d_use = (uint32_t)(rid_use - REL_DYN_BASE + 1);
+            uint32_t d_fc = (uint32_t)(rid_fc - REL_DYN_BASE + 1);
             for (int i = 0; i < n && nf < CODE_MAX_PIECES; ++i) {
                 for (size_t j = 0; j < ops[i]->count && nf < CODE_MAX_PIECES; ++j) {
                     const AssocEntry *e = &token_assocs_ro(ops[i])[j];
@@ -2114,9 +2114,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
      * 打印语句本身存在它的 代码 边上（字符串/整数/逐行数组都只是数据）。 */
     if (!stmt_prints) {
         Token *outtok = NULL;
-        uint8_t rid_out = rel_id_of(ai, "输出", 0);
+        RelId rid_out = rel_id_of(ai, "输出", 0);
         if (rid_out >= REL_DYN_BASE) {
-            uint8_t d_out = (uint8_t)(rid_out - REL_DYN_BASE + 1);
+            uint32_t d_out = (uint32_t)(rid_out - REL_DYN_BASE + 1);
             /* 只认**最后一个算子**的 输出（不许向后继承：试过继承，"转大写→长度"会沿用
              * 转大写的"打印:字符串"，把长度当字符串打出来；矩阵减少一条也同理）。 */
             for (size_t j = 0; j < ops[n - 1]->count; ++j) {
@@ -2125,9 +2125,9 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
             }
         }
         const char *pcode = NULL;
-        uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+        RelId rid_cd = rel_id_of(ai, "代码", 0);
         if (outtok && rid_cd >= REL_DYN_BASE) {
-            uint8_t d_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
+            uint32_t d_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
             for (size_t j = 0; j < outtok->count; ++j) {
                 const AssocEntry *e = &token_assocs_ro(outtok)[j];
                 if (e->main && e->dyn == d_cd && e->main->name) { pcode = e->main->name; break; }
@@ -2167,13 +2167,13 @@ static inline int code_chain(AI *ai, const char *desc, int min_ops, int need_par
 /* §6.834 方案 C 第一步：**说法归一**（只给命令层用；不进 code_synth 内部，避免递归与误触发）。 */
 static inline int code_rewrite_ex(AI *ai, const char *desc, char *out, size_t cap, int safe_only) {
     if (!ai || !desc || !out || cap == 0) return 0;
-    uint8_t rid = rel_id_of(ai, "改写", 0);
+    RelId rid = rel_id_of(ai, "改写", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     /* §6.925b 只有标了 `安全` 的改写才允许**前置**（否则会把“数组峰值/倒序”这类
      * 关键词改没，门禁实测抓过两次）。兜底路径仍用全部改写。 */
-    uint8_t rid_safe = rel_id_of(ai, "安全", 0);
-    uint8_t d_safe = (rid_safe >= REL_DYN_BASE) ? (uint8_t)(rid_safe - REL_DYN_BASE + 1) : 0;
+    RelId rid_safe = rel_id_of(ai, "安全", 0);
+    uint8_t d_safe = (rid_safe >= REL_DYN_BASE) ? (uint32_t)(rid_safe - REL_DYN_BASE + 1) : 0;
     snprintf(out, cap, "%s", desc);
     int changed = 0;
     for (;;) {
@@ -2225,13 +2225,13 @@ static inline int code_rewrite(AI *ai, const char *desc, char *out, size_t cap) 
 
 static inline int code_struct_canon(AI *ai, const char *desc, char *out, size_t cap) {
     if (!ai || !desc || !out || cap == 0) return 0;
-    uint8_t rid_w = rel_id_of(ai, "词", 0);
-    uint8_t rid_s = rel_id_of(ai, "规范", 0);
-    uint8_t rid_p = rel_id_of(ai, "带参数", 0);
+    RelId rid_w = rel_id_of(ai, "词", 0);
+    RelId rid_s = rel_id_of(ai, "规范", 0);
+    RelId rid_p = rel_id_of(ai, "带参数", 0);
     if (rid_w < REL_DYN_BASE || rid_s < REL_DYN_BASE) return 0;
-    uint8_t dw = (uint8_t)(rid_w - REL_DYN_BASE + 1);
-    uint8_t ds = (uint8_t)(rid_s - REL_DYN_BASE + 1);
-    uint8_t dp = (uint8_t)(rid_p - REL_DYN_BASE + 1);
+    uint32_t dw = (uint32_t)(rid_w - REL_DYN_BASE + 1);
+    uint32_t ds = (uint32_t)(rid_s - REL_DYN_BASE + 1);
+    uint32_t dp = (uint32_t)(rid_p - REL_DYN_BASE + 1);
     /* 输入形状：从原描述里认，认不出就不写（让模板自己挑） */
     const char *shape = "";
     if (strstr(desc, "字符串")) shape = "一行字符串";
@@ -2459,10 +2459,10 @@ static inline int code_plan_ex(AI *ai, const char *desc, char *out, size_t cap, 
     P.ai = ai; P.out = out; P.cap = cap; P.show_edges = show_edges;
     uint8_t r1 = rel_id_of(ai, "分解", 0), r2 = rel_id_of(ai, "可选", 0);
     uint8_t r3 = rel_id_of(ai, "排除", 0), r4 = rel_id_of(ai, "实现", 0);
-    P.d_sub = r1 >= REL_DYN_BASE ? (uint8_t)(r1 - REL_DYN_BASE + 1) : 0;
-    P.d_opt = r2 >= REL_DYN_BASE ? (uint8_t)(r2 - REL_DYN_BASE + 1) : 0;
-    P.d_exc = r3 >= REL_DYN_BASE ? (uint8_t)(r3 - REL_DYN_BASE + 1) : 0;
-    P.d_imp = r4 >= REL_DYN_BASE ? (uint8_t)(r4 - REL_DYN_BASE + 1) : 0;
+    P.d_sub = r1 >= REL_DYN_BASE ? (uint32_t)(r1 - REL_DYN_BASE + 1) : 0;
+    P.d_opt = r2 >= REL_DYN_BASE ? (uint32_t)(r2 - REL_DYN_BASE + 1) : 0;
+    P.d_exc = r3 >= REL_DYN_BASE ? (uint32_t)(r3 - REL_DYN_BASE + 1) : 0;
+    P.d_imp = r4 >= REL_DYN_BASE ? (uint32_t)(r4 - REL_DYN_BASE + 1) : 0;
     P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used, "== 需求分解：%s ==\n", desc);
     code_plan_walk(&P, root, 0);
     if (P.exl)
@@ -2575,10 +2575,10 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
         P.ai = ai; P.out = tree; P.cap = 16384;
         uint8_t r1 = rel_id_of(ai, "分解", 0), r2 = rel_id_of(ai, "可选", 0);
         uint8_t r3 = rel_id_of(ai, "排除", 0), r4 = rel_id_of(ai, "实现", 0);
-        P.d_sub = r1 >= REL_DYN_BASE ? (uint8_t)(r1 - REL_DYN_BASE + 1) : 0;
-        P.d_opt = r2 >= REL_DYN_BASE ? (uint8_t)(r2 - REL_DYN_BASE + 1) : 0;
-        P.d_exc = r3 >= REL_DYN_BASE ? (uint8_t)(r3 - REL_DYN_BASE + 1) : 0;
-        P.d_imp = r4 >= REL_DYN_BASE ? (uint8_t)(r4 - REL_DYN_BASE + 1) : 0;
+        P.d_sub = r1 >= REL_DYN_BASE ? (uint32_t)(r1 - REL_DYN_BASE + 1) : 0;
+        P.d_opt = r2 >= REL_DYN_BASE ? (uint32_t)(r2 - REL_DYN_BASE + 1) : 0;
+        P.d_exc = r3 >= REL_DYN_BASE ? (uint32_t)(r3 - REL_DYN_BASE + 1) : 0;
+        P.d_imp = r4 >= REL_DYN_BASE ? (uint32_t)(r4 - REL_DYN_BASE + 1) : 0;
         P.used += (size_t)snprintf(P.out + P.used, P.cap - P.used, "== 需求分解：%s ==\n", desc);
         code_plan_walk(&P, root, 0);
         /* P.impl 形如 " 1. 文本\n 2. 文本\n"：拆行、去掉前导编号 */
@@ -2598,8 +2598,8 @@ static inline int code_plan_write(AI *ai, const char *desc, char *note, size_t c
      * 数据形如 `需求:YA 依赖 需求:YB`，表示 A 的实现要排在 B 之后。 */
     int order[32];
     {
-        uint8_t rid_dep = rel_id_of(ai, "依赖", 0);
-        uint8_t d_dep = (rid_dep >= REL_DYN_BASE) ? (uint8_t)(rid_dep - REL_DYN_BASE + 1) : 0;
+        RelId rid_dep = rel_id_of(ai, "依赖", 0);
+        uint8_t d_dep = (rid_dep >= REL_DYN_BASE) ? (uint32_t)(rid_dep - REL_DYN_BASE + 1) : 0;
         int dep[32][32];
         memset(dep, 0, sizeof dep);
         if (d_dep) {
@@ -2829,9 +2829,9 @@ static inline int code_op_print_kind(AI *ai, const char *opname, char *out, size
     if (!ai || !ai->pool || !opname || !out || !cap) return 0;
     Token *t = pool_find(ai->pool, opname);
     if (!t) return 0;
-    uint8_t rid = rel_id_of(ai, "输出", 0);
+    RelId rid = rel_id_of(ai, "输出", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     for (size_t i = 0; i < t->count; ++i) {
         const AssocEntry *e = &token_assocs_ro(t)[i];
         if (!e->main || !e->main->name || e->dyn != d) continue;
@@ -2890,23 +2890,23 @@ static inline int code_synth_impl(AI *ai, const char *desc, char *note, size_t c
             return -1;
         }
     }
-    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
-    uint8_t rid_sk = rel_id_of(ai, "骨架", 0);
-    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+    RelId rid_kw = rel_id_of(ai, "关键词", 0);
+    RelId rid_sk = rel_id_of(ai, "骨架", 0);
+    RelId rid_cd = rel_id_of(ai, "代码", 0);
     if (rid_kw < REL_DYN_BASE || rid_sk < REL_DYN_BASE || rid_cd < REL_DYN_BASE) {
         if (note && cap) snprintf(note, cap, "图上没有 关键词/骨架/代码 这三种关系 —— 没有代码知识");
         return -2;
     }
-    uint8_t dyn_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
-    uint8_t dyn_sk = (uint8_t)(rid_sk - REL_DYN_BASE + 1);
-    uint8_t dyn_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
+    uint32_t dyn_kw = (uint32_t)(rid_kw - REL_DYN_BASE + 1);
+    uint32_t dyn_sk = (uint32_t)(rid_sk - REL_DYN_BASE + 1);
+    uint32_t dyn_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
     /* 任务可以有**排除词**：描述里出现就说明"不是这个任务"。
      * 这条是数据（任务 --排除--> 词），C 里不点任何任务名。 */
-    uint8_t rid_ex = rel_id_of(ai, "排除", 0);
-    uint8_t dyn_ex = (rid_ex >= REL_DYN_BASE) ? (uint8_t)(rid_ex - REL_DYN_BASE + 1) : 0;
+    RelId rid_ex = rel_id_of(ai, "排除", 0);
+    uint8_t dyn_ex = (rid_ex >= REL_DYN_BASE) ? (uint32_t)(rid_ex - REL_DYN_BASE + 1) : 0;
     /* §6.895 任务也可以有**要求词**（必须出现），和运算的 §6.729 同一套语义 */
-    uint8_t rid_need = rel_id_of(ai, "要求", 0);
-    uint8_t dyn_need = (rid_need >= REL_DYN_BASE) ? (uint8_t)(rid_need - REL_DYN_BASE + 1) : 0;
+    RelId rid_need = rel_id_of(ai, "要求", 0);
+    uint8_t dyn_need = (rid_need >= REL_DYN_BASE) ? (uint32_t)(rid_need - REL_DYN_BASE + 1) : 0;
     /* §6.725 匹配用"去掉虚词"的副本（参数解析也用副本里的位置） */
     char ndbuf[1024];
     code_norm_desc(ai, desc, ndbuf, sizeof ndbuf);
@@ -3055,8 +3055,8 @@ static inline int code_synth_impl(AI *ai, const char *desc, char *note, size_t c
         size_t rlong = 0;
         uint8_t rkw = rel_id_of(ai, "关键词", 0);
         uint8_t rex = rel_id_of(ai, "排除", 0);
-        uint8_t rdkw = (rkw >= REL_DYN_BASE) ? (uint8_t)(rkw - REL_DYN_BASE + 1) : 0;
-        uint8_t rdex = (rex >= REL_DYN_BASE) ? (uint8_t)(rex - REL_DYN_BASE + 1) : 0;
+        uint8_t rdkw = (rkw >= REL_DYN_BASE) ? (uint32_t)(rkw - REL_DYN_BASE + 1) : 0;
+        uint8_t rdex = (rex >= REL_DYN_BASE) ? (uint32_t)(rex - REL_DYN_BASE + 1) : 0;
         if (rdkw) for (size_t i = 0; i < ai->pool->count; ++i) {
             Token *t = ai->pool->tokens[i];
             if (!t || !t->name || strncmp(t->name, "配方:", 7) != 0) continue;
@@ -3130,9 +3130,9 @@ static inline int code_synth_impl(AI *ai, const char *desc, char *note, size_t c
     }
     /* ①b 多文件工程：任务 --文件--> 文件:X（每个 X 有 代码 边）⇒ 写多文件一起编 */
     {
-        uint8_t rid_f = rel_id_of(ai, "文件", 0);
+        RelId rid_f = rel_id_of(ai, "文件", 0);
         if (rid_f >= REL_DYN_BASE) {
-            uint8_t d_f = (uint8_t)(rid_f - REL_DYN_BASE + 1);
+            uint32_t d_f = (uint32_t)(rid_f - REL_DYN_BASE + 1);
             const char *fn[8]; const char *fc[8]; int nf = 0;
             for (size_t j = 0; j < best->count && nf < 8; ++j) {
                 const AssocEntry *e = &token_assocs_ro(best)[j];
@@ -3247,11 +3247,11 @@ static inline int code_emit_multi(AI *ai, const char *const *names, const char *
  * 不带关键词 ⇒ 报总量（多少片段 / 多少带签名）。 */
 static inline void code_frag_search(AI *ai, const char *kw) {
     if (!ai || !ai->pool) { printf("[片段] 没有脑子\n"); return; }
-    uint8_t rid_cd = rel_id_of(ai, "代码", 0);
+    RelId rid_cd = rel_id_of(ai, "代码", 0);
     if (rid_cd < REL_DYN_BASE) { printf("[片段] 图上没有 `代码` 这种关系 —— 没有片段知识\n"); return; }
-    uint8_t d_cd = (uint8_t)(rid_cd - REL_DYN_BASE + 1);
-    uint8_t rid_sig = rel_id_of(ai, "签名", 0);
-    uint8_t d_sig = (rid_sig >= REL_DYN_BASE) ? (uint8_t)(rid_sig - REL_DYN_BASE + 1) : 0;
+    uint32_t d_cd = (uint32_t)(rid_cd - REL_DYN_BASE + 1);
+    RelId rid_sig = rel_id_of(ai, "签名", 0);
+    uint8_t d_sig = (rid_sig >= REL_DYN_BASE) ? (uint32_t)(rid_sig - REL_DYN_BASE + 1) : 0;
     size_t n_frag = 0, n_sig = 0, n_hit = 0;
     for (size_t i = 0; i < ai->pool->count; ++i) {
         Token *t = ai->pool->tokens[i];

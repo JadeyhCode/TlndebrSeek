@@ -18,7 +18,7 @@ typedef struct { Token *a; Token *b; uint16_t rid; } IndPair;
 static inline uint16_t induce_edge_rid(const AssocEntry *e) {
     if (!e || !e->main) return 0;
     if (e->dyn) return (uint16_t)(REL_DYN_BASE + e->dyn - 1);
-    for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
+    for (RelId r = 1; r < REL_DYN_BASE; ++r)
         if (e->rel & REL_BIT(r)) return r;
     return 0;
 }
@@ -104,8 +104,10 @@ static inline void induce_run(AI *ai, int top) {
     memset(has, 0, sizeof has);
     int shown = 0;
     printf("[归纳] 行为支持率（阈值：支持≥%ld、比例≥%.2f；只建议，不写图）：\n", min_sup, min_ratio);
-    for (uint16_t rid = 1; rid <= REL_TABLE_MAX; ++rid) {
-        if (!rel_name_of(ai, (uint8_t)rid)) continue;
+    uint16_t maxid = (uint16_t)(REL_DYN_BASE + ai->dynrel_n - 1);
+    if (maxid > REL_TABLE_MAX) maxid = REL_TABLE_MAX;
+    for (uint16_t rid = 1; rid <= maxid; ++rid) {
+        if (!rel_name_of(ai, rid)) continue;
         IndStat *st = &sts[rid];
         induce_stats(ai, rid, st);
         if (!st->n_edges) continue;
@@ -116,7 +118,7 @@ static inline void induce_run(AI *ai, int top) {
         if (st->sym_sup >= (uint32_t)min_sup && sy >= min_ratio) suggest |= 2;
         if (st->excl_multi == 0 && st->excl_single >= (uint32_t)min_sup) suggest |= 4;
         printf("  %-8s 边%u ｜trans %u/%u(%.2f) ｜sym %u/%u(%.2f) ｜excl 单%u/多%u ⇒ 建议：%s%s%s\n",
-               rel_name_of(ai, (uint8_t)rid), st->n_edges, st->trans_sup, st->trans_sup + st->trans_ctr, tr,
+               rel_name_of(ai, rid), st->n_edges, st->trans_sup, st->trans_sup + st->trans_ctr, tr,
                st->sym_sup, st->sym_sup + st->sym_ctr, sy, st->excl_single, st->excl_multi,
                (suggest & 1) ? "trans " : "", (suggest & 2) ? "sym " : "",
                (suggest & 4) ? "excl" : (suggest ? "" : "-"));

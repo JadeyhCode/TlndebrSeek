@@ -85,9 +85,9 @@ static inline const char *pred_full_name(const char *name, char *const *args, si
 static inline Token *pred_arg(AI *ai, const Token *p, size_t k) {
     if (!ai || !p || k == 0 || k > PRED_MAX_ARGS) return NULL;
     char rn[24];
-    uint8_t rid = rel_id_of(ai, pred_arg_relname(k, rn, sizeof rn), 0);
+    RelId rid = rel_id_of(ai, pred_arg_relname(k, rn, sizeof rn), 0);
     if (!rid || rid < REL_DYN_BASE) return NULL;
-    uint8_t dyn = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint32_t dyn = (uint32_t)(rid - REL_DYN_BASE + 1);
     for (size_t i = 0; i < p->count; ++i) {
         const AssocEntry *e = &token_assocs_ro(p)[i];
         if (e->dyn != dyn || !e->main) continue;
@@ -140,7 +140,7 @@ static inline Token *pred_make_fact(AI *ai, const char *name, char *const *args,
         if (!v || v == p) return NULL;
         /* 和 `pred_make` 一样挂参数边（规则引擎找事实就是走这些边；只内部节点不挂边 ⇒ 证不出来） */
         char rn[24];
-        uint8_t rid = rel_id_of(ai, pred_arg_relname(k + 1, rn, sizeof rn), 1);
+        RelId rid = rel_id_of(ai, pred_arg_relname(k + 1, rn, sizeof rn), 1);
         if (!rid) return NULL;
         if (ai_write_rel(ai, p, v, rid, 0, AI_WSRC_RELATION) != 0) return NULL;
     }
@@ -158,7 +158,7 @@ static inline Token *pred_make(AI *ai, const char *name, char *const *args, size
         Token *v = pool_token_intern(ai->pool, args[k]);
         if (!v || v == p) return NULL;
         char rn[24];
-        uint8_t rid = rel_id_of(ai, pred_arg_relname(k + 1, rn, sizeof rn), 1);
+        RelId rid = rel_id_of(ai, pred_arg_relname(k + 1, rn, sizeof rn), 1);
         if (!rid) return NULL;
         if (ai_write_rel(ai, p, v, rid, 0, AI_WSRC_RELATION) != 0) return NULL;
     }

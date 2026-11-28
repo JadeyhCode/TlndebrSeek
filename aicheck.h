@@ -123,7 +123,7 @@ static inline void aip_rev_audit(AI *ai, size_t *out_want, size_t *out_missing,
                                   edge_dyn_neg(e) ? 1 : 0)) {
                     missing++;
                     if (first && first_cap && !first[0]) {
-                        const char *dn = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+                        const char *dn = rel_dyn_name(ai, (RelId)(REL_DYN_BASE + e->dyn - 1));
                         snprintf(first, first_cap, "反查表缺（动态 %s）：%s -> %s",
                                  dn ? dn : "?", t->name ? t->name : "?",
                                  e->main->name ? e->main->name : "?");

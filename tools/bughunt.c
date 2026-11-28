@@ -78,7 +78,7 @@ static int check_after(AI *ai, size_t warn0, int turn, const char *what) {
             dump_tok(ai, "鸟"); dump_tok(ai, "鱼");
             /* 扫整张反查表：有没有 (鸟 的 id, 喵, 否定) 这条，dst 是谁 */
             Token *A = pool_find(ai->pool, "鸟"), *B = pool_find(ai->pool, "鱼");
-            uint8_t rid = rel_id_of(ai, "喵", 0);
+            RelId rid = rel_id_of(ai, "喵", 0);
             printf("      rev 扫描：A.id=%u B.id=%u rid=%u rev_n=%zu rev_cap=%zu\n",
                    A ? A->id : 0, B ? B->id : 0, rid, ai->pool->rev_n, ai->pool->rev_cap);
             for (size_t k = 0; k < ai->pool->rev_n; ++k) {
@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
                 /* 教一条事实（走统一写入通道：关系/否定/动态谓语都会走到）*/
                 Token *A = pool_token_intern(ai->pool, subj);
                 Token *B = pool_token_intern(ai->pool, obj);
-                uint8_t rid = rel_id_of(ai, rel, 1);
+                RelId rid = rel_id_of(ai, rel, 1);
                 int neg = (rnd(100) < 25) ? 1 : 0;
                 if (A && B && rid && A != B) {
                     int wrc = ai_write_rel(ai, A, B, rid, neg, AI_WSRC_RELATION);

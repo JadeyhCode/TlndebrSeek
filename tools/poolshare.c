@@ -46,7 +46,7 @@ static long long emb_sum(const AI *ai) {
 /* 同一批关系问答：共享前后必须一致（这是"共享不影响行为"的机器证据） */
 static int relation_ok(AI *ai, const char *a, const char *rel, const char *b) {
     Token *A = pool_find(ai->pool, a), *B = pool_find(ai->pool, b);
-    uint8_t rid = rel_id_of(ai, rel, 0);
+    RelId rid = rel_id_of(ai, rel, 0);
     if (!A || !B || !rid) return -1;
     return rel_direct(A, rid, B);
 }

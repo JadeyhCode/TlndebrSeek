@@ -1780,7 +1780,7 @@ static void cmd_asm_check(AI *ai, const char *arg) {
 
 /* §6.248 写后读回校验的钩子：`ai_write_rel` 声称成功之后，用**读路径**复核一遍。
  * 放在 main.c 是因为 rel_direct/rel_direct_neg 在 rel.h（ai.h 之后才 include）。 */
-static int aip_rel_verify(const Token *a, const Token *b, uint8_t rid, int neg) {
+static int aip_rel_verify(const Token *a, const Token *b, RelId rid, int neg) {
     return neg ? rel_direct_neg((Token *)a, rid, (Token *)b) : rel_direct((Token *)a, rid, (Token *)b);
 }
 
@@ -1924,7 +1924,7 @@ static void arc_graph_cfg(AI *ai, int *depth, int *budget) {
     if (!ai) return;
     Token *lib = pool_find(ai->pool, "变换库");
     if (!lib) return;
-    uint8_t rid = rel_id_of(ai, "有", 0);
+    RelId rid = rel_id_of(ai, "有", 0);
     if (!rid) return;
     char nm[24];
     for (int k = 1; k <= ARC_MAX_DEPTH; ++k) {
@@ -1943,7 +1943,7 @@ static void arc_graph_cfg(AI *ai, int *depth, int *budget) {
 /* 写策略：同一组事实里"只有一个成立"，其余写成否定边（读侧只认肯定边） */
 static void arc_graph_set_cfg(AI *ai, const char *kind, int value) {
     Token *lib = pool_token_intern(ai->pool, "变换库");
-    uint8_t rid = rel_id_of(ai, "有", 1);
+    RelId rid = rel_id_of(ai, "有", 1);
     if (!rid) return;
     char nm[24];
     static const long tiers[] = {60000L, 120000L, 240000L, 480000L};
@@ -1969,7 +1969,7 @@ typedef struct { int op; int enabled; } ArcOpPick;
  * 图上**一个 `变换:` 节点都没有** ⇒ 返回 0（调用方退回表里全部，别让空图把能力关掉）。 */
 static int arc_graph_picks(AI *ai, ArcOpPick *out, int max) {
     if (!ai) return 0;
-    uint8_t rid_have = rel_id_of(ai, "有", 0);
+    RelId rid_have = rel_id_of(ai, "有", 0);
     Token *t_yes = pool_find(ai->pool, "是");
     Token *t_no  = pool_find(ai->pool, "否");
     int n = 0;
@@ -2024,9 +2024,9 @@ static int arc_graph_toggle(AI *ai, const char *name, int on) {
 /* 把内置表写成图事实。编码：`单位表:<维>` --[有]--> <单位>；<单位> --[倍数]--> n/d；温度再 --[偏移]--> n/d */
 static int unit_sync(AI *br) {
     units_builtin();
-    uint8_t rid_have = rel_id_of(br, "有", 1);
-    uint8_t rid_scale = rel_id_of(br, "倍数", 1);
-    uint8_t rid_off = rel_id_of(br, "偏移", 1);
+    RelId rid_have = rel_id_of(br, "有", 1);
+    RelId rid_scale = rel_id_of(br, "倍数", 1);
+    RelId rid_off = rel_id_of(br, "偏移", 1);
     if (!rid_have) return 0;
     int n = 0;
     for (int i = 0; i < g_units_n; ++i) {
@@ -2063,9 +2063,9 @@ static void unit_apply_graph(AI *br) {
     int only_graph = mode && !strcmp(mode, "graph");
     if (only_graph) units_reset();
     if (!br) return;
-    uint8_t rid_have = rel_id_of(br, "有", 0);
-    uint8_t rid_scale = rel_id_of(br, "倍数", 0);
-    uint8_t rid_off = rel_id_of(br, "偏移", 0);
+    RelId rid_have = rel_id_of(br, "有", 0);
+    RelId rid_scale = rel_id_of(br, "倍数", 0);
+    RelId rid_off = rel_id_of(br, "偏移", 0);
     /* 先扫"单位表:<维>"节点，建 (维, 单位) 列表 */
     static char dims[UNITS_MAX][24], names[UNITS_MAX][32];
     static CalcRat scales[UNITS_MAX], offs[UNITS_MAX];
@@ -2561,13 +2561,13 @@ static void study_reflect(AI *ai, const char *q, char *why, size_t cap) {
     char **w = ai_tokenize(ai, q, &n);
     const char *miss = NULL;
     char miss_buf[64] = {0};
-    uint8_t rid_last = 0;
+    RelId rid_last = 0;
     size_t run_s = 0;   /* 连续未知单字的起点（多字词被切碎时，合起来算缺词） */
     for (size_t i = 0; i <= n; ++i) {
         int unk_single = 0;
         if (i < n && w[i] && w[i][0]) {
             if (pool_find(ai->pool, w[i])) {
-                uint8_t r = rel_id_of(ai, w[i], 0);
+                RelId r = rel_id_of(ai, w[i], 0);
                 if (r) rid_last = r;
                 /* 刚被对话造出来的“新词”（没有任何边）也按缺词归因：
                  * 它只是被 intern 了，不是“图里有它的事实”。 */
@@ -2634,10 +2634,10 @@ static void study_sym_hint(AI *ai, const char *q, char *out, size_t cap) {
     out[0] = 0;
     size_t n = 0;
     char **w = ai_tokenize(ai, q, &n);
-    uint8_t rid = 0;
+    RelId rid = 0;
     size_t ri = 0;
     for (size_t i = 0; i < n; ++i) {
-        uint8_t r = w[i] ? rel_id_of(ai, w[i], 0) : 0;
+        RelId r = w[i] ? rel_id_of(ai, w[i], 0) : 0;
         if (r) { rid = r; ri = i; }
     }
     /* 宾语 = 关系词之后、语气词之前的 token 拼起来（中文单字要连写，别只取最后一个字） */
@@ -2702,11 +2702,11 @@ static int study_code_reads_input(const char *path) {
  * 性质是**通用原语**（区间/子集偶数/公因数/上界差/成员），不是按题名写死。 */
 static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, size_t cap) {
     if (!ai || !q || !cand || !why) return -1;
-    uint8_t rid_kw = rel_id_of(ai, "关键词", 0);
-    uint8_t rid_pr = rel_id_of(ai, "性质", 0);
+    RelId rid_kw = rel_id_of(ai, "关键词", 0);
+    RelId rid_pr = rel_id_of(ai, "性质", 0);
     if (rid_kw < REL_DYN_BASE || rid_pr < REL_DYN_BASE) return -1;
-    uint8_t d_kw = (uint8_t)(rid_kw - REL_DYN_BASE + 1);
-    uint8_t d_pr = (uint8_t)(rid_pr - REL_DYN_BASE + 1);
+    uint32_t d_kw = (uint32_t)(rid_kw - REL_DYN_BASE + 1);
+    uint32_t d_pr = (uint32_t)(rid_pr - REL_DYN_BASE + 1);
     const char *prop = NULL;
     for (size_t i = 0; i < ai->pool->count && !prop; ++i) {
         Token *t = ai->pool->tokens[i];
@@ -2929,7 +2929,7 @@ static int study_prop_check(AI *ai, const char *q, const char *cand, char *why, 
 
 /* 一轮自学；返回 1=处理了一道题，0=队列空 */
 static void gap_trim(char *s);
-static int gap_find_path(AI *ai, Token *A, Token *B, uint8_t rid, char *out, size_t cap, int *depth_out);
+static int gap_find_path(AI *ai, Token *A, Token *B, RelId rid, char *out, size_t cap, int *depth_out);
 static int study_round(Agent *a) {
     AI *ai = a->brain;
     char q[512];
@@ -2954,7 +2954,7 @@ static int study_round(Agent *a) {
         if (!v_on) snprintf(vwhy, sizeof vwhy, "%s", "关（study_verify=0），按未验证计");
         if (v_on) {
             const char *rpos = NULL; char rel[32] = {0};
-            for (uint8_t rid0 = 1; rid0 < REL_DYN_BASE; ++rid0) {
+            for (RelId rid0 = 1; rid0 < REL_DYN_BASE; ++rid0) {
                 const char *rn = rel_name_of(ai, rid0);
                 if (!rn || !rn[0]) continue;
                 const char *pp = strstr(q, rn);
@@ -2969,7 +2969,7 @@ static int study_round(Agent *a) {
                 gap_trim(sbj); gap_trim(obj);
                 Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
                 Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
-                uint8_t rid = rel_id_of(ai, rel, 0);
+                RelId rid = rel_id_of(ai, rel, 0);
                 if (A && B && rid) {
                     int derived0 = 0;
                     if (rel_direct_as(A, rid, B, &derived0)) {
@@ -3134,7 +3134,7 @@ static int solve_do(Agent *a, const char *arg) {
     memcpy(cond, arg, cl); cond[cl] = 0;
     snprintf(qry, sizeof qry, "%s", arrow + 2);
 
-    typedef struct { Token *A, *B; uint8_t rid; } SE;
+    typedef struct { Token *A, *B; RelId rid; } SE;
     SE E[32]; size_t ne = 0;
     char *save = NULL;
     for (char *f = strtok_r(cond, ";；", &save); f && ne < 32; f = strtok_r(NULL, ";；", &save)) {
@@ -3148,7 +3148,7 @@ static int solve_do(Agent *a, const char *arg) {
             t[tn++] = strdup(z);
         }
         if (tn >= 3) {
-            uint8_t rid = rel_id_of(ai, t[1], 0);
+            RelId rid = rel_id_of(ai, t[1], 0);
             if (!rid) rid = rel_id_of(ai, t[1], 1);
             if (rid && ne < 32) {
                 E[ne].A = pool_token_intern(ai->pool, t[0]);
@@ -3176,7 +3176,7 @@ static int solve_do(Agent *a, const char *arg) {
         return 1;
     }
     Token *QA = pool_token_intern(ai->pool, t2[0]);
-    uint8_t qrid = rel_id_of(ai, t2[1], 0);
+    RelId qrid = rel_id_of(ai, t2[1], 0);
     if (!qrid) qrid = rel_id_of(ai, t2[1], 1);
     Token *QB = pool_token_intern(ai->pool, t2[2]);
     for (size_t i = 0; i < tn2; ++i) free(t2[i]);
@@ -3316,7 +3316,7 @@ static const char *plan_label(const char *step) {
 static void plan_gap_kind(AI *ai, const char *q, char *kind, size_t cap) {
     snprintf(kind, cap, "%s", "缺结构");
     const char *rpos = NULL; char rel[32] = {0};
-    uint8_t srid = rel_scan_text(ai, q, &rpos);
+    RelId srid = rel_scan_text(ai, q, &rpos);
     if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     if (!rpos) return;
     char sbj[64] = {0}, obj[64] = {0};
@@ -3327,7 +3327,7 @@ static void plan_gap_kind(AI *ai, const char *q, char *kind, size_t cap) {
     gap_trim(sbj); gap_trim(obj);
     if (!sbj[0] || !obj[0]) return;
     Token *A = pool_find(ai->pool, sbj), *B = pool_find(ai->pool, obj);
-    uint8_t rid = rel_id_of(ai, rel, 0);
+    RelId rid = rel_id_of(ai, rel, 0);
     if (!A || !B) { snprintf(kind, cap, "%s", "缺词"); return; }
     if (!rid) { snprintf(kind, cap, "%s", "缺结构"); return; }
     if (rel_direct(A, rid, B) || rel_direct_neg(A, rid, B)) { snprintf(kind, cap, "%s", "已能回答"); return; }
@@ -3393,7 +3393,7 @@ static int plan_do(Agent *a, const char *arg) {
             } else if (!strcmp(s, "local")) {
                 const char *rpos = NULL; char rel[32] = {0};
                 {
-                    uint8_t srid = rel_scan_text(ai, q, &rpos);
+                    RelId srid = rel_scan_text(ai, q, &rpos);
                     if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
                 }
                 int can = 0, neg = 0;
@@ -3406,7 +3406,7 @@ static int plan_do(Agent *a, const char *arg) {
                     gap_trim(sbj); gap_trim(obj);
                     Token *A = sbj[0] ? pool_find(ai->pool, sbj) : NULL;
                     Token *B = obj[0] ? pool_find(ai->pool, obj) : NULL;
-                    uint8_t rid = rel_id_of(ai, rel, 0);
+                    RelId rid = rel_id_of(ai, rel, 0);
                     if (A && B && rid) {
                         if (rel_direct(A, rid, B)) can = 1;
                         else if (rel_direct_neg(A, rid, B)) neg = 1;
@@ -3602,7 +3602,7 @@ static int selftest_run(Agent *a, int repair) {
        ai->unsolved_n <= 8 && ai->conflict_n <= 8 && ai->paper_n <= 8);
     {
         int okrel = 1;
-        for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid)
+        for (RelId rid = 1; rid < REL_DYN_BASE; ++rid)
             if (!rel_name_of(ai, rid)) { okrel = 0; break; }
         ST("核心关系 1..9 都有名字", okrel);
     }
@@ -3662,13 +3662,13 @@ static int gap_do(Agent *a, const char *q) {
     /* **按字符串**找关系词：中文没有空格，分词会把新词切碎，干跑判据不能靠分词。 */
     const char *rpos = NULL; char rel[32] = {0};
     {
-        uint8_t srid = rel_scan_text(ai, q, &rpos);
+        RelId srid = rel_scan_text(ai, q, &rpos);
         if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     }
     char sbj[64] = {0}, obj[64] = {0};
     const char *kind = NULL, *evidence = NULL;
     Token *A = NULL, *B = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     if (!rpos) { kind = "缺结构"; evidence = "问法里没有认识的关系词"; }
     if (!kind) {
         size_t sl = (size_t)(rpos - q);
@@ -3731,7 +3731,7 @@ static int gap_do(Agent *a, const char *q) {
 
 /* §7.064 `::gap do`：缺口计划 → **执行本地求证** → 验证，可观测三段。
  * 只在本地图上做传递搜索（深度 ≤4，同一关系）；找不到不联网、不猜。 */
-static int gap_find_path(AI *ai, Token *A, Token *B, uint8_t rid, char *out, size_t cap, int *depth_out) {
+static int gap_find_path(AI *ai, Token *A, Token *B, RelId rid, char *out, size_t cap, int *depth_out) {
     if (!ai || !A || !B || !rid) return 0;
     Token *q[256]; int par[256]; int qn = 0;
     Token *seen[256]; int sn = 0;
@@ -3778,13 +3778,13 @@ static int gap_exec(Agent *a, const char *q) {
     AI *ai = a->brain;
     const char *rpos = NULL; char rel[32] = {0};
     {
-        uint8_t srid = rel_scan_text(ai, q, &rpos);
+        RelId srid = rel_scan_text(ai, q, &rpos);
         if (srid) snprintf(rel, sizeof rel, "%s", rel_name_of(ai, srid));
     }
     char sbj[64] = {0}, obj[64] = {0};
     const char *kind = NULL, *evidence = NULL;
     Token *A = NULL, *B = NULL;
-    uint8_t rid = 0;
+    RelId rid = 0;
     if (!rpos) { kind = "缺结构"; evidence = "问法里没有认识的关系词"; }
     if (!kind) {
         size_t sl = (size_t)(rpos - q);
@@ -3947,9 +3947,9 @@ static int study_gen(Agent *a, int want) {
     }
     fclose(pf);
     if (ns == 0) return 0;
-    uint8_t rid = rel_id_of(ai, "改写", 0);
+    RelId rid = rel_id_of(ai, "改写", 0);
     if (rid < REL_DYN_BASE) return 0;
-    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
     for (int si = 0; si < ns && nout < want; ++si) {
         for (size_t i = 0; i < ai->pool->count && nout < want; ++i) {
             Token *t = ai->pool->tokens[i];
@@ -4130,10 +4130,10 @@ static void reldyn_run(AI *ai, int limit) {
     int with_edges = 0;
     for (size_t i = 0; i < ai->dynrel_n; ++i)
         if (used[i + 1]) with_edges++;
-    printf("[关系符号] 边用到 %d 个动态关系（dyn 边共 %zu 条）；id>24 的 0 个（REL_TABLE_MAX=255，独占槽已覆盖全部 uint8 id）\n",
-           with_edges, edges);
+    printf("[关系符号] 边用到 %d 个动态关系（dyn 边共 %zu 条）；id>24 的 0 个（REL_TABLE_MAX=%d，独占槽覆盖全部 RelId）\n",
+           with_edges, edges, REL_TABLE_MAX);
     if ((long)ai->dynrel_n >= soft)
-        printf("[关系符号] **已满**：新谓语登记会失败（当前上限 %ld；P2b 要扩到 4096，需 RelId 扩宽）\n", soft);
+        printf("[关系符号] **已满**：新谓语登记会失败（当前上限 %ld；§7.089 已到编译上限 4096）\n", soft);
     printf("[关系符号] 使用量 top %d：\n", limit);
     int shown = 0;
     while (shown < limit) {
@@ -4511,7 +4511,7 @@ int main(int argc, char **argv) {
                 AI *br = a->brain;
                 const char *v = carg ? carg : "";
                 while (*v == ' ') v++;
-                uint8_t rid = rel_id_of(br, "有", 1);
+                RelId rid = rel_id_of(br, "有", 1);
                 if (!rid) { printf("[说法层] 登记不了「有」\n"); continue; }
                 Token *libs[2] = { pool_token_intern(br->pool, "引导语库"), pool_token_intern(br->pool, "没听懂库") };
 
@@ -4559,7 +4559,7 @@ int main(int argc, char **argv) {
                     /* §6.806 同义词：`同义词库 --[有]--> 猫咪` + `猫咪 --[同义]--> 猫` */
                     {
                         Token *ls = pool_token_intern(br->pool, "同义词库");
-                        uint8_t rid_syn = rel_id_of(br, "同义", 1);
+                        RelId rid_syn = rel_id_of(br, "同义", 1);
                         for (size_t i = 0; ls && rid_syn && i < g_syn_n; ++i) {
                             Token *f = pool_token_intern(br->pool, g_syn_from[i]);
                             Token *t = pool_token_intern(br->pool, g_syn_to[i]);
@@ -4571,7 +4571,7 @@ int main(int argc, char **argv) {
                     /* §6.813 关系别名 / 占位词 / 代词 / 判词组 */
                     {
                         Token *la = pool_token_intern(br->pool, "关系别名库");
-                        uint8_t rid_std = rel_id_of(br, "规范关系", 1);
+                        RelId rid_std = rel_id_of(br, "规范关系", 1);
                         for (size_t i = 0; la && rid_std && i < g_alias_n; ++i) {
                             Token *w = pool_token_intern(br->pool, g_alias_w[i]);
                             Token *t = pool_token_intern(br->pool, g_alias_rel[i]);
@@ -4585,7 +4585,7 @@ int main(int argc, char **argv) {
                             if (o && ai_write_rel(br, ls, o, rid, 0, AI_WSRC_RELATION) == 0) n++;
                         }
                         Token *lp = pool_token_intern(br->pool, "代词库");
-                        uint8_t rid_word = rel_id_of(br, "词", 1);
+                        RelId rid_word = rel_id_of(br, "词", 1);
                         const char *pgs[4] = { "指代", "省略指代", "人称", "须分隔" };
                         for (int gi = 0; lp && rid_word && gi < 4; ++gi) {
                             Token *g = pool_token_intern(br->pool, pgs[gi]);
@@ -4621,7 +4621,7 @@ int main(int argc, char **argv) {
                             if (o && ai_write_rel(br, lp, o, rid, 0, AI_WSRC_RELATION) == 0) n++;
                         }
                         Token *lb = pool_token_intern(br->pool, "裸回话库");
-                        uint8_t rid_word = rel_id_of(br, "词", 1);
+                        RelId rid_word = rel_id_of(br, "词", 1);
                         const char *groups[3] = { "肯定", "否定", "不懂" };
                         for (int gi = 0; lb && rid_word && gi < 3; ++gi) {
                             Token *g = pool_token_intern(br->pool, groups[gi]);
@@ -4636,8 +4636,8 @@ int main(int argc, char **argv) {
                     /* §6.811 答复规则：`答复规则库 --[有]--> 回复规则:N` + 关键词/回复 两条边 */
                     {
                         Token *lr = pool_token_intern(br->pool, "答复规则库");
-                        uint8_t rid_kw = rel_id_of(br, "关键词", 1);
-                        uint8_t rid_tx = rel_id_of(br, "回复", 1);
+                        RelId rid_kw = rel_id_of(br, "关键词", 1);
+                        RelId rid_tx = rel_id_of(br, "回复", 1);
                         for (size_t i = 0; lr && rid_kw && rid_tx && i < g_reply_n; ++i) {
                             char id[32];
                             snprintf(id, sizeof id, "回复规则:%zu", i);
@@ -4663,7 +4663,7 @@ int main(int argc, char **argv) {
                     /* §6.809 答复模板：`答复库 --[有]--> 判词.对` + `判词.对 --[答复]--> 对` */
                     {
                         Token *ls = pool_token_intern(br->pool, "答复库");
-                        uint8_t rid_txt = rel_id_of(br, "答复", 1);
+                        RelId rid_txt = rel_id_of(br, "答复", 1);
                         for (size_t i = 0; ls && rid_txt && i < g_say_n; ++i) {
                             Token *kt = pool_token_intern(br->pool, g_say_key[i]);
                             Token *tt = pool_token_intern(br->pool, g_say_txt[i]);
@@ -4680,7 +4680,7 @@ int main(int argc, char **argv) {
                             if (o && ai_write_rel(br, lf, o, rid, 0, AI_WSRC_RELATION) == 0) n++;
                         }
                         Token *lc = pool_token_intern(br->pool, "词类库");
-                        uint8_t rid_word = rel_id_of(br, "词", 1);
+                        RelId rid_word = rel_id_of(br, "词", 1);
                         for (size_t i = 0; lc && rid_word && i < g_class_n; ++i) {
                             Token *c = pool_token_intern(br->pool, g_class_name[i]);
                             if (!c) continue;
@@ -4697,7 +4697,7 @@ int main(int argc, char **argv) {
                     /* §6.807 词缀（pre/post）与句尾语气词 */
                     {
                         Token *la = pool_token_intern(br->pool, "词缀库");
-                        uint8_t rid_pos = rel_id_of(br, "词缀位置", 1);
+                        RelId rid_pos = rel_id_of(br, "词缀位置", 1);
                         for (size_t i = 0; la && rid_pos && i < g_aff_n; ++i) {
                             Token *w = pool_token_intern(br->pool, g_aff[i]);
                             Token *pv = pool_token_intern(br->pool, g_aff_kind[i] == 'p' ? "pre" : "post");
@@ -4744,7 +4744,7 @@ int main(int argc, char **argv) {
                 AI *br = a->brain;
                 const char *v = carg ? carg : "";
                 while (*v == ' ') v++;
-                uint8_t rid = rel_id_of(br, "同义", 1);
+                RelId rid = rel_id_of(br, "同义", 1);
                 if (!rid) { printf("[说法] 登记不了「同义」这个关系\n"); continue; }
                 if (!*v || !strncmp(v, "list", 4)) {
                     int has = 0, total = 0;
@@ -4945,7 +4945,7 @@ int main(int argc, char **argv) {
                     Token *tb = pool_find(a->brain->pool, nm2);
                     if (!ta) { printf("[自由符号] 造不出来\n"); continue; }
                     if (!tb) { printf("[自由符号] 图里没有「%s」（anchor 只能挂到已有知识上）\n", nm2); continue; }
-                    uint8_t rid = rel_id_of(a->brain, "属于", 0);
+                    RelId rid = rel_id_of(a->brain, "属于", 0);
                     if (!hypo_add(&a->brain->hypo, ta, tb, rid, 0)) { printf("[自由符号] 假设层满了，挂不上\n"); continue; }
                     printf("[自由符号] %s 临时挂到 %s（假设层，pop/轮末就撤；主图不写边）\n", nm1, nm2);
                     continue;
@@ -5003,7 +5003,7 @@ int main(int argc, char **argv) {
                         for (size_t q = 0; q < fn->count; ++q) {
                             const AssocEntry *fe = &token_assocs_ro(fn)[q];
                             if (!fe->dyn || !fe->main) continue;
-                            const char *dn = rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + fe->dyn - 1));
+                            const char *dn = rel_dyn_name(a->brain, (RelId)(REL_DYN_BASE + fe->dyn - 1));
                             if (!dn) continue;
                             if (!strcmp(dn, "问法")) g_ask++;
                             else if (!strcmp(dn, "答法")) g_ans++;
@@ -5072,7 +5072,7 @@ int main(int argc, char **argv) {
                     while (*q2 && *q2 != ' ' && l2 + 1 < sizeof relname) relname[l2++] = *q2++;
                     relname[l2] = 0;
                 }
-                uint8_t rid = rel_id_of(a->brain, relname, 0);
+                RelId rid = rel_id_of(a->brain, relname, 0);
                 if (!rid) { printf("[求解] 图里没有关系「%s」\n", relname); continue; }
                 TokenPool *pl = a->brain->pool;
                 /* §6.759 **规则从图里读**：关系名这个节点上如果有 `唯一` 这条事实
@@ -5731,7 +5731,7 @@ int main(int argc, char **argv) {
                                 const AssocEntry *e = &token_assocs_ro(x)[k];
                                 if (!e->main || !e->main->name || e->main->name[0] == '[') continue;
                                 if (!e->rel && !e->nrel) continue;
-                                for (uint8_t r = 1; r <= REL_NEED; ++r) {
+                                for (RelId r = 1; r <= REL_NEED; ++r) {
                                     int pos = (e->rel & REL_BIT(r)) != 0;
                                     int neg = (e->nrel & REL_BIT(r)) != 0;
                                     if (!pos && !neg) continue;
@@ -5759,7 +5759,7 @@ int main(int argc, char **argv) {
                                 const AssocEntry *e = &token_assocs_ro(x)[k];
                                 if (!e->main || !e->main->name || e->main->name[0] == '[') continue;
                                 if (!e->rel && !e->nrel) continue;
-                                for (uint8_t r = 1; r <= REL_NEED; ++r) {
+                                for (RelId r = 1; r <= REL_NEED; ++r) {
                                     int pos = (e->rel & REL_BIT(r)) != 0;
                                     int neg = (e->nrel & REL_BIT(r)) != 0;
                                     if (!pos && !neg) continue;
@@ -6707,7 +6707,7 @@ int main(int argc, char **argv) {
                 }
                 if (!strncmp(arg, "relations", 9)) {
                     printf("[自我] 核心关系（正边/否定边 计数；全图扫描）：\n");
-                    for (uint8_t rid = 1; rid < REL_DYN_BASE; ++rid) {
+                    for (RelId rid = 1; rid < REL_DYN_BASE; ++rid) {
                         const char *rn = rel_name_of(ai, rid);
                         if (!rn) continue;
                         size_t pc = 0, nc = 0;
@@ -6776,8 +6776,8 @@ int main(int argc, char **argv) {
                     for (size_t j = 0; j < t->count && shown < 12; ++j) {
                         const AssocEntry *e = &token_assocs_ro(t)[j];
                         if (!e->main || !e->rel) continue;
-                        uint8_t rid0 = 0;
-                        for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
+                        RelId rid0 = 0;
+                        for (RelId r = 1; r < REL_DYN_BASE; ++r)
                             if (e->rel & (uint16_t)(1u << (r - 1))) { rid0 = r; break; }
                         printf("  %s%s --[%s]--> %s\n",
                                (e->nrel ? "不 " : ""), t->name,
@@ -6795,8 +6795,8 @@ int main(int argc, char **argv) {
                             for (size_t j = 0; j < from->count; ++j) {
                                 const AssocEntry *e = &token_assocs_ro(from)[j];
                                 if (!e->main || e->main != t || !e->rel) continue;
-                                uint8_t rid0 = 0;
-                                for (uint8_t r = 1; r < REL_DYN_BASE; ++r)
+                                RelId rid0 = 0;
+                                for (RelId r = 1; r < REL_DYN_BASE; ++r)
                                     if (e->rel & (uint16_t)(1u << (r - 1))) { rid0 = r; break; }
                                 if (!inc) printf("  入边：\n");
                                 printf("  %s%s --[%s]--> %s\n",
@@ -7087,7 +7087,7 @@ int main(int argc, char **argv) {
                     }
                     Token *A = pool_find(B->pool, w1);
                     Token *O = pool_find(B->pool, w2);
-                    uint8_t rid = rel_id_of(B, wr, 0);
+                    RelId rid = rel_id_of(B, wr, 0);
                     if (!A || !O || rid == 0) {
                         printf("[找不到：%s %s %s]\n", w1, wr, w2);
                         continue;
@@ -7139,7 +7139,7 @@ int main(int argc, char **argv) {
                 printf("[关系独占表] 判据=似然比（≥%.0f:1 才改口）；参照多宾语率 %.1f%%"
                        "（只取「观察到过多宾语」的关系当参照类）\n",
                        bar, a->brain->rel_excl_base / 10.0);
-                for (uint8_t r = 1; r <= REL_AT; ++r) {
+                for (RelId r = 1; r <= REL_AT; ++r) {
                     if (!nm[r]) continue;
                     size_t sg = a->brain->rel_excl_single[r];
                     size_t mu = a->brain->rel_excl_multi[r];
@@ -7224,7 +7224,7 @@ int main(int argc, char **argv) {
                         for (size_t j = 0; j < tk->count; ++j) {
                             const AssocEntry *e = &token_assocs_ro(tk)[j];
                             if (!edge_is_guess(e) || !e->main) continue;
-                            for (uint8_t r = 1; r <= REL_CORE_MAX; ++r) {
+                            for (RelId r = 1; r <= REL_CORE_MAX; ++r) {
                                 uint16_t bit = REL_BIT(r);
                                 if (!(e->rel & bit) && !(e->nrel & bit)) continue;
                                 printf("  %s %s%s %s   （出处：%s）\n",
@@ -7280,7 +7280,7 @@ int main(int argc, char **argv) {
                     const char *v = arg + 4;
                     while (*v == ' ') v++;
                     if (*v) {
-                        uint8_t rid = rel_id_of(a->brain, v, 0);
+                        RelId rid = rel_id_of(a->brain, v, 0);
                         if (!rid) { printf("[%s] 不是认识的关系词\n", v); continue; }
                         RelPropView view;
                         int any = relprops_of(a->brain, rid, &view);
@@ -7333,7 +7333,7 @@ int main(int argc, char **argv) {
                     }
                     /* 动态关系 */
                     if (e->dyn) {
-                        const char *dn = rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+                        const char *dn = rel_dyn_name(a->brain, (RelId)(REL_DYN_BASE + e->dyn - 1));
                         /* §6.793 否定的动态关系也要显示（以前这里不分极性 ⇒ 教「乙 不 拿 红球」
                          * 看起来像「乙 拿 红球」，账面上就错了） */
                         printf("   %s --[%s%s]--> %s\n", arg,
@@ -7361,7 +7361,7 @@ int main(int argc, char **argv) {
                  * 这里至少让它**看得见** —— 白箱的意思是"不一致要能查出来"，不是"永远一致"。
                  * 去重：`属于/是` 是同一个 id，别打两遍。 */
                 for (size_t k = 0; AI_RELS[k].name; ++k) {
-                    uint8_t rid = AI_RELS[k].id;
+                    RelId rid = AI_RELS[k].id;
                     int dup_id = 0;
                     for (size_t q = 0; q < k; ++q)
                         if (AI_RELS[q].id == rid) { dup_id = 1; break; }
@@ -7488,7 +7488,7 @@ int main(int argc, char **argv) {
                 for (size_t j = 0; j < tk->count; ++j) {
                     const AssocEntry *e = &token_assocs_ro(tk)[j];
                     if (!e->main) continue;
-                    const char *rn = e->dyn ? rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + e->dyn - 1)) : NULL;
+                    const char *rn = e->dyn ? rel_dyn_name(a->brain, (RelId)(REL_DYN_BASE + e->dyn - 1)) : NULL;
                     if (!rn) continue;
                     const char *label = NULL;
                     if (!strcmp(rn, "理由")) label = "理由";
@@ -7531,7 +7531,7 @@ int main(int argc, char **argv) {
                 const RelDef *rd = (nw >= 2) ? rel_by_name(w[1]) : NULL;
                 /* §6.795 关系词不认识时**再查图里的动态关系**（`拿`/`想念` 这种）。
                  * 以前只认内置清单 ⇒ 教会的动态关系问不了依据（`rel_solve` 其实已经接受 dyn id）。 */
-                uint8_t dyn_rid = 0;
+                RelId dyn_rid = 0;
                 if (nw >= 2 && !rd) {
                     dyn_rid = rel_id_of(a->brain, w[1], 0);
                     if (dyn_rid && dyn_rid < REL_DYN_BASE) dyn_rid = 0;   /* 核心关系已由 rel_by_name 覆盖 */
@@ -7540,7 +7540,7 @@ int main(int argc, char **argv) {
                     printf("[用法] ::why <主语> <关系词> <宾语>（否定：<主语> 不 <关系词> <宾语>）\n");
                     free(dup); continue;
                 }
-                uint8_t qrid = rd ? rd->id : dyn_rid;
+                RelId qrid = rd ? rd->id : dyn_rid;
                 Token *A = pool_find(a->brain->pool, w[0]);
                 Token *B = pool_find(a->brain->pool, w[2]);
                 if (A && B) {          /* 依据的**租约状态**（过期不删记录，只是说出来） */
@@ -7788,7 +7788,7 @@ int main(int argc, char **argv) {
                         for (size_t k = 0; k < t->count; ++k) {
                             const AssocEntry *e = &token_assocs_ro(t)[k];
                             if (!e->main) continue;
-                            for (uint8_t r = 1; r < REL_DYN_BASE; ++r) {
+                            for (RelId r = 1; r < REL_DYN_BASE; ++r) {
                                 uint16_t bit = REL_BIT(r);
                                 if (e->rel & bit) {
                                     want++;
@@ -7820,7 +7820,7 @@ int main(int argc, char **argv) {
                                                   edge_dyn_neg(e) ? 1 : 0)) {
                                     missing++;
                                     if (missing <= 5) {
-                                        const char *dn = rel_dyn_name(B, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+                                        const char *dn = rel_dyn_name(B, (RelId)(REL_DYN_BASE + e->dyn - 1));
                                         printf("[revcheck] 缺（动态 %s）：%s -> %s\n",
                                                dn ? dn : "?", t->name ? t->name : "?",
                                                e->main->name ? e->main->name : "?");
@@ -8061,12 +8061,12 @@ int main(int argc, char **argv) {
                         }
                         const RelDef *rd = (nw >= 2) ? rel_by_name(w[1]) : NULL;
                         /* §6.795 和 `::why` 一样：关系词不在清单里就查图里的动态关系 */
-                        uint8_t dyn_rid = 0;
+                        RelId dyn_rid = 0;
                         if (nw >= 2 && !rd) {
                             dyn_rid = rel_id_of(a->brain, w[1], 0);
                             if (dyn_rid && dyn_rid < REL_DYN_BASE) dyn_rid = 0;
                         }
-                        uint8_t qrid = rd ? rd->id : dyn_rid;
+                        RelId qrid = rd ? rd->id : dyn_rid;
                         Token *A = (nw >= 1) ? pool_find(a->brain->pool, w[0]) : NULL;
                         Token *B = (nw >= 3) ? pool_find(a->brain->pool, w[2]) : NULL;
                         if (nw == 3 && (rd || dyn_rid) && A && B) {
@@ -9497,7 +9497,7 @@ int main(int argc, char **argv) {
                         }
                         /* 与图冲突：图里已有同 A 同 R 的**不同** B，或已有否定边 */
                         Token *A = pool_find(a->brain->pool, cl[i].a);
-                        uint8_t rid = rel_id_of(a->brain, cl[i].r, 0);
+                        RelId rid = rel_id_of(a->brain, cl[i].r, 0);
                         if (!A || !rid) continue;
                         for (uint32_t ti = 0; ti < a->brain->pool->count; ++ti) {
                             Token *B = a->brain->pool->tokens[ti];
@@ -10473,7 +10473,7 @@ int main(int argc, char **argv) {
                 Token *A = pool_find(a->brain->pool, w1);
                 Token *B = pool_find(a->brain->pool, w3);
                 if (!A || !B) { printf("[找不到词：%s %s]\n", w1, w3); continue; }
-                uint8_t rid = rel_id_of(a->brain, w2, 0);   /* 只认表里已有的谓语（读操作不改表） */
+                RelId rid = rel_id_of(a->brain, w2, 0);   /* 只认表里已有的谓语（读操作不改表） */
                 if (!rid) { printf("[不认识的谓语：%s]\n", w2); continue; }
                 printf("[来源账] %s %s %s\n", w1, w2, w3);
                 /* §6.595 **教学留痕**：图里有没有 `[教:A_关系B]` —— 它随图存盘，
@@ -10635,7 +10635,7 @@ int main(int argc, char **argv) {
                             all_role[ri]++; if (!used) dead_role[ri]++;
                             if (used) continue;
                             const char *rn = NULL;
-                            if (e->dyn) rn = rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+                            if (e->dyn) rn = rel_dyn_name(a->brain, (RelId)(REL_DYN_BASE + e->dyn - 1));
                             else {
                                 for (size_t k = 0; AI_RELS[k].name; ++k)
                                     if (e->rel & REL_BIT(AI_RELS[k].id)) { rn = AI_RELS[k].name; break; }
@@ -10693,7 +10693,7 @@ int main(int argc, char **argv) {
                             const char *rn = NULL;
                             int neg = 0;
                             if (e->dyn) {
-                                rn = rel_dyn_name(a->brain, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+                                rn = rel_dyn_name(a->brain, (RelId)(REL_DYN_BASE + e->dyn - 1));
                                 neg = edge_dyn_neg(e);
                             } else {
                                 for (size_t k = 0; AI_RELS[k].name; ++k)
@@ -10775,9 +10775,9 @@ int main(int argc, char **argv) {
                     if (np < 3) { printf("[用法] ::edges drop <主语> <关系> <宾语>\n"); continue; }
                     Token *A = pool_find(a->brain->pool, parts[0]);
                     Token *B = pool_find(a->brain->pool, parts[2]);
-                    uint8_t rid = rel_id_of(a->brain, parts[1], 0);
+                    RelId rid = rel_id_of(a->brain, parts[1], 0);
                     if (!A || !B || !rid) { printf("[边命中] 词或关系不在图里\n"); continue; }
-                    uint8_t d = (rid >= REL_DYN_BASE) ? (uint8_t)(rid - REL_DYN_BASE + 1) : 0;
+                    uint8_t d = (rid >= REL_DYN_BASE) ? (uint32_t)(rid - REL_DYN_BASE + 1) : 0;
                     size_t w = 0, del = 0;
                     for (size_t i = 0; i < A->count; ++i) {
                         const AssocEntry *e = &token_assocs_ro(A)[i];
@@ -11046,7 +11046,7 @@ int main(int argc, char **argv) {
                     if (!t2) { n_bad++; continue; }
                     *t2++ = 0;
                     if (!line[0] || !t1[0] || !t2[0]) { n_bad++; continue; }
-                    uint8_t rid = rel_id_of(a->brain, t1, 1);
+                    RelId rid = rel_id_of(a->brain, t1, 1);
                     if (rid == 0) { n_bad++; continue; }
                     Token *ta = pool_token_intern(a->brain->pool, line);
                     Token *tb = pool_token_intern(a->brain->pool, t2);
@@ -11097,7 +11097,7 @@ int main(int argc, char **argv) {
                 Token *ta = pool_token_intern(a->brain->pool, A);
                 Token *tb = pool_token_intern(a->brain->pool, B);
                 if (!ta || !tb) { printf("[教 不了] 造词失败（词太长或池满）\n"); continue; }
-                uint8_t rid = rel_id_of(a->brain, R, 1);
+                RelId rid = rel_id_of(a->brain, R, 1);
                 if (rid == 0) { printf("[教 不了] 认不出关系词：%s\n", R); continue; }
                 /* §6.585 教一条独占关系的新值时，先看有没有**互不包含**的旧值（只看不撤）*/
                 Token *conflict = NULL;
@@ -11107,7 +11107,7 @@ int main(int argc, char **argv) {
                  * 这种覆盖不能静默 —— 先在写之前看一眼旧极性，写完了说清楚。 */
                 int dyn_flipped = 0;
                 if (rid >= REL_DYN_BASE) {
-                    uint8_t d = (uint8_t)(rid - REL_DYN_BASE + 1);
+                    uint8_t d = (uint32_t)(rid - REL_DYN_BASE + 1);
                     for (size_t j = 0; j < ta->count; ++j) {
                         const AssocEntry *e = &token_assocs_ro(ta)[j];
                         if (e->main != tb || e->dyn != d || edge_is_guess(e)) continue;
@@ -11259,7 +11259,7 @@ int main(int argc, char **argv) {
                     if (sv) p++;
                 }
                 if (nw == 3) {
-                    uint8_t rid = rel_id_of(a->brain, w[1], 0);
+                    RelId rid = rel_id_of(a->brain, w[1], 0);
                     if (rid >= REL_DYN_BASE) {      /* 只给动态谓语建：核心关系走 rel_solve */
                         char *pa[2] = { w[0], w[2] };
                         pred_make_fact(a->brain, w[1], pa, 2);

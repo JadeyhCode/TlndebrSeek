@@ -29,14 +29,14 @@ static void ok(int cond, const char *what) {
 static int teach(AI *ai, const char *a, const char *rel, const char *b) {
     Token *A = pool_token_intern(ai->pool, a);
     Token *B = pool_token_intern(ai->pool, b);
-    uint8_t rid = rel_id_of(ai, rel, 1);
+    RelId rid = rel_id_of(ai, rel, 1);
     if (!A || !B || !rid) return -1;
     return ai_write_rel(ai, A, B, rid, 0, AI_WSRC_RELATION);
 }
 static int knows(AI *ai, const char *a, const char *rel, const char *b) {
     Token *A = pool_find(ai->pool, a);
     Token *B = pool_find(ai->pool, b);
-    uint8_t rid = rel_id_of(ai, rel, 0);
+    RelId rid = rel_id_of(ai, rel, 0);
     if (!A || !B || !rid) return 0;
     return rel_direct(A, rid, B);
 }

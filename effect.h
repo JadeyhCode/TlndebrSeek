@@ -154,7 +154,7 @@ static inline void effect_log(const char *fmt, ...) {
 }
 
 /* 找到 subject 下 (dyn 关系, 值) 的边；返回 hits。 */
-static inline uint32_t effect_edge_hits(Token *subj, uint8_t dyn, Token *val) {
+static inline uint32_t effect_edge_hits(Token *subj, uint32_t dyn, Token *val) {
     for (size_t i = 0; i < subj->count; ++i) {
         AssocEntry *e = &token_assocs(subj)[i];
         if (e->main == val && e->dyn == dyn) return e->hits;
@@ -162,14 +162,14 @@ static inline uint32_t effect_edge_hits(Token *subj, uint8_t dyn, Token *val) {
     return 0;
 }
 
-static inline void effect_bump_edge(Token *subj, uint8_t dyn, Token *val) {
+static inline void effect_bump_edge(Token *subj, uint32_t dyn, Token *val) {
     for (size_t i = 0; i < subj->count; ++i) {
         AssocEntry *e = &token_assocs(subj)[i];
         if (e->main == val && e->dyn == dyn) { e->hits += REL_BOOST; return; }
     }
 }
 
-static inline int effect_retract_edge(Token *subj, uint8_t dyn, Token *val) {
+static inline int effect_retract_edge(Token *subj, uint32_t dyn, Token *val) {
     for (size_t i = 0; i < subj->count; ++i) {
         AssocEntry *e = &token_assocs(subj)[i];
         if (e->main != val || e->dyn != dyn) continue;
@@ -198,7 +198,7 @@ static inline int effect_trace(AI *ai, const char *ev) {
     for (size_t i = 0; i < e->count; ++i) {
         const AssocEntry *a = &token_assocs_ro(e)[i];
         if (!a->main || !a->dyn) continue;
-        const char *nm = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + a->dyn - 1));
+        const char *nm = rel_dyn_name(ai, (RelId)(REL_DYN_BASE + a->dyn - 1));
         printf("  --[%s]--> %s（计数 %u，tick %llu）\n", nm ? nm : "?",
                a->main->name ? a->main->name : "?", a->hits,
                (unsigned long long)a->last_touch_tick);
@@ -232,7 +232,7 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         for (size_t i = 0; i < t->count; ++i) {
             const AssocEntry *e = &token_assocs_ro(t)[i];
             if (!e->main || !e->dyn) continue;
-            const char *nm = rel_dyn_name(ai, (uint8_t)(REL_DYN_BASE + e->dyn - 1));
+            const char *nm = rel_dyn_name(ai, (RelId)(REL_DYN_BASE + e->dyn - 1));
             printf("  %s = %s（计数 %u，tick %llu）\n", nm ? nm : "?",
                    e->main->name ? e->main->name : "?", e->hits,
                    (unsigned long long)e->last_touch_tick);
@@ -317,9 +317,9 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         }
         Token *subj = (sel == 1) ? a1 : a2;
         Token *vt = pool_token_intern(ai->pool, val);
-        uint8_t rid = rel_id_of(ai, nm, 1);
+        RelId rid = rel_id_of(ai, nm, 1);
         if (!rid || !vt) { printf("[效果] 建不了状态谓词「%s」\n", nm); continue; }
-        uint8_t dyn = (uint8_t)(rid - REL_DYN_BASE + 1);
+        uint32_t dyn = (uint32_t)(rid - REL_DYN_BASE + 1);
         if (do_retract) {
             int rm = effect_retract_edge(subj, dyn, vt);
             printf("[效果] 撤销 %s.%s = %s：%s\n", subj->name, nm, val, rm ? "已撤" : "本来就没有");
@@ -353,7 +353,7 @@ static inline int effect_cmd(AI *ai, const char *arg) {
         char ev[256];
         effect_event_name(ev, sizeof ev, sc->name, tok[1], tok[2]);
         Token *et = pool_token_intern(ai->pool, ev);
-        uint8_t rrid = rel_id_of(ai, "结果", 1);
+        RelId rrid = rel_id_of(ai, "结果", 1);
         int links = 0;
         if (et && rrid) {
             for (uint8_t k = 0; k < REL_SCHEMA_ROLES && sc->post[k][0]; ++k) {
