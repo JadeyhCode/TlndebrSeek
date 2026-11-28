@@ -82,9 +82,11 @@ fi
 total=$(grep -c . "$TASKS" || true)      # `|| true`：一条都没匹配时 grep 退出码是 1，
 #   而 `set -e` 下那个赋值会把**整个调度器**静默弄死（连一行输出都没有）—— 这类坑本轮扫出来 5 处
 
+# §7.094 并行度实测（20 核/15GB）：JOBS=8 1376s、12 1320s、16 1314s，两次 12/16 全绿
+# ⇒ 默认 12（留 8 核/内存余量），环境变量仍可提到 16。
 cpun=$(nproc 2>/dev/null || echo 4)
-JOBS=${JOBS:-$cpun}
-if [ "$JOBS" -gt 8 ]; then JOBS=8; fi
+JOBS=${JOBS:-12}
+if [ "$JOBS" -gt 16 ]; then JOBS=16; fi
 if [ "$JOBS" -gt "$total" ]; then JOBS=$total; fi
 if [ "$JOBS" -lt 1 ]; then JOBS=1; fi
 
