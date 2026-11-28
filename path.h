@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "units.h"
 
 #define PATH_MAX_LEN   3
 #define PATH_MAX_OUT   32
@@ -25,6 +26,7 @@ typedef struct {
     RelId    rel[PATH_MAX_LEN];
     uint8_t  dir[PATH_MAX_LEN];     /* 0 = 正向，1 = 反向（逆关系规范化后） */
     uint32_t end;                   /* 终点 token id */
+    uint32_t end_class;             /* §7.091 终点类别（沿属于 ≤3 跳；0=无） */
     float    w;                     /* 1/len */
 } PathSig;
 
@@ -33,7 +35,8 @@ typedef struct { PathSig p[PATH_MAX_OUT]; size_t n; } PathSet;
 static inline void path_key(const PathSig *s, char *buf, size_t cap) {
     size_t o = 0;
     if (!s || !buf || !cap) return;
-    o += (size_t)snprintf(buf + o, cap - o, "%u", (unsigned)s->end);
+    /* 终点优先用**类别**（同类的实例共享路径结尾；没有类才退回 token id） */
+    o += (size_t)snprintf(buf + o, cap - o, "%u", (unsigned)(s->end_class ? s->end_class : s->end));
     for (uint8_t i = 0; i < s->len && o < cap; ++i)
         o += (size_t)snprintf(buf + o, cap - o, "|%u:%u", (unsigned)s->rel[i], (unsigned)s->dir[i]);
 }
@@ -45,6 +48,28 @@ static inline void path_edge_norm(AI *ai, RelId rid, uint8_t *dir) {
     if (rel_is_sym(ai, rid)) return;
     RelId inv = rel_inv_of(ai, rid);
     if (inv && inv < rid) *dir = 1;
+}
+
+/* §7.091 终点类别：沿「属于」正向 BFS ≤3 跳，取最远可达（无环）；找不到返回 0。 */
+static inline uint32_t path_end_class(AI *ai, Token *t, int depth) {
+    if (!ai || !t || depth <= 0) return 0;
+    RelId isa = rel_id_of(ai, "属于", 0);
+    if (!isa) return 0;
+    uint32_t best = 0;
+    Token *q[32]; int qd[32]; size_t qn = 1, qh = 0;
+    q[0] = t; qd[0] = 0;
+    while (qh < qn && qn < 32) {
+        Token *cur = q[qh]; int d = qd[qh]; qh++;
+        if (d >= depth) continue;
+        for (size_t i = 0; i < cur->count; ++i) {
+            const AssocEntry *e = &token_assocs_ro(cur)[i];
+            if (!e->main || e->nrel || !(e->rel & REL_BIT(isa))) continue;
+            if (e->main == t) continue;
+            if (e->main->id) best = e->main->id;
+            q[qn] = e->main; qd[qn] = d + 1; qn++;
+        }
+    }
+    return best;
 }
 
 /* 从根枚举路径（BFS 深 3、度 64、总 32），去重后返回条数。 */
@@ -87,6 +112,7 @@ static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
         s->len = q[i].len;
         for (uint8_t k = 0; k < s->len; ++k) { s->rel[k] = q[i].rel[k]; s->dir[k] = q[i].dir[k]; }
         s->end = q[i].t->id;
+        s->end_class = path_end_class(ai, q[i].t, 3);
         s->w = 1.0f / (float)s->len;
         char key[PATH_KEY_LEN];
         path_key(s, key, sizeof key);
@@ -134,27 +160,99 @@ static inline float path_neighbor_jaccard(const PathSet *a, const PathSet *b) {
     return path_jaccard(&na, &nb);
 }
 
+/* §7.091 属性重叠：`属性` 关系 + 值/单位（units.h 归一）。 */
+typedef struct { int dim; double base; char key[48]; } AttrVal;
+#define PATH_ATTR_MAX 32
+
+static inline int path_attrs(AI *ai, Token *t, AttrVal *out) {
+    if (!ai || !t || !out) return 0;
+    RelId rid_attr = rel_id_of(ai, "属性", 0);
+    if (!rid_attr) return 0;
+    int n = 0;
+    for (size_t i = 0; i < t->count && n < PATH_ATTR_MAX; ++i) {
+        const AssocEntry *e = &token_assocs_ro(t)[i];
+        if (!e->main || e->nrel || edge_is_guess(e) || !e->main->name) continue;
+        int hit = 0;
+        if (rid_attr >= REL_DYN_BASE) hit = (e->dyn == (uint32_t)(rid_attr - REL_DYN_BASE + 1));
+        else hit = (e->rel & REL_BIT(rid_attr)) != 0;
+        if (!hit) continue;
+        const char *nm = e->main->name;
+        const char *end = NULL;
+        CalcRat v = u_num(nm, &end);
+        if (!v.ok || !end) continue;
+        while (*end == ' ') end++;
+        size_t ul = 0;
+        const UnitDef *u = units_at(end, &ul);
+        int dim = -1; double base = (double)v.n / (double)v.d;
+        if (u) {
+            dim = (int)(u - units_find(u->unit));
+            if (dim < 0) dim = 0;
+            CalcRat sc = u->scale, of = u->offset;
+            base = (double)v.n / (double)v.d;
+            if (sc.d) base = base * ((double)sc.n / (double)sc.d);
+            if (of.d) base += (double)of.n / (double)of.d;
+        }
+        snprintf(out[n].key, sizeof out[n].key, "%d|%.9g", dim, base);
+        out[n].dim = dim; out[n].base = base;
+        n++;
+    }
+    /* 去重（同属性的重复边） */
+    for (int i = 0; i < n; ++i)
+        for (int j = i + 1; j < n; ++j)
+            if (!strcmp(out[i].key, out[j].key)) {
+                memmove(&out[j], &out[j + 1], (size_t)(n - j - 1) * sizeof out[0]);
+                n--; j--;
+            }
+    return n;
+}
+
+static inline float path_attr_jaccard(AI *ai, Token *x, Token *y, int *has_attrs) {
+    if (has_attrs) *has_attrs = 0;
+    AttrVal ax[PATH_ATTR_MAX], ay[PATH_ATTR_MAX];
+    int nx = path_attrs(ai, x, ax), ny = path_attrs(ai, y, ay);
+    if (nx || ny) { if (has_attrs) *has_attrs = 1; }
+    if (!nx || !ny) return 0.0f;
+    int inter = 0;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+            if (!strcmp(ax[i].key, ay[j].key)) { inter++; break; }
+    int uni = nx + ny - inter;
+    return uni > 0 ? (float)inter / (float)uni : 0.0f;
+}
+
 /* 返回相似度；*known=0 表示两边都没有路径（未知，不是 0）。 */
 static inline float path_sim(AI *ai, Token *x, Token *y, int *known,
-                             float *out_path, float *out_nbr) {
+                             float *out_path, float *out_nbr, float *out_attr) {
     if (known) *known = 0;
     if (out_path) *out_path = 0;
     if (out_nbr) *out_nbr = 0;
+    if (out_attr) *out_attr = 0;
     if (!ai || !x || !y) return 0.0f;
     static PathSet sa, sb;
     size_t na = path_enum(ai, x, &sa);
     size_t nb = path_enum(ai, y, &sb);
-    if (!na || !nb) return 0.0f;
+    int has_attr = 0;
+    float aj = path_attr_jaccard(ai, x, y, &has_attr);
+    if (!na || !nb) {
+        if (!has_attr) return 0.0f;
+        /* 只有属性也能比（属性关系本身就是一条路径，这里兜底） */
+        if (known) *known = 1;
+        if (out_attr) *out_attr = aj;
+        return aip_policy_float("sim_w_attr", 0.3f) * aj;
+    }
     float pj = path_jaccard(&sa, &sb);
     float nj = path_neighbor_jaccard(&sa, &sb);
     if (out_path) *out_path = pj;
     if (out_nbr) *out_nbr = nj;
+    if (out_attr) *out_attr = aj;
     if (known) *known = 1;
-    float wp = aip_policy_float("sim_w_path", 0.7f);
-    float wn = aip_policy_float("sim_w_nbr", 0.3f);
+    float wa = aip_policy_float("sim_w_attr", 0.3f);
+    float wp = aip_policy_float("sim_w_path", 0.5f);
+    float wn = aip_policy_float("sim_w_nbr", 0.2f);
+    if (wa < 0) wa = 0;
     if (wp < 0) wp = 0;
     if (wn < 0) wn = 0;
-    return wp * pj + wn * nj;
+    return wa * aj + wp * pj + wn * nj;
 }
 
 static inline const char *path_rel_name(AI *ai, RelId rid) {
@@ -177,7 +275,11 @@ static inline void path_print(AI *ai, Token *t, int max) {
         const char *en = "?";
         if (t->owner && eid < t->owner->count && t->owner->tokens[eid]->name)
             en = t->owner->tokens[eid]->name;
-        printf("%s（w=%.2f）\n", en, s.p[i].w);
+        const char *cn = NULL;
+        if (s.p[i].end_class && t->owner && s.p[i].end_class < t->owner->count)
+            cn = t->owner->tokens[s.p[i].end_class]->name;
+        if (cn && cn[0]) printf("%s [类:%s]（w=%.2f）\n", en, cn, s.p[i].w);
+        else printf("%s（w=%.2f）\n", en, s.p[i].w);
     }
     if (!n) printf("  （没有可枚举的关系路径）\n");
 }
@@ -197,13 +299,13 @@ static inline int path_sim_cmd(AI *ai, const char *arg) {
     }
     Token *x = pool_find(ai->pool, a), *y = pool_find(ai->pool, b);
     if (!x || !y) { printf("[相似] 图里没有「%s」或「%s」\n", !x ? a : b, !x ? b : a); return 1; }
-    float pj = 0, nj = 0;
+    float pj = 0, nj = 0, aj = 0;
     int known = 0;
-    float sim = path_sim(ai, x, y, &known, &pj, &nj);
-    if (!known) { printf("[相似] %s vs %s ⇒ 未知（至少一边没有关系路径；不是 0）\n", a, b); return 1; }
-    printf("[相似] %s vs %s ⇒ %.2f（路径 %.2f / 邻居 %.2f；w_path=%.2f w_nbr=%.2f）\n",
-           a, b, sim, pj, nj, aip_policy_float("sim_w_path", 0.7f),
-           aip_policy_float("sim_w_nbr", 0.3f));
+    float sim = path_sim(ai, x, y, &known, &pj, &nj, &aj);
+    if (!known) { printf("[相似] %s vs %s ⇒ 未知（两边都没有关系路径/属性；不是 0）\n", a, b); return 1; }
+    printf("[相似] %s vs %s ⇒ %.2f（属性 %.2f / 路径 %.2f / 邻居 %.2f；w_attr=%.2f w_path=%.2f w_nbr=%.2f）\n",
+           a, b, sim, aj, pj, nj, aip_policy_float("sim_w_attr", 0.3f),
+           aip_policy_float("sim_w_path", 0.5f), aip_policy_float("sim_w_nbr", 0.2f));
     /* top-3 共享证据 */
     static PathSet sa, sb;
     path_enum(ai, x, &sa); path_enum(ai, y, &sb);

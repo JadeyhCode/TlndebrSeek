@@ -37,7 +37,7 @@ def main():
     checks = []
 
     out = run(base + "::pathsim 犰狳 貔貅\n::quit\n")
-    m = re.search(r"⇒ ([0-9.]+)（路径", out)
+    m = re.search(r"⇒ ([0-9.]+)（", out)
     checks.append(("共享路径 ⇒ 相似度 > 0.1", bool(m) and float(m.group(1)) > 0.1))
     checks.append(("给出 top-3 证据（标甲→螭吻）", "证据:" in out and "标甲" in out))
 
