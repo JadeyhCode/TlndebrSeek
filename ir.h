@@ -101,20 +101,49 @@ static inline void ir_render(const IrAtom *at, char *buf, size_t cap) {
     }
 }
 
+/* §7.101 前置统计（进程内计数 + 命中账本）：tries=非命令输入、rewrites=实际回写、
+ * unknown=适配器接不住、same=回写后与原文相同、cmds=命令跳过。 */
+typedef struct { size_t tries, rewrites, unknown, same, cmds; } IrFrontStats;
+static IrFrontStats g_irf;
+
 /* §7.100 IR 前置（受控开关）：把能解析的句子回写成规范文本再送进现有管线。
  * 只做“文本等价替换”，不改变管线内部；UNKNOWN/CMD 原样透传。 */
-static inline int ir_front_text(AI *ai, const char *in, char *out, size_t cap) {
+static inline int ir_front_observe(AI *ai, const char *in, char *out, size_t cap) {
     if (!ai || !in || !out || !cap || !*in) return 0;
+    if (in[0] == ':') { g_irf.cmds++; return 0; }
     if (!aip_policy_int("ir_adapter", 1)) return 0;
     if (!aip_policy_int("ir_front", 0)) return 0;
-    if (in[0] == ':') return 0;
+    g_irf.tries++;
     IrAtom at;
-    if (!ir_from_text(ai, in, &at)) return 0;
-    if (at.kind != IR_REL && at.kind != IR_QUERY) return 0;
+    if (!ir_from_text(ai, in, &at) || (at.kind != IR_REL && at.kind != IR_QUERY)) {
+        g_irf.unknown++;
+        return 0;
+    }
     ir_render(&at, out, cap);
-    if (!strcmp(in, out)) return 0;
+    if (!strcmp(in, out)) { g_irf.same++; return 0; }
+    g_irf.rewrites++;
     if (getenv("AIP_IRFRONT_DBG"))
         fprintf(stderr, "[irfront] %s => %s\n", in, out);
+    mkdir("_t", 0755);
+    FILE *f = fopen("_t/ir_front_stats.tsv", "ab");
+    if (f) { fprintf(f, "%ld\t%s\t%s\n", (long)time(NULL), in, out); fclose(f); }
+    return 1;
+}
+
+static inline int irfront_cmd(AI *ai, const char *arg) {
+    (void)ai;
+    const char *p = arg ? arg : "";
+    while (*p == ' ') p++;
+    if (!strncmp(p, "reset", 5)) {
+        memset(&g_irf, 0, sizeof g_irf);
+        printf("[IR前置] 统计已清零\n");
+        return 1;
+    }
+    printf("[IR前置] 开关：ir_adapter=%ld ir_front=%ld\n",
+           aip_policy_int("ir_adapter", 1), aip_policy_int("ir_front", 0));
+    printf("[IR前置] 本进程：尝试 %zu，回写 %zu，UNKNOWN %zu，原样 %zu，命令跳过 %zu\n",
+           g_irf.tries, g_irf.rewrites, g_irf.unknown, g_irf.same, g_irf.cmds);
+    printf("          命中账本：_t/ir_front_stats.tsv（有回写才追加）\n");
     return 1;
 }
 

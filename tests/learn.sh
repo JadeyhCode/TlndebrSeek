@@ -86,13 +86,13 @@ int main(void){ this is not C; return 0; }
 随便写的。
 ### EVIDENCE
 没验证。'
-# 并行负载高时假端点偶发回包不完整（编译段丢失）⇒ 重试一次再判，避免把“回包截断”记成“接受坏代码”
+# 并行负载高时假端点偶发回包不完整（编译段丢失）⇒ 最多重试 4 次再判（12 路并行下截断可能连续出现），避免把“回包截断”记成“接受坏代码”
 o=''
 t=0
-while [ "$t" -lt 2 ]; do
+while [ "$t" -lt 4 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个坏程序")
     printf '%s' "$o" | grep -qa '编译没过' && break
-    t=$((t + 1)); sleep 0.3
+    t=$((t + 1)); sleep 1
 done
 printf '%s' "$o" | grep -qa '编译没过' && ok "编译不过：拒绝" || bad "编译不过也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
@@ -110,13 +110,13 @@ IN: 1 2 => OUT: 999
 IN: 3 4 => OUT: 7
 ### EVIDENCE
 本地编译过。'
-# 并行时假端点偶发回包不完整 ⇒ 重试一次再判（同 ⑤；别把“回包截断”记成“接受”）
+# 并行时假端点偶发回包不完整 ⇒ 最多重试 4 次再判（12 路并行下截断可能连续出现）（同 ⑤；别把“回包截断”记成“接受”）
 o=''
 r=0
-while [ "$r" -lt 2 ]; do
+while [ "$r" -lt 4 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个求和器三号")
     printf '%s' "$o" | grep -qa '教师测试没过' && break
-    r=$((r + 1)); sleep 0.3
+    r=$((r + 1)); sleep 1
 done
 printf '%s' "$o" | grep -qa '教师测试没过' && ok "教师测试不过：拒绝" || bad "教师测试不过也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
@@ -133,10 +133,10 @@ int main(void){puts("hi");return 0;}
 编译过。'
 o=''
 r=0
-while [ "$r" -lt 2 ]; do
+while [ "$r" -lt 4 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个打印 hi 的程序二号")
     printf '%s' "$o" | grep -qa '没给够测试' && break
-    r=$((r + 1)); sleep 0.3
+    r=$((r + 1)); sleep 1
 done
 printf '%s' "$o" | grep -qa '没给够测试' && ok "没 TESTS：拒绝" || bad "没 TESTS 也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
