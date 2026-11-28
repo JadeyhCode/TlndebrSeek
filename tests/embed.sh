@@ -71,10 +71,10 @@ awk -v a="$out_max" 'BEGIN{exit !(a+0 >= 50)}' \
     && chk "类外词也能拿到 ${out_max}% —— 没有可用的阈值，不能用来放行槽位" 1 \
     || chk "类外词最高只有 ${out_max}% —— 那也许可以当门槛，需重新评估" 0
 
-echo "④ 边界：关系类比撑不起来时会**诚实拒答**，不是编一个"
-{ printf '::load %s\n::char off\n::analogy 猫 动物 狗\n::quit\n' "$MODEL"; } | "$BIN" 2>&1 \
-    | grep -q '推不出来' \
-    && chk "::analogy 在表示不够时不编答案" 1 || chk "::analogy 该拒答时却给了答案" 0
+echo "④ 边界：**路径类比**无证据时诚实拒答（旧 emb 类比已被 §7.092 换掉）"
+{ printf '::load %s\n::char off\n::analogy 桌子 飞 狗\n::quit\n' "$MODEL"; } | "$BIN" 2>&1 \
+    | grep -q '未知' \
+    && chk "::analogy 在无关系边时不编答案" 1 || chk "::analogy 该拒答时却给了答案" 0
 
 rm -rf "$TMP"
 [ "$fail" -eq 0 ] && echo "PASS embed（L3：emb 真学出来了；同时钉住它撑不起细粒度分类与关系类比）" \

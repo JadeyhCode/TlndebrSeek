@@ -1226,6 +1226,8 @@ typedef struct AI {
     size_t   n_verify_ok;
     size_t   n_verify_miss;
     int    (*rel_verify_hook)(const Token *a, const Token *b, RelId rid, int neg);
+    /* §7.092 R5 类比：用**类型化路径相似**替代 emb 余弦（sim_mode=path 默认；emb 仅对照） */
+    float  (*sim_path_hook)(struct AI *ai, const Token *a, const Token *b, int *known);
     int    (*tool_hook)(struct AI *ai, const char *input, char *out, size_t cap);  /* §6.993 模型调用工具 */
     void   (*curious_hook)(struct AI *ai, const char *q, const char *why);  /* §6.995 答不出时入好奇心队列 */
     int     curious_n;      /* 本会话已入队条数（限额记账） */

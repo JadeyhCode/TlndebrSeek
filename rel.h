@@ -1883,6 +1883,12 @@ static inline int rel_struct_sim(const Token *a, const Token *s, size_t *out_com
 #define REL_STRUCT_MIN_COMMON 3
 #define REL_STRUCT_MIN_PCT    60
 
+/* §7.092 R5 的路径相似钩子（path.h 在 rel.h 之后定义；由 main 装上） */
+static float (*g_sim_path_hook)(AI *ai, const Token *a, const Token *b, int *known);
+static inline void rel_set_sim_path_hook(float (*fn)(AI *, const Token *, const Token *, int *)) {
+    g_sim_path_hook = fn;
+}
+
 static inline int rel_guess(AI *ai, const Token *a, RelId rid, const Token *b,
                             Proof *pf) {
     ai_embed_ensure(ai);                     /* §6.684 惰性：这一路要用 emb 余弦 */
@@ -1916,7 +1922,25 @@ static inline int rel_guess(AI *ai, const Token *a, RelId rid, const Token *b,
          *   ① emb 余弦（用词/语境像）—— 需要两边都有 emb；
          *   ② **结构相似**（关系骨架像）—— 用词可以完全不同，这是结构映射式类比。 */
         int pct = -1, is_struct = 0;
-        if (a->emb && s->emb) {
+        char smode[16] = {0};
+        (void)aip_policy_str("sim_mode", smode, sizeof smode);
+        int use_emb = (smode[0] && !strcmp(smode, "emb"));
+        if (use_emb && a->emb && s->emb) {
+            double c = (double)emb_cosine(a->emb, s->emb);
+            if (c * 100.0 > pct) { pct = (int)(c * 100.0); is_struct = 0; }
+        } else if (!use_emb && g_sim_path_hook) {
+            int known = 0;
+            float ps = g_sim_path_hook((AI *)ai, a, s, &known);
+            if (known && ps >= 0.40f && ps * 100.0f > pct) { pct = (int)(ps * 100.0f); is_struct = 1; }
+            /* 路径证据不足时保留旧 emb 作为**兜底**（只在这一处；路径足够时不再看 emb）。
+             * 为什么保留：'桌子 会 飞 吗' 这类两边都在图里、但结构不相干的问法，旧行为靠
+             * 最近邻给出否定猜测（askback 的极性矩阵钉住它）；路径在这里本来就该说“不知道”。 */
+            else if (a->emb && s->emb && (!known || ps < 0.40f)) {
+                double c = (double)emb_cosine(a->emb, s->emb);
+                if (c * 100.0 > pct) { pct = (int)(c * 100.0); is_struct = 0; }
+            }
+        } else if (a->emb && s->emb) {
+            /* 探针/嵌入测试不经过 main：没装路径钩子时退回 emb（行为与旧版一致） */
             double c = (double)emb_cosine(a->emb, s->emb);
             if (c * 100.0 > pct) { pct = (int)(c * 100.0); is_struct = 0; }
         }

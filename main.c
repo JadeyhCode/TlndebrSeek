@@ -1032,7 +1032,7 @@ static const CmdDef CMDS[] = {
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
     { "analogy", NULL, 2, "基本",
-      "关系类比 A:B :: C:?（emb 空间向量算术）", CMD_ANALOGY },
+      "**类型化路径类比**：A:B :: C:D（同规范关系/同方向；只读、无证据 ⇒ 未知；不做稠密向量）", CMD_ANALOGY },
     { "tokens", NULL, 1, "基本",
       "列出关联最多的前 N 个符号节点", CMD_TOKENS },
     { "excl", NULL, 0, "基本",
@@ -4330,6 +4330,7 @@ static int parse_atom_cmd(const char *r, char *nm, size_t ncap,
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
+    rel_set_sim_path_hook(path_sim_hook_pct);    /* §7.092 R5：路径相似替换 emb 余弦（sim_mode 控制） */
     rel_schema_load_dims("dims.txt");            /* §7.088 量纲注册（先于 schema 校验） */
     rel_schema_load_file("relations_beh.txt");   /* §7.073 P0：关系行为 schema（NOSCHEMA 时回退） */
     const char *corpus = NULL;
@@ -8162,46 +8163,8 @@ int main(int argc, char **argv) {
                 continue;
             }
             case CMD_ANALOGY: {
-                const char *arg = (cmd[7] == ' ') ? cmd + 8 : NULL;
-                while (arg && *arg == ' ') arg++;
-                if (!arg || !*arg) { printf("[用法] ::analogy <A> <B> <C>   （A:B :: C:?）\n"); continue; }
-                char *dup = (char *)malloc(strlen(arg) + 1);
-                if (!dup) continue;
-                memcpy(dup, arg, strlen(arg) + 1);
-                char *w[3] = {NULL, NULL, NULL};
-                size_t nw = 0;
-                for (char *p2 = dup; *p2 && nw < 3; ) {
-                    while (*p2 == ' ') p2++;
-                    if (!*p2) break;
-                    w[nw++] = p2;
-                    while (*p2 && *p2 != ' ') p2++;
-                    if (*p2) *p2++ = 0;
-                }
-                if (nw < 3) { printf("[用法] ::analogy <A> <B> <C>\n"); free(dup); continue; }
-                Token *A = pool_find(a->brain->pool, w[0]);
-                Token *B = pool_find(a->brain->pool, w[1]);
-                Token *C = pool_find(a->brain->pool, w[2]);
-                if (!A || !B || !C) {
-                    printf("[词不在图里] %s%s%s\n", A ? "" : w[0],
-                           B ? "" : w[1], C ? "" : w[2]);
-                    free(dup); continue;
-                }
-                float sim = 0;
-                Token *r = ai_analogy(a->brain, A, B, C, &sim);
-                /* 门槛 0.5：低于它就说明**这个图的分布式表示还撑不起关系类比** ——
-                 * 与其报一个像「猫:动物::狗:? → 火」这种自信的错答案，
-                 * 不如直说推不出来。实测当前 model.bin 会走这条分支：
-                 *   cats 例子只有 30%，说明向量里还没有「类别偏移」这种结构。
-                 * 这个门槛同时是一个**测量仪器**：哪天它能过了，就说明
-                 * 语料/表示到位了（见 docs 第二十七节）。 */
-                if (r && sim >= 0.5f)
-                    printf("[类比] %s : %s :: %s : ?  →  %s (%.1f%%)\n",
-                           w[0], w[1], w[2], r->name, 100.0 * (double)sim);
-                else
-                    printf("[类比] %s : %s :: %s : ?  →  推不出来"
-                           "（最高只有 %s %.1f%%，低于门槛 50%%）\n",
-                           w[0], w[1], w[2], r ? r->name : "—", 100.0 * (double)sim);
-                free(dup);
+                /* §7.092 换成类型化路径类比（原 emb 向量算术已移除，sim_mode=emb 仅留作 R5 对照） */
+                analogy_cmd(a->brain, carg ? carg : "");
                 continue;
             }
             case CMD_GEN: {

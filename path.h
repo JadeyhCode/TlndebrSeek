@@ -41,13 +41,15 @@ static inline void path_key(const PathSig *s, char *buf, size_t cap) {
         o += (size_t)snprintf(buf + o, cap - o, "|%u:%u", (unsigned)s->rel[i], (unsigned)s->dir[i]);
 }
 
-/* 规范一条边：返回 rel/dir（对称 ⇒ dir=0；否则逆关系取 id 小的一侧、方向翻转）。 */
-static inline void path_edge_norm(AI *ai, RelId rid, uint8_t *dir) {
+/* 规范一条边：返回**规范化后的 rel** 与方向（对称 ⇒ dir=0；
+ * 逆关系取 id 小的一侧：A -包含-> B 记成 A -(反向 属于)-> B，方向 1）。 */
+static inline RelId path_edge_norm(AI *ai, RelId rid, uint8_t *dir) {
     *dir = 0;
-    if (!ai || !rid) return;
-    if (rel_is_sym(ai, rid)) return;
+    if (!ai || !rid) return rid;
+    if (rel_is_sym(ai, rid)) return rid;
     RelId inv = rel_inv_of(ai, rid);
-    if (inv && inv < rid) *dir = 1;
+    if (inv && inv < rid) { *dir = 1; return inv; }
+    return rid;
 }
 
 /* §7.091 终点类别：沿「属于」正向 BFS ≤3 跳，取最远可达（无环）；找不到返回 0。 */
@@ -96,10 +98,10 @@ static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
                 if (e->rel & REL_BIT(r)) { rid = r; break; }
             if (!rid) continue;
             uint8_t dir = 0;
-            path_edge_norm(ai, rid, &dir);
+            RelId nrid = path_edge_norm(ai, rid, &dir);
             Node nx = cur;
             nx.t = e->main;
-            nx.rel[nx.len] = rid;
+            nx.rel[nx.len] = nrid;
             nx.dir[nx.len] = dir;
             nx.len = (uint8_t)(cur.len + 1);
             q[qn++] = nx;
@@ -324,6 +326,57 @@ static inline int path_sim_cmd(AI *ai, const char *arg) {
         shown++;
     }
     if (!shown) printf("  证据: （没有完全相同的路径；分数来自邻居重叠）\n");
+    return 1;
+}
+
+/* §7.092 R5 钩子包装：返回 0..1，known=0 表示没有路径证据。 */
+static inline float path_sim_hook_pct(AI *ai, const Token *a, const Token *b, int *known) {
+    float pj = 0, nj = 0, aj = 0;
+    return path_sim(ai, (Token *)a, (Token *)b, known, &pj, &nj, &aj);
+}
+
+/* §7.092 类比：A : B :: C : D —— 找与 A→B **同规范关系/同方向**的 C→D，返回 D。
+ * 只读已接受边；没有同关系边 ⇒ 未知（不猜）。 */
+static inline int analogy_cmd(AI *ai, const char *arg) {
+    char a[64] = {0}, b[64] = {0}, c[64] = {0};
+    if (!arg || sscanf(arg, "%63s %63s %63s", a, b, c) != 3) {
+        printf("[类比] 用法：::analogy <A> <B> <C>（找 D：A:B :: C:D）\n");
+        return 1;
+    }
+    Token *A = pool_find(ai->pool, a), *B = pool_find(ai->pool, b), *C = pool_find(ai->pool, c);
+    if (!A || !B || !C) { printf("[类比] 图里没有「%s」\n", !A ? a : (!B ? b : c)); return 1; }
+    RelId ar[64]; uint8_t ad[64]; size_t an = 0;
+    for (size_t i = 0; i < A->count && an < 64; ++i) {
+        const AssocEntry *e = &token_assocs_ro(A)[i];
+        if (!e->main || e->main != B || e->nrel || edge_is_guess(e)) continue;
+        RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
+        if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
+            if (e->rel & REL_BIT(r)) { rid = r; break; }
+        if (!rid) continue;
+        uint8_t dir = 0;
+        ar[an] = path_edge_norm(ai, rid, &dir);
+        ad[an++] = dir;
+    }
+    if (!an) { printf("[类比] %s 到 %s 没有关系边 ⇒ 未知（不猜）\n", a, b); return 1; }
+    int shown = 0;
+    for (size_t i = 0; i < C->count && shown < 3; ++i) {
+        const AssocEntry *e = &token_assocs_ro(C)[i];
+        if (!e->main || e->nrel || edge_is_guess(e) || !e->main->name) continue;
+        RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
+        if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
+            if (e->rel & REL_BIT(r)) { rid = r; break; }
+        if (!rid) continue;
+        uint8_t dir = 0;
+        RelId nrid = path_edge_norm(ai, rid, &dir);
+        for (size_t k = 0; k < an; ++k) {
+            if (ar[k] != nrid || ad[k] != dir) continue;
+            printf("[类比] %s : %s :: %s : %s（依据：同关系 %s%s）\n",
+                   a, b, c, e->main->name, path_rel_name(ai, nrid), dir ? "（反向）" : "");
+            shown++;
+            break;
+        }
+    }
+    if (!shown) printf("[类比] %s 没有与 %s→%s 同关系的边 ⇒ 未知（不猜）\n", c, a, b);
     return 1;
 }
 
