@@ -37924,3 +37924,38 @@ path_deg_cap=1 ⇒ 心测 只展开 1 条边
 - 倒排索引（按关系序列建表）**尚未做**：现在是每次 BFS + 进程内缓存，`path_cache=0` 时是纯重算；
 - 冷 p95 含 `clock_gettime` 开销（微秒级），N 越大越稳；
 - `path_bench` 的统计是单进程单线程，不含多 agent 竞争。
+
+## §7.097 P4 第一块：IR 边界（text→IR→规范文本，只读）（2026-11-27）
+
+新头文件 `ir.h`（命令 140→141→142，新套件 `irboundary`）：
+
+- `IrAtom{kind, a, rel, b, neg, q, cmd, note}`，kind = REL / QUERY / CMD / UNKNOWN；
+- `ir_from_text(ai, text)`：`::` 开头 → CMD；否则 `ai_tokenize` + `rel_parse` → REL/QUERY
+  （带否定与疑问）；接不住 → UNKNOWN + note（不猜、不写图）；
+- `ir_render()`：IR → 规范文本，用于逐字对照；
+- `::ir <文本>`：只读打印原子与回写；policy `ir_adapter=0` 回退旧行为；
+- **没有**接入现有理解管线：这一版只划边界（核仍吃文本），下一步才把适配器前置。
+
+### 实测
+
+```
+::ir 猫 属于 动物      ⇒ kind=REL a=猫 rel=属于 b=动物；回写「猫 属于 动物」
+::ir 猫 属于 动物 吗   ⇒ kind=QUERY q=1；回写「猫 属于 动物 吗」
+::ir 猫 不 属于 植物   ⇒ neg=1；回写「猫 不 属于 植物」
+::ir ::stats           ⇒ kind=CMD
+::ir 今天 天气 很 好   ⇒ UNKNOWN（note 说明接不住）
+::ir 甲测 属于 乙测    ⇒ 不写图（::rel 甲测 无属于边）
+```
+
+### 首跑读数（`tools/irboundary_blind.py`，新套件 `irboundary`）
+
+```
+=> IR 边界首跑：8/8
+```
+
+### 边界
+
+- 只读对照，**没有**把 english/词表/共现统计移到适配器侧，也没有“核只吃 IR”；
+- UNKNOWN 是诚实的“适配器接不住”，不是语义判断；
+- IR 的 `rel` 仍用关系名文本，未改成 `RelId`（后续 IR 版本会带 id/证据）；
+- 过程/声明/证据/问题的完整 IR 结构还没做（只有一个原子 + 命令）。

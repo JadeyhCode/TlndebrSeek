@@ -32,6 +32,7 @@
 #include "induce.h"      /* §7.085 P3 行为归纳（只建议 + 待证） */
 #include "cmp.h"        /* §7.088 P1 比较/时间线（::cmp） */
 #include "path.h"       /* §7.090 类型化路径相似（::pathsim/::pathsig） */
+#include "ir.h"         /* §7.097 P4 IR 边界（::ir，只读） */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -653,6 +654,7 @@ typedef enum {
     CMD_NEAR,
     CMD_ANALOGY,
     CMD_PATHBENCH,          /* §7.096 路径 p95 压测/剪枝 */
+    CMD_IR,                 /* §7.097 IR 边界（只读对照） */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1032,6 +1034,8 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "ir", "<文本>", 1, "基本",
+      "**IR 边界（只读）**：text→IR 原子→规范文本；不改现有理解路径、不写图；`ir_adapter=0` 回退", CMD_IR },
     { "pathbench", "<A> <B> [N]", 1, "基本",
       "**路径相似 p95 压测**（冷缓存逐次清空 / 热缓存）；剪枝 policy `path_max_len`、`path_deg_cap`、`path_topk`", CMD_PATHBENCH },
     { "analogy", NULL, 2, "基本",
@@ -8163,6 +8167,10 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_IR: {
+                ir_cmd(a->brain, carg ? carg : "");
                 continue;
             }
             case CMD_PATHBENCH: {
