@@ -28,14 +28,17 @@ def main():
     checks = []
 
     out = run("::irparity 猫 属于 动物\n::quit\n")
-    checks.append(("陈述：原子一致 + 真值一致", "原子一致=是" in out
-                   and "原文=成立 / 回写=成立" in out and "可安全走 IR" in out))
+    checks.append(("陈述：原子一致 + 真值/证据一致",
+                   "原子一致=是" in out and "原文=成立(直接)" in out
+                   and "回写=成立(直接)" in out and "可安全走 IR" in out))
 
     out = run("::irparity 猫 属于 生物\n::quit\n")
-    checks.append(("传递问句（属于→生物）：真值一致", "原文=成立 / 回写=成立" in out))
+    checks.append(("传递问句（属于→生物）：推导证据一致",
+                   "原文=成立(推导)" in out and "回写=成立(推导)" in out))
 
     out = run("::irparity 猫 不 属于 植物\n::quit\n")
-    checks.append(("否定：真值一致（不成立）", "原文=不成立 / 回写=不成立" in out))
+    checks.append(("否定：不成立且证据一致",
+                   "原文=不成立(" in out and "回写=不成立(" in out))
 
     out = run("::irparity ::stats\n::quit\n")
     checks.append(("元命令：CMD 一致", "一致（非关系原子）" in out))
