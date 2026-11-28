@@ -659,6 +659,7 @@ typedef enum {
     CMD_IRFRONT,            /* §7.101 IR 前置统计 */
     CMD_SISMIGRATE,         /* §7.109 属于拆分迁移 */
     CMD_PLANFWD,            /* §7.111 前向状态空间规划 */
+    CMD_PATHINDEX,          /* §7.112 倒排路径索引 */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1038,6 +1039,8 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "pathindex", "[build|stats|clear]", 1, "基本",
+      "**倒排路径索引**：按 (关系序列,方向) 建表；`build` 显式建、`stats` 看状态；按 pool epoch 失效；`path_index=0` 关闭使用", CMD_PATHINDEX },
     { "planfwd", "<名字>(<参数,…>)", 2, "基本",
       "**有界前向状态空间规划**（P3）：从全部事实出发、用规则单调展开；深度/代价/步数预算；只读。\n"
       "预算 policy `planfwd_max_depth`/`planfwd_max_cost`/`planfwd_max_steps`；否定前提的规则不展开", CMD_PLANFWD },
@@ -8236,6 +8239,10 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_PATHINDEX: {
+                pathindex_cmd(a->brain, carg ? carg : "");
                 continue;
             }
             case CMD_PLANFWD: {

@@ -174,6 +174,83 @@ static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
     return n;
 }
 
+/* §7.112 倒排路径索引：key=(关系序列,方向)，value=(起点 token id, 终点 token id)。
+ * 显式 `::pathindex build` 建；按 pool serial+epoch 失效；`path_index=0` 关闭使用。 */
+#define PATH_INDEX_MAX 8192
+typedef struct { char key[96]; uint32_t start, end; } PathIndexEnt;
+static PathIndexEnt g_path_index[PATH_INDEX_MAX];
+static size_t g_path_index_n;
+static uint64_t g_path_index_serial, g_path_index_epoch;
+
+static inline void path_seq_key(const PathSig *s, char *buf, size_t cap) {
+    size_t o = 0;
+    for (uint8_t i = 0; i < s->len && o < cap; ++i)
+        o += (size_t)snprintf(buf + o, cap - o, "%u%s:", (unsigned)s->rel[i],
+                              s->dir[i] ? "<" : "");
+}
+
+static inline int path_index_build(AI *ai) {
+    if (!ai || !ai->pool) return 0;
+    g_path_index_n = 0;
+    g_path_index_serial = ai->pool->serial;
+    g_path_index_epoch = ai->pool->epoch;
+    static PathSet ps;
+    for (uint32_t t = 0; t < ai->pool->count && g_path_index_n < PATH_INDEX_MAX; ++t) {
+        Token *tok = ai->pool->tokens[t];
+        if (!tok || tok->is_garbage || !tok->name) continue;
+        size_t n = path_enum(ai, tok, &ps);
+        for (size_t i = 0; i < n && g_path_index_n < PATH_INDEX_MAX; ++i) {
+            PathIndexEnt *e = &g_path_index[g_path_index_n];
+            path_seq_key(&ps.p[i], e->key, sizeof e->key);
+            e->start = tok->id;
+            e->end = ps.p[i].end;
+            g_path_index_n++;
+        }
+    }
+    return (int)g_path_index_n;
+}
+
+static inline int path_index_valid(const AI *ai) {
+    return ai && ai->pool && g_path_index_n > 0 &&
+           g_path_index_serial == ai->pool->serial && g_path_index_epoch == ai->pool->epoch;
+}
+
+/* 查一个路径序列：返回 entries 数；out 收 (start,end) 对。 */
+static inline size_t path_index_lookup(const AI *ai, const char *key,
+                                       uint32_t *out_start, uint32_t *out_end, size_t cap) {
+    if (!path_index_valid(ai) || !key) return 0;
+    size_t n = 0;
+    for (size_t i = 0; i < g_path_index_n && n < cap; ++i)
+        if (!strcmp(g_path_index[i].key, key)) {
+            if (out_start) out_start[n] = g_path_index[i].start;
+            if (out_end) out_end[n] = g_path_index[i].end;
+            n++;
+        }
+    return n;
+}
+
+static inline int pathindex_cmd(AI *ai, const char *arg) {
+    const char *p = arg ? arg : "";
+    while (*p == ' ') p++;
+    if (!strncmp(p, "clear", 5)) {
+        g_path_index_n = 0;
+        printf("[路径索引] 已清空\n");
+        return 1;
+    }
+    if (!strncmp(p, "build", 5)) {
+        int n = path_index_build(ai);
+        printf("[路径索引] 建好：%d 条 (起点,终点,序列)，serial=%llu epoch=%llu\n",
+               n, (unsigned long long)g_path_index_serial, (unsigned long long)g_path_index_epoch);
+        return 1;
+    }
+    /* stats */
+    printf("[路径索引] 条目 %zu ｜ %s ｜ serial=%llu epoch=%llu ｜ 开关 path_index=%ld\n",
+           g_path_index_n, path_index_valid(ai) ? "有效" : "未建/已失效",
+           (unsigned long long)g_path_index_serial, (unsigned long long)g_path_index_epoch,
+           aip_policy_int("path_index", 1));
+    return 1;
+}
+
 static inline int path_find(const PathSet *s, const char *key) {
     for (size_t i = 0; i < s->n; ++i) {
         char kb[PATH_KEY_LEN];
@@ -429,6 +506,31 @@ static inline int analogy_cmd(AI *ai, const char *arg) {
             }
             if (shown) return 1;
         }
+    }
+    /* ② 倒排索引（显式 build 且 epoch 有效时）：按 (关系序列,方向) 直接找 C 的同构终点 */
+    if (aip_policy_int("path_index", 1) && path_index_valid(ai)) {
+        static PathSet sa0;
+        size_t na0 = path_enum(ai, A, &sa0);
+        int shown = 0;
+        for (size_t i = 0; i < na0 && shown < 3; ++i) {
+            if (sa0.p[i].end != B->id) continue;
+            char key[96];
+            path_seq_key(&sa0.p[i], key, sizeof key);
+            uint32_t st[512], en[512];
+            size_t m = path_index_lookup(ai, key, st, en, 512);
+            for (size_t q = 0; q < m && shown < 3; ++q) {
+                if (st[q] != C->id || en[q] == C->id) continue;
+                const char *dn = (en[q] < ai->pool->count && ai->pool->tokens[en[q]]->name)
+                                     ? ai->pool->tokens[en[q]]->name : "?";
+                printf("[类比] %s : %s :: %s : %s（依据：索引路径 ", a, b, c, dn);
+                for (uint8_t z = 0; z < sa0.p[i].len; ++z)
+                    printf("%s%s%s ", z ? "→" : "", sa0.p[i].dir[z] ? "<" : "",
+                           path_rel_name(ai, sa0.p[i].rel[z]));
+                printf("，%u 跳）\n", (unsigned)sa0.p[i].len);
+                shown++;
+            }
+        }
+        if (shown) return 1;
     }
     static PathSet sa, sc;
     size_t na = path_enum(ai, A, &sa);
