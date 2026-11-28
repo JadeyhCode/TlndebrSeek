@@ -658,6 +658,7 @@ typedef enum {
     CMD_IRPARITY,           /* §7.098 IR 双跑对照 */
     CMD_IRFRONT,            /* §7.101 IR 前置统计 */
     CMD_SISMIGRATE,         /* §7.109 属于拆分迁移 */
+    CMD_PLANFWD,            /* §7.111 前向状态空间规划 */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1037,6 +1038,9 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "planfwd", "<名字>(<参数,…>)", 2, "基本",
+      "**有界前向状态空间规划**（P3）：从全部事实出发、用规则单调展开；深度/代价/步数预算；只读。\n"
+      "预算 policy `planfwd_max_depth`/`planfwd_max_cost`/`planfwd_max_steps`；否定前提的规则不展开", CMD_PLANFWD },
     { "sismigrate", "[--apply]", 1, "基本",
       "**属于拆分迁移**（P1）：dry-run 给计划；`--apply` 写 `子类(...)`/`实例(...)` 谓词事实，旧边保留（双读、幂等）", CMD_SISMIGRATE },
     { "irfront", "[show|reset]", 1, "基本",
@@ -8232,6 +8236,27 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_PLANFWD: {
+                const char *r = carg ? carg : "";
+                char nm[64] = {0}; char abuf[PRED_MAX_ARGS][64];
+                char *args[PRED_MAX_ARGS]; size_t na = 0;
+                if (!parse_atom_cmd(r, nm, sizeof nm, abuf, args, &na)) {
+                    printf("[前向规划] 用法：::planfwd <名字>(<参数,…>)\n");
+                    continue;
+                }
+                char out[4096];
+                int steps = 0, cost = 0, hit = 0;
+                int rc = rule_plan_forward(a->brain, nm, args, na, out, sizeof out, &steps, &cost, &hit);
+                printf("[前向规划] %s(%s", nm, args[0]);
+                for (size_t i = 1; i < na; ++i) printf(",%s", args[i]);
+                printf(") ⇒ ");
+                if (rc == 1) printf("**可达**（规则尝试 %d、代价 %d）\n", steps, cost);
+                else if (rc == 2) printf("**超出深度/代价/步数预算**（规则尝试 %d；不猜）\n", steps);
+                else if (rc == -1) printf("**结构错误**\n");
+                else printf("**不可达（未知，不是假）**（规则尝试 %d）\n", steps);
+                if (out[0]) printf("%s", out);
                 continue;
             }
             case CMD_SISMIGRATE: {

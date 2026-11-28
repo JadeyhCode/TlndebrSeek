@@ -883,4 +883,229 @@ static inline int rule_search(AI *ai, const char *name, char *const *args, size_
     return 0;
 }
 
+/* §7.111 P3 前向状态空间规划器（有界、只读）：
+ * 动作 = 规则（只展开**肯定**前提 + 数值约束）；状态 = 事实集合；
+ * 从全部 ground 谓词事实出发做单调前向闭包，记录每条新事实的父事实/规则/代价/深度，
+ * 找到目标即回溯打印路径。预算：planfwd_max_depth / planfwd_max_cost / planfwd_max_facts。
+ * 不写图、不落盘；否定前提的规则**拒绝展开**（前向 NAF 非单调，避免假路径）。
+ */
+#define PLANFWD_MAX_FACTS 512
+#define PLANFWD_MAX_ARGS  4
+typedef struct {
+    char name[40];
+    size_t n;
+    char args[PLANFWD_MAX_ARGS][40];
+    int  parent;          /* 父事实下标；-1=初始事实 */
+    char rule[32];        /* 用的规则节点名 */
+    char via[200];        /* 前提事实摘要（可解释路径） */
+    int  cost, depth;
+} PlanFact;
+
+typedef struct {
+    PlanFact *f; size_t n, cap;
+    size_t steps, max_steps;
+    int budget_hit;
+} PlanFwdCtx;
+
+static inline int plan_fact_equal(const PlanFact *a, const char *name, char *const *args, size_t n) {
+    if (!a || strcmp(a->name, name) || a->n != n) return 0;
+    for (size_t i = 0; i < n; ++i) if (strcmp(a->args[i], args[i])) return 0;
+    return 1;
+}
+
+static inline int plan_fact_add(PlanFwdCtx *c, const char *name, char *const *args, size_t n,
+                                int parent, const char *rule, int cost, int depth) {
+    if (!c || c->n >= c->cap) { if (c) c->budget_hit = 1; return -1; }
+    /* 先查重（O(n) 小图可接受） */
+    for (size_t i = 0; i < c->n; ++i) if (plan_fact_equal(&c->f[i], name, args, n)) return (int)i;
+    PlanFact *x = &c->f[c->n];
+    memset(x, 0, sizeof *x);
+    snprintf(x->name, sizeof x->name, "%s", name);
+    x->n = n;
+    for (size_t i = 0; i < n; ++i) snprintf(x->args[i], sizeof x->args[0], "%s", args[i]);
+    x->parent = parent;
+    snprintf(x->rule, sizeof x->rule, "%s", rule ? rule : "");
+    x->cost = cost;
+    x->depth = depth;
+    return (int)c->n++;
+}
+
+/* 规则前向展开：从当前事实集枚举前提绑定，推导头（不写图）。 */
+static inline void plan_fwd_rule(AI *ai, Token *rule, PlanFwdCtx *c, int depth_limit, int cost_limit) {
+    if (!ai || !rule || !c) return;
+    Token *h = rule_head(ai, rule);
+    RuleAtom ha;
+    if (!h || !rule_node_to_atom(ai, h, &ha)) return;
+    size_t np = rule_npremise(ai, rule);
+    if (!np) return;
+    for (size_t k = 1; k <= np; ++k) {
+        Token *pp = rule_part(ai, rule, "前提", k);
+        RuleAtom pa;
+        if (!pp || !rule_node_to_atom(ai, pp, &pa)) return;
+        if ((unsigned char)pa.name[0] == 0xE4 && (unsigned char)pa.name[1] == 0xB8 &&
+            (unsigned char)pa.name[2] == 0x8D) return;   /* 否定前提：前向规划不展开 */
+    }
+    /* 简化：每次只从“已有的全部事实”做一轮 join（外层反复调用直到不动点/预算） */
+    RuleSubst s;
+    memset(&s, 0, sizeof s);
+    /* 用递归 join 函数实现：定义在下面（前向声明不合法，直接内联 lambda 式宏太乱 ⇒ 展开成两段） */
+    typedef struct { AI *ai; Token *rule; PlanFwdCtx *c; size_t np; int depth_limit, cost_limit; } J;
+    J j = { ai, rule, c, np, depth_limit, cost_limit };
+    /* 递归 join 用显式栈：最多 4 条前提、每条最多 n 个事实 ⇒ 直接 4 层循环会爆炸；
+     * 这里用“逐前提扩展绑定集合”的迭代法，绑定集合最多 64 个。 */
+    typedef struct { RuleSubst s; int parent; int prem[RULE_MAX_PREMISE]; } B;
+    static B bs[PLANFWD_MAX_FACTS];
+    size_t bn = 1;
+    memset(&bs[0], 0, sizeof bs[0]);
+    bs[0].parent = -1;
+    for (size_t z = 0; z < RULE_MAX_PREMISE; ++z) bs[0].prem[z] = -1;
+    for (size_t k = 1; k <= j.np; ++k) {
+        Token *pp = rule_part(ai, rule, "前提", k);
+        RuleAtom pa;
+        if (!pp || !rule_node_to_atom(ai, pp, &pa)) return;
+        int numeric = (!strcmp(pa.name, ">") || !strcmp(pa.name, "<") || !strcmp(pa.name, "="));
+        static B nb[PLANFWD_MAX_FACTS * 2];
+        size_t nn = 0;
+        for (size_t b = 0; b < bn; ++b) {
+            if (numeric) {
+                RuleAtom g;
+                if (!rule_ground(&bs[b].s, &pa, &g)) continue;
+                char *e1 = NULL, *e2 = NULL;
+                double x = strtod(g.args[0], &e1), y = strtod(g.args[1], &e2);
+                if (!e1 || *e1 || !e2 || *e2) continue;
+                int ok = !strcmp(pa.name, ">") ? (x > y) : (!strcmp(pa.name, "<") ? (x < y) : (x == y));
+                if (!ok) continue;
+                nb[nn] = bs[b];
+                nn++;
+                continue;
+            }
+            for (size_t fi = 0; fi < c->n && nn < sizeof nb / sizeof nb[0]; ++fi) {
+                PlanFact *f = &c->f[fi];
+                if (strcmp(f->name, pa.name) || f->n != pa.n) continue;
+                RuleSubst s2 = bs[b].s;
+                int ok = 1;
+                for (size_t a = 0; a < pa.n && ok; ++a) {
+                    if (pa.args[a][0] == '$') ok = rule_bind(&s2, pa.args[a], f->args[a]);
+                    else ok = !strcmp(pa.args[a], f->args[a]);
+                }
+                if (!ok) continue;
+                nb[nn].s = s2;
+                nb[nn].parent = (int)fi;
+                memcpy(nb[nn].prem, bs[b].prem, sizeof nb[nn].prem);
+                nb[nn].prem[k - 1] = (int)fi;
+                nn++;
+            }
+        }
+        if (!nn) return;
+        memcpy(bs, nb, nn * sizeof bs[0]);
+        bn = nn;
+        if (bn > PLANFWD_MAX_FACTS) bn = PLANFWD_MAX_FACTS;
+    }
+    /* 每条绑定推导头 */
+    for (size_t b = 0; b < bn; ++b) {
+        RuleAtom g;
+        if (!rule_ground(&bs[b].s, &ha, &g)) continue;
+        if ((int)g.n > PLANFWD_MAX_ARGS) continue;
+        int cost = (bs[b].parent >= 0 ? c->f[bs[b].parent].cost : 0) + 1 + (int)np;
+        int dep  = (bs[b].parent >= 0 ? c->f[bs[b].parent].depth : 0) + 1;
+        if (depth_limit > 0 && dep > depth_limit) { c->budget_hit = 1; continue; }
+        if (cost_limit > 0 && cost > cost_limit) { c->budget_hit = 1; continue; }
+        c->steps++;
+        if (c->max_steps && c->steps > c->max_steps) { c->budget_hit = 1; return; }
+        char *args[PLANFWD_MAX_ARGS];
+        for (size_t a = 0; a < g.n; ++a) args[a] = g.args[a];
+        char via[200] = {0}; size_t vo = 0;
+        for (size_t q = 0; q < RULE_MAX_PREMISE; ++q) {
+            int pi = bs[b].prem[q];
+            if (pi < 0) continue;
+            PlanFact *pf = &c->f[pi];
+            vo += (size_t)snprintf(via + vo, sizeof via - vo, "%s%s(%s%s%s)",
+                                   vo ? "+" : "", pf->name, pf->args[0], pf->n > 1 ? "," : "",
+                                   pf->n > 1 ? pf->args[1] : "");
+            if (vo >= sizeof via) break;
+        }
+        int idx = plan_fact_add(c, g.name, args, g.n, bs[b].parent, rule->name, cost, dep);
+        if (idx >= 0 && via[0]) snprintf(c->f[idx].via, sizeof c->f[idx].via, "%s", via);
+    }
+}
+
+/* 返回 1=找到 0=未知 2=预算/深度截断 -1=结构问题 */
+static inline int rule_plan_forward(AI *ai, const char *name, char *const *args, size_t n,
+                                    char *out, size_t cap, int *out_steps, int *out_cost,
+                                    int *budget_hit) {
+    if (out_steps) *out_steps = 0;
+    if (out_cost) *out_cost = 0;
+    if (budget_hit) *budget_hit = 0;
+    if (!ai || !name || !args || n == 0 || n > PLANFWD_MAX_ARGS) return -1;
+    static PlanFact fbuf[PLANFWD_MAX_FACTS];
+    PlanFwdCtx c;
+    memset(&c, 0, sizeof c);
+    c.f = fbuf; c.cap = PLANFWD_MAX_FACTS;
+    int depth_limit = (int)aip_policy_int("planfwd_max_depth", 4);
+    int cost_limit = (int)aip_policy_int("planfwd_max_cost", 20);
+    c.max_steps = (size_t)aip_policy_int("planfwd_max_steps", 400);
+    if (depth_limit < 1) depth_limit = 1;
+    if (cost_limit < 1) cost_limit = 1;
+    /* 初始事实：图里所有 ground 谓词实例 */
+    char names[128][64];
+    size_t nn = pred_list_names(ai, names, 128);
+    for (size_t i = 0; i < nn && c.n < c.cap; ++i) {
+        Token *inst[256];
+        size_t ni = pred_instances(ai, names[i], inst, 256);
+        for (size_t k = 0; k < ni && c.n < c.cap; ++k) {
+            int ok = 0;
+            size_t an = pred_arity(ai, inst[k], &ok);
+            if (!ok || an == 0 || an > PLANFWD_MAX_ARGS) continue;
+            char *fa[PLANFWD_MAX_ARGS] = {0};
+            int var = 0;
+            for (size_t a = 0; a < an; ++a) {
+                Token *ta = pred_arg(ai, inst[k], a + 1);
+                if (!ta || !ta->name) { var = 1; break; }
+                fa[a] = (char *)ta->name;
+                if (fa[a][0] == '$') var = 1;
+            }
+            if (var) continue;
+            (void)plan_fact_add(&c, names[i], fa, an, -1, "", 0, 0);
+        }
+    }
+    /* 目标已在初始事实里？ */
+    size_t goal = (size_t)-1;
+    for (size_t i = 0; i < c.n; ++i) if (plan_fact_equal(&c.f[i], name, args, n)) { goal = i; break; }
+    Token *rules[64];
+    size_t nr = rule_list(ai, rules, 64);
+    int pass = 0;
+    while (goal == (size_t)-1 && pass < depth_limit && !c.budget_hit) {
+        size_t before = c.n;
+        for (size_t r = 0; r < nr; ++r) plan_fwd_rule(ai, rules[r], &c, depth_limit, cost_limit);
+        pass++;
+        for (size_t i = 0; i < c.n; ++i) if (plan_fact_equal(&c.f[i], name, args, n)) { goal = i; break; }
+        if (c.n == before) break;
+    }
+    if (out_steps) *out_steps = (int)c.steps;
+    if (budget_hit) *budget_hit = c.budget_hit;
+    if (goal == (size_t)-1) {
+        if (out && cap) snprintf(out, cap, "前向闭包 %zu 条事实、%zu 次规则尝试，未达目标%s",
+                                 c.n, c.steps, c.budget_hit ? "（预算/深度截断）" : "");
+        return c.budget_hit ? 2 : 0;
+    }
+    if (out_cost) *out_cost = c.f[goal].cost;
+    /* 回溯路径 */
+    if (out && cap) {
+        size_t o = 0;
+        int idx = (int)goal;
+        char lines[16][512];
+        int nl = 0;
+        while (idx >= 0 && nl < 16) {
+            PlanFact *g = &c.f[idx];
+            snprintf(lines[nl++], sizeof lines[0], "%s(%s%s%s) ｜ 规则 %s ｜ 前提 %s ｜ 代价 %d 深度 %d",
+                     g->name, g->args[0], g->n > 1 ? "," : "", g->n > 1 ? g->args[1] : "",
+                     g->rule[0] ? g->rule : "初始事实", g->via[0] ? g->via : "-", g->cost, g->depth);
+            idx = g->parent;
+        }
+        for (int i = nl - 1; i >= 0 && o < cap; --i)
+            o += (size_t)snprintf(out + o, cap - o, "%s\n", lines[i]);
+    }
+    return 1;
+}
+
 #endif /* RULE_H */
