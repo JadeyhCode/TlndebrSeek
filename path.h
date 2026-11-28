@@ -75,7 +75,7 @@ static inline uint32_t path_end_class(AI *ai, Token *t, int depth) {
 }
 
 /* 从根枚举路径（BFS 深 3、度 64、总 32），去重后返回条数。 */
-static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
+static inline size_t path_enum_raw(AI *ai, Token *root, PathSet *out) {
     if (!ai || !root || !out) return 0;
     out->n = 0;
     typedef struct { Token *t; uint8_t len; RelId rel[PATH_MAX_LEN]; uint8_t dir[PATH_MAX_LEN]; } Node;
@@ -125,6 +125,42 @@ static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
         out->n++;
     }
     return out->n;
+}
+
+/* §7.095 路径缓存：键 = (pool serial, pool epoch, root)；边写一次 epoch+1 ⇒ 全部失效。
+ * 容量 64 条（每条约 32 路径）；policy `path_cache=0` 关闭（消融）。 */
+#define PATH_CACHE_SLOTS 64
+typedef struct {
+    uint64_t serial, epoch;
+    Token   *root;
+    size_t   n;
+    PathSig  p[PATH_MAX_OUT];
+} PathCacheEnt;
+static PathCacheEnt g_path_cache[PATH_CACHE_SLOTS];
+static size_t g_path_cache_rr;
+
+static inline size_t path_enum(AI *ai, Token *root, PathSet *out) {
+    if (!ai || !root || !out) return 0;
+    long on = aip_policy_int("path_cache", 1);
+    uint64_t ser = root->owner ? root->owner->serial : 0;
+    uint64_t ep  = root->owner ? root->owner->epoch : 0;
+    if (on) {
+        for (size_t i = 0; i < PATH_CACHE_SLOTS; ++i) {
+            PathCacheEnt *c = &g_path_cache[i];
+            if (c->serial == ser && c->epoch == ep && c->root == root) {
+                out->n = c->n;
+                memcpy(out->p, c->p, c->n * sizeof c->p[0]);
+                return c->n;
+            }
+        }
+    }
+    size_t n = path_enum_raw(ai, root, out);
+    if (on) {
+        PathCacheEnt *c = &g_path_cache[g_path_cache_rr++ % PATH_CACHE_SLOTS];
+        c->serial = ser; c->epoch = ep; c->root = root; c->n = n;
+        memcpy(c->p, out->p, n * sizeof out->p[0]);
+    }
+    return n;
 }
 
 static inline int path_find(const PathSet *s, const char *key) {

@@ -37855,3 +37855,37 @@ sim_mode=emb              ⇒ 只影响 R5 对照；::analogy 仍走路径
 - 这是**测试基础设施**改动，不改变任何语义/盲测；三轮测量均为 223 套全绿；
 - 16 会多吃内存（15GB 机器），不建议作为默认；
 - 真正的墙钟大头仍是 hidden/capbench + 长套件，继续加并行度收益趋近于零。
+
+## §7.095 类型化路径缓存（按 pool epoch 失效）（2026-11-27）
+
+设计里“索引按 `pool->epoch` 失效”的那一块：
+
+- `TokenPool` 新增 `uint64_t epoch`；**关系边写入原语**（`token_tag_rel/nrel/dyn/dyn_neg`）与
+  `token_remove_assoc` 每次 `epoch++`（宁可多失效，不做逐边版本表）；
+- `path.h` 加 64 槽缓存：键 = `(pool->serial, pool->epoch, root token)`；命中直接拷 `PathSig`，
+  未命中枚举后写入（轮转替换）；`pool->serial` 是既有字段，避免 malloc 地址复用串味；
+- policy `path_cache=1` 默认开，置 0 关闭（消融）；`::pathsim`/`::analogy`/`::pathsig` 都走缓存。
+
+### 实测
+
+```
+::ingest c1 → 甲测 1 条路径；::ingest c2（新边）→ 甲测 2 条（epoch 失效）
+::pathsig 同一词两次 → 结果一致（命中）
+path_cache=0 与默认输出一致
+70 个词轮转后，点1 重新枚举仍 1 条（容量淘汰/重建正确）
+```
+
+### 首跑读数（`tools/pathcache_blind.py`，新套件 `pathcache`）
+
+```
+=> 路径缓存首跑：5/5
+```
+
+同时 `pathsim` 8/8、`pathsim2` 7/7、`analogy` 7/7、`analogy2` 6/6 均通过。
+
+### 边界
+
+- 缓存是**进程内**的，不落盘；64 槽 × top-32，容量小、命中率靠重复查询；
+- epoch 是“每次关系写都失效”的粗粒度版本；大规模批写会频繁清空（后续可按 mtime/分段）；
+- 删除边的路径（`token_remove_assoc`）已计；其它直接改 `e->rel` 的内部路径若存在，仍可能漏失效；
+- `path_end_class` 的 BFS 不在缓存里（只缓存路径签名）。

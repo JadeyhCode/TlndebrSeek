@@ -337,6 +337,7 @@ struct TokenPool {
      * 工具里连着建两个脑子，`AI*`/`TokenPool*` 很可能落在**同一块地址**上，
      * 光比指针会串味（实测过：按指针比"永远不命中"，反过来又可能"命中错了"）。 */
     uint64_t    serial;
+    uint64_t    epoch;      /* §7.095 关系边写一次 +1：路径缓存按它失效（不是逐边版本表） */
     Token      *unknowing;
     MeaningFree meaning_free;
     NameEntry **buckets;
@@ -1484,7 +1485,7 @@ static AIP_TLS int g_obs_revised = 0;
  * 和 token_tag_full 分开，是因为「出处角色」和「语义关系」是两件事：
  * 一条关系边也可能同时带着回复角色。 */
 static inline int token_tag_rel(Token *a, Token *b, uint8_t rel_id, uint32_t bump) {
-    if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
+    if (a) { a->edges_dirty = 1; if (a->owner) a->owner->epoch++; }   /* §7.095 路径缓存失效 */
     /* §6.584 **自环不写**：`A 属于 A` 没有任何语义，而它会把老数据里那条"空自环"
      * 变成"带语义的自环"（实测：随机教事实时 `鸟 属于 鸟` 就踩到了）。
      * 这条护栏放在**写入原语**里，而不是只靠上层调用方记得判。 */
@@ -1538,7 +1539,7 @@ l_create_rel:
 
 /* 给 a→b 打上**否定**的核心关系（`猫 不 会 飞`） */
 static inline int token_tag_nrel(Token *a, Token *b, uint8_t rel_id, uint32_t bump) {
-    if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
+    if (a) { a->edges_dirty = 1; if (a->owner) a->owner->epoch++; }   /* §7.095 */
     if (!a || !b || a == b || rel_id == 0 || rel_id >= REL_DYN_BASE) return -1;   /* §6.584 自环不写 */
     g_obs_revised = 0;
     uint16_t bit = (uint16_t)(1u << (rel_id - 1));
@@ -1601,7 +1602,7 @@ static inline int token_multidyn_on(void) {
 }
 
 static inline int token_tag_dyn(Token *a, Token *b, uint32_t dyn_id, uint32_t bump) {
-    if (a) a->edges_dirty = 1;   /* §6.573 关系边改过 ⇒ 进 delta */
+    if (a) { a->edges_dirty = 1; if (a->owner) a->owner->epoch++; }   /* §7.095 */
     if (!a || !b || a == b || dyn_id == 0) return -1;
     for (size_t i = 0; i < a->count; ++i) {
         AssocEntry *e = &token_assocs(a)[i];
@@ -1693,7 +1694,7 @@ static inline int token_link_bidirectional(Token *a, Token *b) {
     return 0;
 }
 static inline int token_remove_assoc(Token *t, Token *main) {
-    if (t) t->edges_dirty = 1;   /* §6.573 */
+    if (t) { t->edges_dirty = 1; if (t->owner) t->owner->epoch++; }   /* §7.095 路径缓存失效 */
     if (!t) return -1;
     for (size_t i = 0; i < t->count; ++i) {
         AssocEntry *e = &token_assocs(t)[i];
