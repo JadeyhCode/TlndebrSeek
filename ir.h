@@ -101,6 +101,23 @@ static inline void ir_render(const IrAtom *at, char *buf, size_t cap) {
     }
 }
 
+/* §7.100 IR 前置（受控开关）：把能解析的句子回写成规范文本再送进现有管线。
+ * 只做“文本等价替换”，不改变管线内部；UNKNOWN/CMD 原样透传。 */
+static inline int ir_front_text(AI *ai, const char *in, char *out, size_t cap) {
+    if (!ai || !in || !out || !cap || !*in) return 0;
+    if (!aip_policy_int("ir_adapter", 1)) return 0;
+    if (!aip_policy_int("ir_front", 0)) return 0;
+    if (in[0] == ':') return 0;
+    IrAtom at;
+    if (!ir_from_text(ai, in, &at)) return 0;
+    if (at.kind != IR_REL && at.kind != IR_QUERY) return 0;
+    ir_render(&at, out, cap);
+    if (!strcmp(in, out)) return 0;
+    if (getenv("AIP_IRFRONT_DBG"))
+        fprintf(stderr, "[irfront] %s => %s\n", in, out);
+    return 1;
+}
+
 /* `::ir <文本>`：只读对照，不喂给理解管线，也不写图。 */
 static inline int ir_cmd(AI *ai, const char *arg) {
     if (!arg || !*arg) {

@@ -4454,6 +4454,12 @@ int main(int argc, char **argv) {
         const char *input = stdin_perceive(NULL);
         if (!input) break;
 
+        /* §7.100 IR 前置（默认关）：能解析的句子先回写成规范文本，再走原管线。
+         * UNKNOWN/命令/中文以外的算式原样透传；`ir_front=0` 时完全不变。 */
+        char irfront_buf[512];
+        if (ir_front_text(a->brain, input, irfront_buf, sizeof irfront_buf))
+            input = irfront_buf;
+
         /* 元命令：::xxx 与 :xxx 都认 */
         const char *cmd = NULL;
         if (input[0] == ':') cmd = (input[1] == ':') ? input + 2 : input + 1;
