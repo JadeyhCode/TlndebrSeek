@@ -136,7 +136,41 @@ static inline int irfront_cmd(AI *ai, const char *arg) {
     while (*p == ' ') p++;
     if (!strncmp(p, "reset", 5)) {
         memset(&g_irf, 0, sizeof g_irf);
-        printf("[IR前置] 统计已清零\n");
+        remove("_t/ir_front_stats.tsv");
+        printf("[IR前置] 统计与命中账本已清零\n");
+        return 1;
+    }
+    if (!strncmp(p, "summary", 7)) {
+        /* §7.102 汇总命中账本（只读）：条数 / 去重原文 / 最近样例 */
+        FILE *f = fopen("_t/ir_front_stats.tsv", "r");
+        if (!f) { printf("[IR前置] 还没有命中记录（_t/ir_front_stats.tsv 不存在）\n"); return 1; }
+        char line[512];
+        size_t rows = 0, uniq = 0;
+        static char seen[64][256];
+        char last[3][512]; size_t nl = 0;
+        while (fgets(line, sizeof line, f)) {
+            size_t n = strlen(line);
+            while (n && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = 0;
+            if (!n) continue;
+            rows++;
+            const char *c1 = strchr(line, '\t');
+            const char *c2 = c1 ? strchr(c1 + 1, '\t') : NULL;
+            if (c1 && c2) {
+                char orig[256];
+                size_t ol = (size_t)(c2 - c1 - 1);
+                if (ol >= sizeof orig) ol = sizeof orig - 1;
+                memcpy(orig, c1 + 1, ol); orig[ol] = 0;
+                int dup = 0;
+                for (size_t i = 0; i < uniq; ++i) if (!strcmp(seen[i], orig)) { dup = 1; break; }
+                if (!dup && uniq < 64) snprintf(seen[uniq++], sizeof seen[0], "%s", orig);
+            }
+            snprintf(last[nl % 3], sizeof last[0], "%s", line);
+            nl++;
+        }
+        fclose(f);
+        printf("[IR前置] 命中账本：%zu 条，去重原文 %zu 条\n", rows, uniq);
+        for (size_t i = 0; i < uniq && i < 3; ++i) printf("  原文：%s\n", seen[i]);
+        if (nl) printf("  最近：%s\n", last[(nl - 1) % 3]);
         return 1;
     }
     printf("[IR前置] 开关：ir_adapter=%ld ir_front=%ld\n",
