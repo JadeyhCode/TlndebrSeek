@@ -38186,3 +38186,34 @@ ab50.txt（50 句）      ⇒ 比较 50 句：差异 0 句
 - 每个临时脑内部仍会学习/写自己的图（用完即弃），主脑不受影响；
 - 最多 200 行；文件里 `::` 命令只跳过不执行；
 - 差异判定是**逐字**，随机语气前缀会让小谈句出现“差异”，建议 A/B 文件用关系问句。
+
+## §7.105 P4 第九块：默认值决策档案（工具，不替人拍板）（2026-11-27）
+
+`tools/irfront_decision.py`：
+
+- `--selftest`：纯判定函数 5 个用例（全达标→1；hidden 红/答案差异/UNKNOWN>5%/延迟>1.5×→0）；
+- `--ab-only`：跑 50 句 `ir_front=0/1`，读 tries/unknown/changed/延迟，写
+  `_t/ir_front_decision.txt`（读数 + 建议默认值 + 回退开关）；未跑 hidden/capbench 时**保守建议 0**；
+- `--full`：hidden + capbench + 50 句 A/B（重，本轮未在套件里跑）。
+
+### 实测（ab-only）
+
+```
+A/B：tries=50 unknown=0 ratio=0.000 changed=0
+延迟：基线 0.11s / 前置 0.11s（ratio 1.03）
+建议默认值：0（hidden/capbench 未全绿 ⇒ 不升级默认）
+回退开关：policy ir_front=0
+```
+
+### 首跑读数（`tools/irfrontdecision_blind.py`，新套件 `irfrontdecision`）
+
+```
+=> 前置默认值决策档案首跑：7/7
+```
+
+### 边界
+
+- 这是**决策档案生成器**，不是自动改默认值的开关；最终仍要人确认；
+- `--ab-only` 的 hidden/capbench 标记为未跑 ⇒ 永远建议 0（保守）；
+- 延迟是整进程墙钟；两次运行时间戳/延迟会变，可复现性只对“判定与计数”成立；
+- `--full` 耗时长（hidden+capbench），未作为盲测套件运行。
