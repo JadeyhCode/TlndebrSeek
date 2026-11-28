@@ -57,7 +57,11 @@ def main():
 
     o1 = run("::irfront ab ab.txt\n::quit\n")
     o2 = run("::irfront ab ab.txt\n::quit\n")
-    checks.append(("读数确定（两次一致）", o1 == o2))
+    # 临时脑耗时是墙钟读数，会波动；只比较“比较/差异/账本”这些结构字段
+    def stable(s):
+        s = re.sub(r"耗时 [0-9.]+s / [0-9.]+s", "耗时 <clock>", s)
+        return s
+    checks.append(("读数确定（两次一致，忽略墙钟）", stable(o1) == stable(o2)))
 
     ok = sum(1 for _, g in checks if g)
     for name, good in checks:

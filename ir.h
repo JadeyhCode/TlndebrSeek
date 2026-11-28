@@ -103,7 +103,7 @@ static inline void ir_render(const IrAtom *at, char *buf, size_t cap) {
 
 /* §7.101 前置统计（进程内计数 + 命中账本）：tries=非命令输入、rewrites=实际回写、
  * unknown=适配器接不住、same=回写后与原文相同、cmds=命令跳过。 */
-typedef struct { size_t tries, rewrites, unknown, same, cmds; } IrFrontStats;
+typedef struct { size_t tries, rewrites, unknown, same, cmds, gray, gray_skip; } IrFrontStats;
 static IrFrontStats g_irf;
 
 /* §7.100 IR 前置（受控开关）：把能解析的句子回写成规范文本再送进现有管线。
@@ -112,13 +112,21 @@ static inline int ir_front_observe(AI *ai, const char *in, char *out, size_t cap
     if (!ai || !in || !out || !cap || !*in) return 0;
     if (in[0] == ':') { g_irf.cmds++; return 0; }
     if (!aip_policy_int("ir_adapter", 1)) return 0;
-    if (!aip_policy_int("ir_front", 0)) return 0;
+    long mode = aip_policy_int("ir_front", 0);
+    if (!mode) return 0;
     g_irf.tries++;
     IrAtom at;
     if (!ir_from_text(ai, in, &at) || (at.kind != IR_REL && at.kind != IR_QUERY)) {
         g_irf.unknown++;
         return 0;
     }
+    /* §7.106 灰度（mode=2）：只对**核心关系**的 REL/QUERY 生效；动态/无 schema 谓语透传。
+     * 这样默认值可以从 0→2→1 分两步走，出问题先回落 2 或 0。 */
+    if (mode == 2 && at.rid >= REL_DYN_BASE) {
+        g_irf.gray_skip++;
+        return 0;
+    }
+    if (mode == 2) g_irf.gray++;
     ir_render(&at, out, cap);
     if (!strcmp(in, out)) { g_irf.same++; return 0; }
     g_irf.rewrites++;
@@ -244,10 +252,11 @@ static inline int irfront_cmd(AI *ai, const char *arg) {
         if (nl) printf("  最近：%s\n", last[(nl - 1) % 3]);
         return 1;
     }
-    printf("[IR前置] 开关：ir_adapter=%ld ir_front=%ld\n",
+    printf("[IR前置] 开关：ir_adapter=%ld ir_front=%ld（0=关 1=全开 2=灰度：仅核心关系）\n",
            aip_policy_int("ir_adapter", 1), aip_policy_int("ir_front", 0));
-    printf("[IR前置] 本进程：尝试 %zu，回写 %zu，UNKNOWN %zu，原样 %zu，命令跳过 %zu\n",
-           g_irf.tries, g_irf.rewrites, g_irf.unknown, g_irf.same, g_irf.cmds);
+    printf("[IR前置] 本进程：尝试 %zu，回写 %zu，UNKNOWN %zu，原样 %zu，命令跳过 %zu，灰度命中 %zu，灰度透传 %zu\n",
+           g_irf.tries, g_irf.rewrites, g_irf.unknown, g_irf.same, g_irf.cmds,
+           g_irf.gray, g_irf.gray_skip);
     printf("          命中账本：_t/ir_front_stats.tsv（有回写才追加）\n");
     return 1;
 }
