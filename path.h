@@ -14,6 +14,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <stdlib.h>
 #include "units.h"
 
 #define PATH_MAX_LEN   3
@@ -78,6 +80,15 @@ static inline uint32_t path_end_class(AI *ai, Token *t, int depth) {
 static inline size_t path_enum_raw(AI *ai, Token *root, PathSet *out) {
     if (!ai || !root || !out) return 0;
     out->n = 0;
+    int maxlen = (int)aip_policy_int("path_max_len", PATH_MAX_LEN);
+    int degcap = (int)aip_policy_int("path_deg_cap", PATH_DEG_CAP);
+    int topk   = (int)aip_policy_int("path_topk", PATH_MAX_OUT);
+    if (maxlen < 1) maxlen = 1;
+    if (maxlen > PATH_MAX_LEN) maxlen = PATH_MAX_LEN;
+    if (degcap < 1) degcap = 1;
+    if (degcap > PATH_DEG_CAP) degcap = PATH_DEG_CAP;
+    if (topk < 1) topk = 1;
+    if (topk > PATH_MAX_OUT) topk = PATH_MAX_OUT;
     typedef struct { Token *t; uint8_t len; RelId rel[PATH_MAX_LEN]; uint8_t dir[PATH_MAX_LEN]; } Node;
     static Node q[PATH_MAX_OUT * PATH_DEG_CAP];
     size_t qn = 0, qh = 0;
@@ -86,9 +97,9 @@ static inline size_t path_enum_raw(AI *ai, Token *root, PathSet *out) {
     size_t nseen = 0;
     while (qh < qn && qn < sizeof q / sizeof q[0]) {
         Node cur = q[qh++];
-        if (cur.len >= PATH_MAX_LEN) continue;
+        if (cur.len >= (uint8_t)maxlen) continue;
         size_t deg = 0;
-        for (size_t i = 0; i < cur.t->count && deg < PATH_DEG_CAP; ++i) {
+        for (size_t i = 0; i < cur.t->count && (int)deg < degcap; ++i) {
             const AssocEntry *e = &token_assocs_ro(cur.t)[i];
             if (!e->main || edge_dyn_neg(e)) continue;
             if (edge_is_guess(e)) continue;
@@ -108,7 +119,7 @@ static inline size_t path_enum_raw(AI *ai, Token *root, PathSet *out) {
             deg++;
         }
     }
-    for (size_t i = 1; i < qn && out->n < PATH_MAX_OUT; ++i) {
+    for (size_t i = 1; i < qn && (int)out->n < topk; ++i) {
         PathSig *s = &out->p[out->n];
         memset(s, 0, sizeof *s);
         s->len = q[i].len;
@@ -465,6 +476,60 @@ static inline int analogy_cmd(AI *ai, const char *arg) {
         /* 兜底：A→B 没有路径时给直边诊断（都找不到就未知） */
         printf("[类比] %s 找不到与 %s→%s 同构的路径 ⇒ 未知（不猜）\n", c, a, b);
     }
+    return 1;
+}
+
+/* §7.096 路径基数/剪枝与 p95 压测（给规模评估用；不改变语义）。 */
+static inline void path_cache_flush(void) {
+    memset(g_path_cache, 0, sizeof g_path_cache);
+    g_path_cache_rr = 0;
+}
+
+static inline int path_cmp_us(const void *a, const void *b) {
+    double x = *(const double *)a, y = *(const double *)b;
+    return (x > y) - (x < y);
+}
+
+static inline int path_bench_cmd(AI *ai, const char *arg) {
+    char a[64] = {0}, b[64] = {0};
+    int n = 100;
+    if (!arg || sscanf(arg, "%63s %63s %d", a, b, &n) < 2) {
+        printf("[路径压测] 用法：::pathbench <A> <B> [N]（N 默认 100）\n");
+        return 1;
+    }
+    if (n < 10) n = 10;
+    if (n > 5000) n = 5000;
+    Token *x = pool_find(ai->pool, a), *y = pool_find(ai->pool, b);
+    if (!x || !y) { printf("[路径压测] 图里没有「%s」或「%s」\n", !x ? a : b, !x ? b : a); return 1; }
+    double *cold = (double *)calloc((size_t)n, sizeof *cold);
+    double *warm = (double *)calloc((size_t)n, sizeof *warm);
+    if (!cold || !warm) { free(cold); free(warm); printf("[路径压测] 内存不够\n"); return 1; }
+    for (int i = 0; i < n; ++i) {
+        path_cache_flush();
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        float pj, nj, aj; int known;
+        (void)path_sim(ai, x, y, &known, &pj, &nj, &aj);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        cold[i] = (double)(t1.tv_sec - t0.tv_sec) * 1e6 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e3;
+    }
+    /* 预热一次再测热缓存 */
+    float pj, nj, aj; int known;
+    (void)path_sim(ai, x, y, &known, &pj, &nj, &aj);
+    for (int i = 0; i < n; ++i) {
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        (void)path_sim(ai, x, y, &known, &pj, &nj, &aj);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        warm[i] = (double)(t1.tv_sec - t0.tv_sec) * 1e6 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e3;
+    }
+    qsort(cold, (size_t)n, sizeof *cold, path_cmp_us);
+    qsort(warm, (size_t)n, sizeof *warm, path_cmp_us);
+    double cp95 = cold[(int)(n * 0.95) < n ? (int)(n * 0.95) : n - 1];
+    double wp95 = warm[(int)(n * 0.95) < n ? (int)(n * 0.95) : n - 1];
+    printf("[路径压测] %s vs %s：冷 p95 %.0f µs / 热 p95 %.0f µs（N=%d，缓存 %s）\n",
+           a, b, cp95, wp95, n, aip_policy_int("path_cache", 1) ? "开" : "关");
+    free(cold); free(warm);
     return 1;
 }
 

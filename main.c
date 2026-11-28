@@ -652,6 +652,7 @@ typedef enum {
     CMD_CHAR,              /* 时间顺序：谁先出现 */
     CMD_NEAR,
     CMD_ANALOGY,
+    CMD_PATHBENCH,          /* §7.096 路径 p95 压测/剪枝 */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1031,6 +1032,8 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "pathbench", "<A> <B> [N]", 1, "基本",
+      "**路径相似 p95 压测**（冷缓存逐次清空 / 热缓存）；剪枝 policy `path_max_len`、`path_deg_cap`、`path_topk`", CMD_PATHBENCH },
     { "analogy", NULL, 2, "基本",
       "**类型化路径类比**：A:B :: C:D（同规范关系/同方向；只读、无证据 ⇒ 未知；不做稠密向量）", CMD_ANALOGY },
     { "tokens", NULL, 1, "基本",
@@ -8160,6 +8163,10 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_PATHBENCH: {
+                path_bench_cmd(a->brain, carg ? carg : "");
                 continue;
             }
             case CMD_ANALOGY: {
