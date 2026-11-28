@@ -626,6 +626,7 @@ typedef enum {
     CMD_REWARD,             /* §6.634 奖励：看/清零/开关"更谨慎" */
     CMD_RULE,               /* §6.635 规则：list / add */
     CMD_PROVE,              /* §6.635 证明：::prove 名字 参数… */
+    CMD_SEARCH,             /* §7.087 有界证明搜索（步数/代价预算） */
     CMD_CLAIM,              /* §6.636 待证：list / accept N / reject N */
     CMD_PAPER,              /* §6.638 读论文（离线）：read <文件> / list */
     CMD_LANG,               /* §6.639 语言包：list / load <code> / current / off */
@@ -989,6 +990,10 @@ static const CmdDef CMDS[] = {
       "证不出来就说**未知** —— 不会把『推不出』说成『假』。\n"
       "证不出来时把缺口/子目标记成过程（`[过程:…]`）—— `::proc run <目标>` 逐步核对\n"
       "（认得的说「认识」、还差的说「缺条件」）", CMD_PROVE },
+    { "search", "<名字>(<参数,…>)", 2, "基本",
+      "**有界证明搜索**：和后向链证明同一套规则/事实，但记**步数 + 代价**，超预算就说未知。\n"
+      "::search 祖先(甲,丙)  ⇒ 成立时给步数/代价与每一步；超限 ⇒ 不猜（不算假）\n"
+      "预算：policy `search_max_steps`、`search_max_cost`；深度用 `rule_max_depth`", CMD_SEARCH },
     { "reward", NULL, 1, "基本",
       "**奖励**：学对/改口确认 +，被拒/被纠正 −（短期值每轮 ×0.9 衰减，夹在 ±5）。\n"
       "::reward        看当前值/累计/最近 8 个事件\n"
@@ -4261,6 +4266,51 @@ static void relbeh_show(const char *name) {
                x->inv ? (rel_schema_by_id(x->inv) ? rel_schema_by_id(x->inv)->name : "?") : "-",
                x->card == REL_CARD_SINGLE ? "single" : x->card == REL_CARD_MULTI ? "multi" : "any");
     }
+}
+
+
+/* §7.087 `::search` 的参数解析：`名字 参数…` 或 `名字(参数,…)`（与 ::prove 同口径）。 */
+static int parse_atom_cmd(const char *r, char *nm, size_t ncap,
+                          char abuf[][64], char **args, size_t *na) {
+    if (!r || !nm || !abuf || !args || !na) return 0;
+    *na = 0;
+    while (*r == ' ' || *r == '\t') r++;
+    if (!*r) return 0;
+    if (strchr(r, '(') && !strchr(r, ' ')) {
+        char buf[256];
+        snprintf(buf, sizeof buf, "%s", r);
+        char *lp = strchr(buf, '('), *rp = strrchr(buf, ')');
+        if (!lp || !rp || rp <= lp) return 0;
+        *lp = 0; *rp = 0;
+        snprintf(nm, ncap, "%.63s", buf);
+        char *q = lp + 1;
+        while (*q && *na < PRED_MAX_ARGS) {
+            while (*q == ' ' || *q == '\t' || *q == ',') q++;
+            if (!*q) break;
+            char *st = q;
+            while (*q && *q != ',' && *q != ' ') q++;
+            char sv = *q; *q = 0;
+            snprintf(abuf[*na], 64, "%s", st);
+            args[*na] = abuf[*na];
+            (*na)++;
+            if (!sv) break;
+            q++;
+        }
+        return *na > 0;
+    }
+    if (sscanf(r, "%63s", nm) != 1) return 0;
+    const char *p = r + strlen(nm);
+    while (*p && *na < PRED_MAX_ARGS) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        size_t L = 0;
+        while (p[L] && p[L] != ' ' && p[L] != '\t' && L + 1 < 64) L++;
+        memcpy(abuf[*na], p, L); abuf[*na][L] = 0;
+        args[*na] = abuf[*na];
+        (*na)++;
+        p += L;
+    }
+    return *na > 0;
 }
 
 int main(int argc, char **argv) {
@@ -10233,6 +10283,29 @@ int main(int argc, char **argv) {
                 } else {
                     printf("[用法] 参数要具体（不能是 $变量）；最多 %d 个\n", PRED_MAX_ARGS);
                 }
+                continue;
+            }
+            case CMD_SEARCH: {
+                const char *r = carg ? carg : "";
+                char nm[64] = {0}; char abuf[PRED_MAX_ARGS][64];
+                char *args[PRED_MAX_ARGS]; size_t na = 0;
+                if (!parse_atom_cmd(r, nm, sizeof nm, abuf, args, &na)) {
+                    printf("[搜索] 用法：::search <名字>(<参数,…>) 或 ::search <名字> <参数…>\n");
+                    continue;
+                }
+                int steps = 0, cost = 0, dlim = 0, blim = 0;
+                char out[4096];
+                int rc = rule_search(a->brain, nm, args, na, out, sizeof out,
+                                     &steps, &cost, &dlim, &blim);
+                printf("[搜索] %s(%s", nm, args[0]);
+                for (size_t i = 1; i < na; ++i) printf(",%s", args[i]);
+                printf(") ⇒ ");
+                if (rc == 1) printf("**成立**（步数 %d、代价 %d）\n", steps, cost);
+                else if (rc == 2) printf("**超出步数/代价上限**（步数 %d、代价 %d；不猜、不算假）\n", steps, cost);
+                else if (rc == 3) printf("**超出深度上限**（步数 %d、代价 %d；不猜、不算假）\n", steps, cost);
+                else if (rc == -1) printf("**结构坏了（不猜、不算假）**\n");
+                else printf("**推不出来**（未知，不是假；步数 %d、代价 %d）\n", steps, cost);
+                if (out[0]) printf("%s", out);
                 continue;
             }
             case CMD_REWARD: {

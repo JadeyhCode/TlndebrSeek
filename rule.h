@@ -224,6 +224,12 @@ typedef struct {
     char  text[RULE_MAX_STEPS * 96];
     size_t used;
     int   depth_limited;    /* 有分支是因为深度/循环被截断的 ⇒ 结论只能算"未知" */
+    int   steps;            /* §7.087 搜索步数（规则尝试次数） */
+    int   cost;             /* §7.087 代价（1 + 前提数） */
+    int   step_cap;         /* 0 = 不限 */
+    int   cost_cap;         /* 0 = 不限 */
+    int   budget_limited;   /* 超出步数/代价上限 ⇒ 未知（不猜） */
+    int   neg_branch;       /* 有否定分支展开过 */
 } RuleTrace;
 
 static inline void rule_trace_add(RuleTrace *t, const char *line) {
@@ -378,6 +384,7 @@ static inline int rule_body(AI *ai, const Token *rule, size_t k, RuleSubst *s, i
     int is_neg = ((unsigned char)pa.name[0] == 0xE4 && (unsigned char)pa.name[1] == 0xB8 &&
                   (unsigned char)pa.name[2] == 0x8D);          /* UTF-8 「不」= E4 B8 8D */
     if (is_neg) {
+        if (tr) tr->neg_branch = 1;
         char base[40];
         snprintf(base, sizeof base, "%.39s", pa.name + 3);
         RuleAtom pos = pa;
@@ -480,6 +487,15 @@ static inline int rule_solve(AI *ai, const RuleAtom *goal, RuleSubst *s, int dep
             else unify_ok = !strcmp(ha.args[k], goal->args[k]);
         }
         if (!unify_ok) continue;
+        /* §7.087 代价记账：每次规则尝试算 1 + 前提数；超限立即停（未知，不猜） */
+        tr->steps++;
+        tr->cost += 1 + (int)rule_npremise(ai, rules[i]);
+        if ((tr->step_cap > 0 && tr->steps > tr->step_cap) ||
+            (tr->cost_cap > 0 && tr->cost > tr->cost_cap)) {
+            tr->budget_limited = 1;
+            rule_trace_add(tr, "超出步数/代价上限 ⇒ 这条分支不算成立（不猜）");
+            return 0;
+        }
         char st2[16][64];
         memcpy(st2, stack, sizeof st2);
         if (sn < 16) snprintf(st2[sn], sizeof st2[0], "%s", key);
@@ -793,6 +809,54 @@ static inline int rule_apply_fixpoint(AI *ai, size_t max_derive, int max_pass, R
     }
     if (st) *st = tot;
     return (int)tot.derived;
+}
+
+/* §7.087 有界证明搜索（带步数/代价预算）：给 `::search` 用。
+ * 返回 1=成立 0=未知 -1=结构坏 2=超步数/代价 3=超深度（都**不猜**）。 */
+static inline int rule_search(AI *ai, const char *name, char *const *args, size_t n,
+                              char *out, size_t cap,
+                              int *steps, int *cost, int *depth_limited, int *budget_limited) {
+    if (steps) *steps = 0;
+    if (cost) *cost = 0;
+    if (depth_limited) *depth_limited = 0;
+    if (budget_limited) *budget_limited = 0;
+    if (!ai || !name || !args || n == 0 || n > PRED_MAX_ARGS) return -1;
+    RuleAtom goal;
+    memset(&goal, 0, sizeof goal);
+    snprintf(goal.name, sizeof goal.name, "%.39s", name);
+    goal.n = n;
+    for (size_t i = 0; i < n; ++i) {
+        if (!args[i] || !args[i][0] || args[i][0] == '$') return -1;
+        snprintf(goal.args[i], sizeof goal.args[0], "%.39s", args[i]);
+    }
+    char serr[128];
+    if (!rule_strata(ai, serr, sizeof serr)) {
+        if (out && cap) snprintf(out, cap, "结构坏了：%s（不猜、不算假）", serr);
+        return -1;
+    }
+    int maxd = (int)aip_policy_int("rule_max_depth", RULE_MAX_DEPTH);
+    if (maxd < 1) maxd = 1;
+    if (maxd > 64) maxd = 64;
+    RuleTrace tr;
+    memset(&tr, 0, sizeof tr);
+    tr.step_cap = (int)aip_policy_int("search_max_steps", RULE_MAX_STEPS);
+    tr.cost_cap = (int)aip_policy_int("search_max_cost", 64);
+    if (tr.step_cap <= 0) tr.step_cap = RULE_MAX_STEPS;
+    if (tr.cost_cap <= 0) tr.cost_cap = 64;
+    RuleSubst s;
+    memset(&s, 0, sizeof s);
+    char stack[16][64];
+    memset(stack, 0, sizeof stack);
+    int r = rule_solve(ai, &goal, &s, maxd, &tr, stack, 0);
+    if (out && cap) snprintf(out, cap, "%s", tr.text);
+    if (steps) *steps = tr.steps;
+    if (cost) *cost = tr.cost;
+    if (depth_limited) *depth_limited = tr.depth_limited;
+    if (budget_limited) *budget_limited = tr.budget_limited;
+    if (tr.budget_limited) return 2;
+    if (r == 1) return 1;
+    if (tr.depth_limited) return 3;
+    return 0;
 }
 
 #endif /* RULE_H */
