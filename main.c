@@ -31,6 +31,7 @@
 #include "effect.h"      /* §7.074 P1 效果执行器（schema post 数据） */
 #include "induce.h"      /* §7.085 P3 行为归纳（只建议 + 待证） */
 #include "cmp.h"        /* §7.088 P1 比较/时间线（::cmp） */
+#include "path.h"       /* §7.090 类型化路径相似（::pathsim/::pathsig） */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -629,6 +630,8 @@ typedef enum {
     CMD_PROVE,              /* §6.635 证明：::prove 名字 参数… */
     CMD_SEARCH,             /* §7.087 有界证明搜索（步数/代价预算） */
     CMD_CMP,                /* §7.088 比较/时间线 */
+    CMD_PATHSIM,            /* §7.090 类型化路径相似 */
+    CMD_PATHSIG,            /* §7.090 列出词的路径签名 */
     CMD_CLAIM,              /* §6.636 待证：list / accept N / reject N */
     CMD_PAPER,              /* §6.638 读论文（离线）：read <文件> / list */
     CMD_LANG,               /* §6.639 语言包：list / load <code> / current / off */
@@ -992,6 +995,11 @@ static const CmdDef CMDS[] = {
       "证不出来就说**未知** —— 不会把『推不出』说成『假』。\n"
       "证不出来时把缺口/子目标记成过程（`[过程:…]`）—— `::proc run <目标>` 逐步核对\n"
       "（认得的说「认识」、还差的说「缺条件」）", CMD_PROVE },
+    { "pathsim", "<词A> <词B>", 1, "基本",
+      "**类型化路径相似**（替代稠密向量）：路径加权 Jaccard + 邻居重叠；无路径 ⇒ 未知（不是 0）。\n"
+      "::pathsim 猫 狗 ⇒ 分数 + top-3 证据；权重 policy `sim_w_path/sim_w_nbr`；`sim_mode=emb` 被拒", CMD_PATHSIM },
+    { "pathsig", "<词>", 1, "基本",
+      "列出一个词的路径签名（长度≤3、度≤64、top-32；逆关系/对称关系已规范化）", CMD_PATHSIG },
     { "cmp", "<值A> <关系> <值B>", 1, "基本",
       "**比较/时间线**：大于/小于/等于（数值），先于/后于/同时（时间）；单位自动归一。\n"
       "::cmp 3 小于 5 ⇒ 对；::cmp 1小时 先于 90分钟 ⇒ 对；量纲不同 ⇒ 不可比（不说假）", CMD_CMP },
@@ -10290,6 +10298,18 @@ int main(int argc, char **argv) {
                 } else {
                     printf("[用法] 参数要具体（不能是 $变量）；最多 %d 个\n", PRED_MAX_ARGS);
                 }
+                continue;
+            }
+            case CMD_PATHSIM: {
+                path_sim_cmd(a->brain, carg ? carg : "");
+                continue;
+            }
+            case CMD_PATHSIG: {
+                const char *nm = carg ? carg : "";
+                while (*nm == ' ') nm++;
+                Token *t = *nm ? pool_find(a->brain->pool, nm) : NULL;
+                if (!t) { printf("[路径] 图里没有「%s」\n", nm); continue; }
+                path_print(a->brain, t, 40);
                 continue;
             }
             case CMD_CMP: {

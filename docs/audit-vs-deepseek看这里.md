@@ -37676,3 +37676,44 @@ datalog 7/7、plansearch 7/7、comparetime 10/10）与 `model_roundtrip`/`featur
 `rel_merged_neg_id(..., &m)`（现在要 `RelId *`）⇒ 探针编译失败、整包 0 套。
 修：探针里所有 `uint8_t rid*` 跟着扩成 `RelId`，`m` 也改 `RelId`；
 `tests/probes_build.sh` 全量重编 **PROBES OK**（含编译+运行）。
+
+## §7.090 类型化路径相似（`::pathsim` / `::pathsig`，禁稠密向量）（2026-11-27）
+
+新目标核心的**第一块**：用类型化路径代替稠密向量做相似。
+
+- 新头文件 `path.h`（只读，不改图）：
+  - `PathSig{len≤3, rel[3], dir[3], end, w=1/len}`；每节点枚举深≤3、度≤64、top-32；
+  - **规范化**：对称关系不计方向；逆关系翻方向（id 小的一侧为准），证据里显示 `<-关系->`；
+  - `path_match` = 加权 Jaccard（关系序列 + 方向 + 终点）；`neighbor` = 一跳集合 Jaccard；
+    `sim = w_path*path_match + w_nbr*neighbor`，权重进 policy；
+  - **无路径 ⇒ unknown，不是 0**（开放世界）；
+  - `sim_mode=emb` 被明确拒绝（“禁止稠密向量进核”）。
+- 新命令（138→140）：`::pathsim <A> <B>`（分数 + top-3 证据 + 权重）与 `::pathsig <词>`；
+- 尚未替换 R5 的 `emb_cosine` 调用点——这一步先把“可读、可审计的路径相似”做出来。
+
+### 实测
+
+```
+::pathsim 犰狳 貔貅 ⇒ 0.32（路径 0.30 / 邻居 0.35）  证据: -标甲-> 螭吻
+::pathsim 的 犰狳   ⇒ 未知（至少一边没有关系路径；不是 0）
+::pathsig 中心      ⇒ 40 条邻居只留 top-32（度截断）
+::pathsig 螭吻      ⇒ <-包含-> 犰狳（逆关系方向规范化）
+sim_w_path=0 ⇒ 0.15（邻居 0.50 × 0.30）
+sim_mode=emb ⇒ 未启用（禁止稠密向量进核）
+```
+
+### 首跑读数（`tools/pathsim_blind.py`，新套件 `pathsim`）
+
+```
+=> 类型化路径相似首跑：8/8
+```
+
+共享路径/证据、无路径未知、度截断 32、逆关系方向、w_path=0 消融、emb 拒绝、读数确定。
+
+### 边界
+
+- 只读已接受的关系边；**不**把共现/词频当路径（无统计边）；
+- 终点先用 token id，**没有**用“终点类别”（下一步接 属于 类）；
+- 路径去重按 key；top-32 截断会漏掉低频路径；
+- 未接 R5/类比推理；属性重叠（Jaccard/Tversky）仍待做（P4 后续）；
+- `path_sim` 的 `known` 只要求两边各有 ≥1 条路径；这与“语义相似”不等价（可能是弱证据）。

@@ -75,3 +75,8 @@ att_pick_unsolved=0.60
 role_constraint=1
 # §7.080 动态关系软上限（默认=编译上限 245；调低用于限额/消融）
 dynrel_soft_limit=4096
+
+# §7.090 类型化路径相似（禁止稠密向量进核；emb 仅作对照开关且默认拒绝）
+sim_mode=path
+sim_w_path=0.7
+sim_w_nbr=0.3
