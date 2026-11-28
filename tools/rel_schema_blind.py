@@ -10,7 +10,7 @@ import os, re, shutil, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "build_aip")
 W = os.path.join(ROOT, "_t", "relschema")
-DATA = ("patterns.txt", "frames.txt", "relations.txt", "relprops.txt", "policy.txt", "laws.txt")
+DATA = ("patterns.txt", "frames.txt", "relations.txt", "relprops.txt", "policy.txt", "laws.txt", "dims.txt")
 
 def run(inp, cwd=None, env=None):
     e = dict(os.environ)
@@ -33,8 +33,8 @@ def main():
     setup(W)
     checks = []
     out = run("::relbeh\n::quit\n")
-    checks.append(("载入 9 核心 + 2 别名，0 非法",
-                   "有效 12 条，非法 0 行" in out and "推理读 schema" in out))
+    checks.append(("载入 schema：0 非法、推理读 schema（行数随行为扩展变化）",
+                   "非法 0 行" in out and "推理读 schema" in out and "有效 " in out))
 
     expect = {
         "属于": ("trans,excl", "包含", "single"),

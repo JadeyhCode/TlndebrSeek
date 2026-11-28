@@ -11,3 +11,9 @@
 需要 | multi | roles=主体,前提 | card=multi | evidence=observed
 爱 | alias=喜欢
 结果 | dir,non-trans,multi | roles=事件,状态 | card=multi | evidence=observed
+大于 | ordinal,trans,dir | inv=小于 | roles=左,右 | dim=数值 | evidence=axiom
+小于 | ordinal,trans,dir | inv=大于 | roles=左,右 | dim=数值 | evidence=axiom
+等于 | sym,trans,ordinal | roles=左,右 | dim=数值 | evidence=axiom
+先于 | ordinal,temporal,trans,dir | inv=后于 | roles=前,后 | dim=时间 | evidence=axiom
+后于 | ordinal,temporal,trans,dir | inv=先于 | roles=前,后 | dim=时间 | evidence=axiom
+同时 | sym,trans,temporal,ordinal | roles=左,右 | dim=时间 | evidence=axiom

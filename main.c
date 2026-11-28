@@ -30,6 +30,7 @@
 #include "symtool.h"    /* §6.988 自省/自修改：::sym */
 #include "effect.h"      /* §7.074 P1 效果执行器（schema post 数据） */
 #include "induce.h"      /* §7.085 P3 行为归纳（只建议 + 待证） */
+#include "cmp.h"        /* §7.088 P1 比较/时间线（::cmp） */
 #include "lang.h"       /* §6.639 语言包：::lang */
 #include "sseg.h"       /* §6.965 滑动联想切分：::sseg */
 #include <stdio.h>
@@ -627,6 +628,7 @@ typedef enum {
     CMD_RULE,               /* §6.635 规则：list / add */
     CMD_PROVE,              /* §6.635 证明：::prove 名字 参数… */
     CMD_SEARCH,             /* §7.087 有界证明搜索（步数/代价预算） */
+    CMD_CMP,                /* §7.088 比较/时间线 */
     CMD_CLAIM,              /* §6.636 待证：list / accept N / reject N */
     CMD_PAPER,              /* §6.638 读论文（离线）：read <文件> / list */
     CMD_LANG,               /* §6.639 语言包：list / load <code> / current / off */
@@ -990,6 +992,9 @@ static const CmdDef CMDS[] = {
       "证不出来就说**未知** —— 不会把『推不出』说成『假』。\n"
       "证不出来时把缺口/子目标记成过程（`[过程:…]`）—— `::proc run <目标>` 逐步核对\n"
       "（认得的说「认识」、还差的说「缺条件」）", CMD_PROVE },
+    { "cmp", "<值A> <关系> <值B>", 1, "基本",
+      "**比较/时间线**：大于/小于/等于（数值），先于/后于/同时（时间）；单位自动归一。\n"
+      "::cmp 3 小于 5 ⇒ 对；::cmp 1小时 先于 90分钟 ⇒ 对；量纲不同 ⇒ 不可比（不说假）", CMD_CMP },
     { "search", "<名字>(<参数,…>)", 2, "基本",
       "**有界证明搜索**：和后向链证明同一套规则/事实，但记**步数 + 代价**，超预算就说未知。\n"
       "::search 祖先(甲,丙)  ⇒ 成立时给步数/代价与每一步；超限 ⇒ 不猜（不算假）\n"
@@ -4238,8 +4243,9 @@ static void relbeh_show(const char *name) {
         for (uint32_t b = 1; b <= RELB_EQUIV; b <<= 1)
             if (x->flags & b) { printf("%s%s", any ? "," : "", rel_schema_flag_name(b)); any = 1; }
         if (!any) printf("-");
-        printf(" inv=%s card=%s roles=", x->inv ? (rel_schema_by_id(x->inv) ? rel_schema_by_id(x->inv)->name : "?") : "-",
-               x->card == REL_CARD_SINGLE ? "single" : x->card == REL_CARD_MULTI ? "multi" : "any");
+        printf(" inv=%s card=%s dim=%s roles=", x->inv ? (rel_schema_by_id(x->inv) ? rel_schema_by_id(x->inv)->name : "?") : (x->inv_name[0] ? x->inv_name : "-"),
+               x->card == REL_CARD_SINGLE ? "single" : x->card == REL_CARD_MULTI ? "multi" : "any",
+               rel_schema_dim_name(x->dim));
         for (uint8_t k = 0; k < x->n_roles; ++k) printf("%s%s", k ? "," : "", x->roles[k]);
         if (x->cons[0][0] || x->post[0][0]) {
             printf(" cons=");
@@ -4316,6 +4322,7 @@ static int parse_atom_cmd(const char *r, char *nm, size_t ncap,
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
+    rel_schema_load_dims("dims.txt");            /* §7.088 量纲注册（先于 schema 校验） */
     rel_schema_load_file("relations_beh.txt");   /* §7.073 P0：关系行为 schema（NOSCHEMA 时回退） */
     const char *corpus = NULL;
     const char *model_path = DEFAULT_MODEL;
@@ -10283,6 +10290,10 @@ int main(int argc, char **argv) {
                 } else {
                     printf("[用法] 参数要具体（不能是 $变量）；最多 %d 个\n", PRED_MAX_ARGS);
                 }
+                continue;
+            }
+            case CMD_CMP: {
+                cmp_cmd(carg ? carg : "");
                 continue;
             }
             case CMD_SEARCH: {

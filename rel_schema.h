@@ -64,6 +64,40 @@ typedef struct {
     const char *(*inv_of_name)(const char *name);/* 核心关系名 → 逆关系名（无则 NULL） */
 } RelSchemaHooks;
 
+/* §7.088 量纲注册表（`dims.txt`，一行一个名字）：dim 必须先在表里存在，
+ * 否则 schema 行报“dim 未注册”。数值比较/时间线由 main.c 的 ::cmp 消费。 */
+#define REL_DIM_MAX 12
+static char g_rs_dims[REL_DIM_MAX][REL_SCHEMA_NAME];
+static int  g_rs_dims_n;
+
+static inline size_t rel_schema_load_dims(const char *path) {
+    g_rs_dims_n = 0;
+    FILE *f = path ? fopen(path, "r") : NULL;
+    if (!f) return 0;
+    char line[128];
+    while (fgets(line, sizeof line, f)) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        char *h = strchr(p, '#');
+        if (h) *h = 0;
+        size_t n = strlen(p);
+        while (n && (p[n-1] == ' ' || p[n-1] == '\t' || p[n-1] == '\n' || p[n-1] == '\r')) p[--n] = 0;
+        if (!*p) continue;
+        if (g_rs_dims_n < REL_DIM_MAX) snprintf(g_rs_dims[g_rs_dims_n++], REL_SCHEMA_NAME, "%s", p);
+    }
+    fclose(f);
+    return (size_t)g_rs_dims_n;
+}
+static inline int rel_schema_dim_known(const char *name) {
+    if (!name || !*name) return 0;
+    for (int i = 0; i < g_rs_dims_n; ++i) if (!strcmp(g_rs_dims[i], name)) return 1;
+    return 0;
+}
+static inline const char *rel_schema_dim_name(uint32_t d) {
+    if (d >= 1 && d <= (uint32_t)g_rs_dims_n) return g_rs_dims[d - 1];
+    return "-";
+}
+
 static RelSchema g_rs[REL_SCHEMA_MAX];
 static int       g_rs_n;
 static int       g_rs_ok;
@@ -104,7 +138,9 @@ static inline int rel_schema_cmp(const void *a, const void *b) {
 }
 
 static inline RelSchema *rel_schema_by_name_mut(const char *name) {
-    if (!name || !g_rs_active) return NULL;
+    /* 注意：**不能**要求 g_rs_active —— 装载期是 0，跨行互指（动态 inv）会因此全部
+     * 被误判成“不在文件里”（§7.088 实测：大于/小于/先于/后于 四行被误杀）。 */
+    if (!name) return NULL;
     for (int i = 0; i < g_rs_n; ++i)
         if (!g_rs[i].illegal && !g_rs[i].alias[0] && !strcmp(g_rs[i].name, name)) return &g_rs[i];
     return NULL;
@@ -224,8 +260,11 @@ static inline int rel_schema_parse_line(const char *path, int line, char *row, c
                 else if (!strcmp(val, "inferred")) s.evidence = REL_EV_INFERRED;
                 else { rel_schema_err(path, line, "evidence 只认 axiom|observed|inferred"); return 0; }
             } else if (!strcmp(key, "dim")) {
-                s.dim = (uint32_t)strtoul(val, NULL, 10);
-                if (s.dim != 0) { rel_schema_err(path, line, "dim 未注册（P0 只允许 dim=0；P1 才开放量纲）"); return 0; }
+                int di = 0;
+                for (int i = 0; i < g_rs_dims_n; ++i)
+                    if (!strcmp(g_rs_dims[i], val)) { di = i + 1; break; }
+                if (!di) { rel_schema_err(path, line, "dim 未注册（先写进 dims.txt）"); return 0; }
+                s.dim = (uint32_t)di;
             } else if (!strcmp(key, "neg")) {
                 snprintf(s.neg, sizeof s.neg, "%s", val);
             } else {
