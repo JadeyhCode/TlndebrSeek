@@ -38563,3 +38563,37 @@ adapter_en_math=0：两句都不再走应用题；猫 属于 动物 吗 仍答�
 - 关闭时英语应用题落到英语问答/提示，不保证有答案；
 - 与 `adapter_en` 独立：两个开关可组合（数学关、问答开）；
 - 共现统计仍在核内，gap 保留。
+
+## §7.116 P4 外部评测适配：GSM8K 官方 test 子集（2026-11-27）
+
+- 数据：`tests/data/gsm8k_test20.jsonl`（官方 test.jsonl 每 65 题取 1、前 20 题，确定性；
+  MIT；全量/子集 sha256 写在 `tests/data/README.md`）；
+- 工具 `tools/benchadapt.py`：逐题跑真实二进制，按“期望整数是否出现”判 pass、
+  明确拒绝算 refuse、其余 wrong；同时跑 `adapter_en_math=0` 消融；写
+  `_t/benchadapt_gsm8k.tsv`；污染检查 = 问题逐字检索 + 归一化 5-gram 命中
+  （排除数据文件自身与 `_t/`）。
+
+### 首跑读数（如实，未调题）
+
+```
+GSM8K 官方 test 子集 20 题：pass 0 / refuse 16 / wrong 4
+消融 adapter_en_math=0：pass 0 / refuse 11 / wrong 9（pass 不增）
+污染：问题逐字命中 0 题；5-gram 命中 0 题
+```
+
+**这不是“通过 GSM8K”**：20 题里 0 题算对，说明模板家族覆盖不了官方题库；
+它的价值是把“外部题库读数/污染/消融”固定成可复跑的工具，后续提升必须另做能力改动。
+
+### 首跑读数（`tools/benchadapt_blind.py`，新套件 `benchadapt`）
+
+```
+=> GSM8K 官方子集适配首跑：10/10
+```
+
+### 边界
+
+- 子集只有 20 题、确定性抽样，不是完整 test 集；不能外推分数；
+- 判分是“期望整数出现”，不验推理链；
+- bAbI 未接（本轮下载源 404）；污染 5-gram 只查 patterns/relations/docs/tools，
+  不是全语料级证明；
+- 数据文件已入仓，后续任何调参都必须重新抽样，不能拿这 20 题调。
