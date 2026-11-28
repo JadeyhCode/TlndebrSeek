@@ -70,6 +70,7 @@ comparetime|python3 tools/comparetime_blind.py
 pathsim|python3 tools/pathsim_blind.py
 pathsim2|python3 tools/pathsim2_blind.py
 analogy|python3 tools/analogy_blind.py
+analogy2|python3 tools/analogy2_blind.py
 # 切分可选：拆解 / 合并 / 中转词容错 / 碎片护栏（本机实测 3.8s）
 segmentation|sh tests/segmentation.sh
 # 反事实：假设世界可推、不越界、能外推、**绝不进图**（本机实测 3.6s）

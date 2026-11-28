@@ -48,7 +48,7 @@ def main():
     checks.append(("C 无同关系边 ⇒ 未知（不猜）", "未知" in out))
 
     out = run(base + "::analogy 石头 动物 狗\n::quit\n")
-    checks.append(("A→B 无边 ⇒ 未知（不猜）", "没有关系边" in out and "未知" in out))
+    checks.append(("A→B 没有可用路径 ⇒ 未知（不猜）", "没有路径" in out and "未知" in out))
 
     out = run(base + "甲熊 会 冬眠 吗\n::quit\n")
     checks.append(("R5 用路径相似做类比（甲熊 ≈ 乙熊）",

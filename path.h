@@ -335,8 +335,9 @@ static inline float path_sim_hook_pct(AI *ai, const Token *a, const Token *b, in
     return path_sim(ai, (Token *)a, (Token *)b, known, &pj, &nj, &aj);
 }
 
-/* §7.092 类比：A : B :: C : D —— 找与 A→B **同规范关系/同方向**的 C→D，返回 D。
- * 只读已接受边；没有同关系边 ⇒ 未知（不猜）。 */
+/* §7.093 类比：A : B :: C : D —— 用**类型化路径同构**（≤3 跳）：
+ * 取 A→B 的路径签名（关系序列+方向），在 C 的路径里找同序列、终点不同的 D；
+ * 优先短路径、再按权重；没有同构路径 ⇒ 未知（不猜）。 */
 static inline int analogy_cmd(AI *ai, const char *arg) {
     char a[64] = {0}, b[64] = {0}, c[64] = {0};
     if (!arg || sscanf(arg, "%63s %63s %63s", a, b, c) != 3) {
@@ -345,38 +346,89 @@ static inline int analogy_cmd(AI *ai, const char *arg) {
     }
     Token *A = pool_find(ai->pool, a), *B = pool_find(ai->pool, b), *C = pool_find(ai->pool, c);
     if (!A || !B || !C) { printf("[类比] 图里没有「%s」\n", !A ? a : (!B ? b : c)); return 1; }
-    RelId ar[64]; uint8_t ad[64]; size_t an = 0;
-    for (size_t i = 0; i < A->count && an < 64; ++i) {
-        const AssocEntry *e = &token_assocs_ro(A)[i];
-        if (!e->main || e->main != B || e->nrel || edge_is_guess(e)) continue;
-        RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
-        if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
-            if (e->rel & REL_BIT(r)) { rid = r; break; }
-        if (!rid) continue;
-        uint8_t dir = 0;
-        ar[an] = path_edge_norm(ai, rid, &dir);
-        ad[an++] = dir;
-    }
-    if (!an) { printf("[类比] %s 到 %s 没有关系边 ⇒ 未知（不猜）\n", a, b); return 1; }
-    int shown = 0;
-    for (size_t i = 0; i < C->count && shown < 3; ++i) {
-        const AssocEntry *e = &token_assocs_ro(C)[i];
-        if (!e->main || e->nrel || edge_is_guess(e) || !e->main->name) continue;
-        RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
-        if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
-            if (e->rel & REL_BIT(r)) { rid = r; break; }
-        if (!rid) continue;
-        uint8_t dir = 0;
-        RelId nrid = path_edge_norm(ai, rid, &dir);
-        for (size_t k = 0; k < an; ++k) {
-            if (ar[k] != nrid || ad[k] != dir) continue;
-            printf("[类比] %s : %s :: %s : %s（依据：同关系 %s%s）\n",
-                   a, b, c, e->main->name, path_rel_name(ai, nrid), dir ? "（反向）" : "");
-            shown++;
-            break;
+    /* ① 直边优先：A→B 的直接关系边，在 C 的出边里找同规范关系/方向（长度 1 的类比）。
+     * 路径枚举有 top-32 截断，热门词可能把这条直边挤掉；所以直边单独走一遍。 */
+    {
+        RelId ar[64]; uint8_t ad[64]; size_t an = 0;
+        for (size_t i = 0; i < A->count && an < 64; ++i) {
+            const AssocEntry *e = &token_assocs_ro(A)[i];
+            if (!e->main || e->main != B || e->nrel || edge_is_guess(e)) continue;
+            RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
+            if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
+                if (e->rel & REL_BIT(r)) { rid = r; break; }
+            if (!rid) continue;
+            uint8_t dir = 0;
+            ar[an] = path_edge_norm(ai, rid, &dir); ad[an++] = dir;
+        }
+        if (an) {
+            int shown = 0;
+            for (size_t i = 0; i < C->count && shown < 3; ++i) {
+                const AssocEntry *e = &token_assocs_ro(C)[i];
+                if (!e->main || e->nrel || edge_is_guess(e) || !e->main->name) continue;
+                RelId rid = e->dyn ? (RelId)(REL_DYN_BASE + e->dyn - 1) : 0;
+                if (!rid) for (RelId r = 1; r < REL_DYN_BASE; ++r)
+                    if (e->rel & REL_BIT(r)) { rid = r; break; }
+                if (!rid) continue;
+                uint8_t dir = 0;
+                RelId nrid = path_edge_norm(ai, rid, &dir);
+                for (size_t k = 0; k < an; ++k)
+                    if (ar[k] == nrid && ad[k] == dir) {
+                        printf("[类比] %s : %s :: %s : %s（依据：同关系 %s%s）\n",
+                               a, b, c, e->main->name, path_rel_name(ai, nrid),
+                               dir ? "（反向）" : "");
+                        shown++;
+                        break;
+                    }
+            }
+            if (shown) return 1;
         }
     }
-    if (!shown) printf("[类比] %s 没有与 %s→%s 同关系的边 ⇒ 未知（不猜）\n", c, a, b);
+    static PathSet sa, sc;
+    size_t na = path_enum(ai, A, &sa);
+    size_t nc = path_enum(ai, C, &sc);
+    if (!na || !nc) {
+        printf("[类比] %s 或 %s 没有可枚举路径 ⇒ 未知（不猜）\n", a, c);
+        return 1;
+    }
+    /* 先给 A→B 的路径挑出来（按长度、权重）；再去 C 里找同序列 */
+    int best_idx[64]; size_t bidx_n = 0;
+    for (size_t i = 0; i < sa.n; ++i) {
+        if (sa.p[i].end != B->id) continue;
+        if (bidx_n < 64) best_idx[bidx_n++] = (int)i;
+    }
+    if (!bidx_n) { printf("[类比] %s 到 %s 没有路径 ⇒ 未知（不猜）\n", a, b); return 1; }
+    for (size_t i = 0; i + 1 < bidx_n; ++i)
+        for (size_t j = i + 1; j < bidx_n; ++j) {
+            const PathSig *x = &sa.p[best_idx[i]], *y = &sa.p[best_idx[j]];
+            int swap = (y->len < x->len) || (y->len == x->len && y->w > x->w);
+            if (swap) { int t = best_idx[i]; best_idx[i] = best_idx[j]; best_idx[j] = t; }
+        }
+    int shown = 0;
+    for (size_t k = 0; k < bidx_n && shown < 3; ++k) {
+        const PathSig *pa = &sa.p[best_idx[k]];
+        for (size_t i = 0; i < sc.n && shown < 3; ++i) {
+            const PathSig *pc = &sc.p[i];
+            if (pc->len != pa->len || pc->end == C->id) continue;
+            int same = 1;
+            for (uint8_t q = 0; q < pa->len; ++q)
+                if (pa->rel[q] != pc->rel[q] || pa->dir[q] != pc->dir[q]) { same = 0; break; }
+            if (!same) continue;
+            /* 同名终点（D==B）只在没有别的候选时才用：先记下，继续找不同的 */
+            uint32_t did = pc->end;
+            const char *dn = (did < ai->pool->count && ai->pool->tokens[did]->name)
+                                 ? ai->pool->tokens[did]->name : "?";
+            if (did == B->id && bidx_n > 1) continue;
+            printf("[类比] %s : %s :: %s : %s（依据：路径 ", a, b, c, dn);
+            for (uint8_t q = 0; q < pa->len; ++q)
+                printf("%s%s%s ", q ? "→" : "", pa->dir[q] ? "<" : "", path_rel_name(ai, pa->rel[q]));
+            printf("，%u 跳）\n", (unsigned)pa->len);
+            shown++;
+        }
+    }
+    if (!shown) {
+        /* 兜底：A→B 没有路径时给直边诊断（都找不到就未知） */
+        printf("[类比] %s 找不到与 %s→%s 同构的路径 ⇒ 未知（不猜）\n", c, a, b);
+    }
     return 1;
 }
 
