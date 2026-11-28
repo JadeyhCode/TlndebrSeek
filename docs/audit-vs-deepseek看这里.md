@@ -38535,3 +38535,31 @@ adapter_en=0：两句都不给 Yes/No；猫 属于 动物 吗 仍答对
 
 `irfrontgrayreport` 的 `--gray-only` 在并行下偶发延迟比值 >3×，建议从 2 翻成 0（不可重复）。
 修：灰度测量做 3 次取**最小**比值（答案计数取同一次），建议值恢复稳定 2。
+
+## §7.115 P4 语言适配器第三块：英语应用题走 adapter 钩子（2026-11-27）
+
+- `adapter.h` 增 `AdapterWordMathFn`、`adapter_set_wordmath()`、`adapter_answer_en_math()`；
+- main 注册 `english_wordmath` 为默认实现；核只调钩子（返回 0/1/2 语义不变）；
+- 新 policy `adapter_en_math`（默认 1）：0 = 不算应用题、也不给“超出模板”拒绝，回退英语问答路径。
+
+### 实测
+
+```
+默认：Ben 30 cards… ⇒ The answer is 33.
+      crate 7×11 ⇒ The answer is 77.
+      3 boxes… ⇒ can't solve this word problem（明确拒绝）
+adapter_en_math=0：两句都不再走应用题；猫 属于 动物 吗 仍答对
+```
+
+### 首跑读数（`tools/adapterenmath_blind.py`，新套件 `adapterenmath`）
+
+```
+=> 英语应用题适配器首跑：7/7
+```
+
+### 边界
+
+- 模板与守卫仍全在 `english.h`，只是核的入口换成钩子；
+- 关闭时英语应用题落到英语问答/提示，不保证有答案；
+- 与 `adapter_en` 独立：两个开关可组合（数学关、问答开）；
+- 共现统计仍在核内，gap 保留。

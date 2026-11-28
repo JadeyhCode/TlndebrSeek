@@ -4403,6 +4403,7 @@ int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
     adapter_set_english(english_confirm);   /* §7.114 英语适配器默认实现 */
+    adapter_set_wordmath(english_wordmath); /* §7.115 英语应用题适配器默认实现 */
     rel_set_sim_path_hook(path_sim_hook_pct);    /* §7.092 R5：路径相似替换 emb 余弦（sim_mode 控制） */
     rel_schema_load_dims("dims.txt");            /* §7.088 量纲注册（先于 schema 校验） */
     rel_schema_load_file("relations_beh.txt");   /* §7.073 P0：关系行为 schema（NOSCHEMA 时回退） */
@@ -11316,7 +11317,7 @@ int main(int argc, char **argv) {
          * （把 a/can/fly 登记成动态关系，还静默覆盖旧否定边），冲突就看不见了。 */
         int en_taught = 0;
         if (input[0] != ':' && en_ascii_only(input)) {
-            int wr = english_wordmath(a->brain, input, out, sizeof out);   /* §7.050 含问号也先试算术 */
+            int wr = adapter_answer_en_math(a->brain, input, out, sizeof out);   /* §7.050/§7.115 含问号也先试算术 */
             if (wr == 2) {
                 snprintf(out, sizeof out,
                          "I can't solve this word problem reliably yet - it is outside my "

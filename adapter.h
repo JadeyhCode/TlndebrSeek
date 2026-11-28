@@ -140,4 +140,14 @@ static inline int adapter_answer_en(AI *ai, const char *q, char *out, size_t cap
     return g_adapter_answer_en(ai, q, out, cap);
 }
 
+/* §7.115 英语算术应用题适配器钩子：模板只在 english.h，核只调这个钩子。
+ * 返回约定同 english_wordmath：0=不是这类题，1=已答，2=明确拒绝（超出模板）。 */
+typedef int (*AdapterWordMathFn)(AI *ai, const char *q, char *out, size_t cap);
+static AdapterWordMathFn g_adapter_wordmath;
+static inline void adapter_set_wordmath(AdapterWordMathFn fn) { g_adapter_wordmath = fn; }
+static inline int adapter_answer_en_math(AI *ai, const char *q, char *out, size_t cap) {
+    if (!aip_policy_int("adapter_en_math", 1) || !g_adapter_wordmath) return 0;
+    return g_adapter_wordmath(ai, q, out, cap);
+}
+
 #endif /* ADAPTER_H */
