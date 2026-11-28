@@ -90,6 +90,7 @@ sismigrate|python3 tools/sismigrate_blind.py
 numcons|python3 tools/numcons_blind.py
 planfwd|python3 tools/planfwd_blind.py
 pathindex|python3 tools/pathindex_blind.py
+adaptersyn|python3 tools/adaptersyn_blind.py
 # 切分可选：拆解 / 合并 / 中转词容错 / 碎片护栏（本机实测 3.8s）
 segmentation|sh tests/segmentation.sh
 # 反事实：假设世界可推、不越界、能外推、**绝不进图**（本机实测 3.6s）

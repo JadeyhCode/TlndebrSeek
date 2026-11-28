@@ -5,6 +5,8 @@
 #define AGENT_H
 
 #include "ai.h"
+#include "adapter.h"   /* §7.113 语言适配器：[syn]/[affix] 表与替换 */
+static inline size_t aip_u8len(const char *s) { return adapter_u8len(s); }
 #include "lang_core.h"   /* §6.639 语言包：翻译要在分词之前发生（只依赖标准库，避免循环 include） */
 #include "drive.h"
 #include "action.h"      /* 受审的外部执行 + 写文件（层；默认关） */
@@ -214,9 +216,6 @@ static inline int agent_open_slot_word(const char *w) {
 /* §6.148 **占位词也可能是两个词**：分词器会把「哪些」「哪种」「哪个」切开
  * （实测「哪些 属于 动物」整句掉流水线，而「谁 属于 动物」能答）。
  * 所以跟填充词一样按**连写**比 —— 返回占位短语占几个词（1 或 2），0 = 这儿不是占位词。 */
-/* §6.305 **[syn] 同义词表**（`patterns.txt`）：`[syn] 猫咪=猫`。
- * 在**分词之前**做字符串替换（长的先替），于是"猫咪""猫儿"这些变体走的是同一条知识，
- * 不用为每个变体加一条行、更不用改代码。替换是**逐位置最长匹配**，不会误替别的词里面。 */
 /* §6.336 **[tail] 句尾语气词**：`呢/吧/啊/呀` 这类只影响语气、不影响语义的尾巴。
  * 先说清楚为什么不做成 `[lead]`：lead 只剥**句首**；尾巴得单独一个桶。
  * §6.529 槽位 12 → 32 字节、条数 12 → 24：句尾外壳（`…这件事对吗` / `…这一点没错吧`）是**多字**的，
@@ -224,109 +223,8 @@ static inline int agent_open_slot_word(const char *w) {
 #define AIP_TAIL_MAX 24
 static char g_tail[AIP_TAIL_MAX][32];
 static size_t g_tail_n;
-#define AIP_SYN_MAX 160   /* §6.470 64 → 160：同义词表已到 66 条，超限会静默丢规则（加载器会打 ⚠） */
-static char g_syn_from[AIP_SYN_MAX][48], g_syn_to[AIP_SYN_MAX][48];
-static size_t g_syn_n;
 /* §6.307 **[affix] 词缀变体**：`[affix] 小=pre` / `[affix] 儿=post`。
  * 命中后**先查基词在不在词池**，在才替换（`小鲸鱼` ⇒ `鲸鱼`，`老狗` ⇒ `狗`）。 */
-#define AIP_AFFIX_MAX 16
-static char g_aff[AIP_AFFIX_MAX][16];
-static char g_aff_kind[AIP_AFFIX_MAX];      /* 'p' = 前缀，'s' = 后缀 */
-static size_t g_aff_n;
-/* 取一个 UTF-8 字符的字节数（只处理 1~4 字节） */
-static inline size_t aip_u8len(const char *s) {
-    unsigned char c = (unsigned char)s[0];
-    if (c < 0x80) return 1;
-    if ((c & 0xE0) == 0xC0) return 2;
-    if ((c & 0xF0) == 0xE0) return 3;
-    if ((c & 0xF8) == 0xF0) return 4;
-    return 1;
-}
-
-static inline int aip_apply_syn(AI *ai, const char *in, char *out, size_t cap) {
-    if (!in || !out || !cap || (!g_syn_n && !g_aff_n)) return 0;
-    size_t o = 0;
-    int changed = 0;
-    const char *p = in;
-    while (*p) {
-        /* §6.307 词缀：先试前缀（剥掉后基词要在池里），再试后缀 */
-        if (ai) {
-            int hit_affix = 0;
-            for (size_t i = 0; i < g_aff_n && !hit_affix; ++i) {
-                size_t al = strlen(g_aff[i]);
-                if (g_aff_kind[i] == 'p') {
-                    if (strncmp(p, g_aff[i], al) != 0) continue;
-                    const char *base = p + al;
-                    size_t bl = 0;
-                    for (int k = 0; k < 3 && base[bl]; ++k) {   /* 基词 1~4 个汉字 */
-                        bl += aip_u8len(base + bl);
-                        /* §6.307 **前缀不给单字基词**：否则 `小明`/`小红`/`小刚`
-                         * 会被剥成 明/红/刚（interact/belief 当场红）。
-                         * §6.310 **后缀可以**：`猫们` ⇒ `猫`，而 `我们/他们` 是词池里的词、
-                         * 会被下面的"整词在池就不动"挡住。 */
-                        if (g_aff_kind[i] == 'p' && bl < 6) continue;
-                        char tmp[32], whole[40];
-                        if (bl >= sizeof tmp) break;
-                        memcpy(tmp, base, bl); tmp[bl] = 0;
-                        if (al + bl < sizeof whole) {          /* 整个变体本身就是词 ⇒ 不动 */
-                            memcpy(whole, p, al); memcpy(whole + al, base, bl);
-                            whole[al + bl] = 0;
-                            if (pool_find(ai->pool, whole)) continue;
-                        }
-                        if (pool_find(ai->pool, tmp)) {
-                            size_t tl = bl;
-                            if (o + tl + 1 >= cap) return changed;
-                            memcpy(out + o, base, tl); o += tl; p = base + tl;
-                            changed = 1; hit_affix = 1; break;
-                        }
-                    }
-                } else if (g_aff_kind[i] == 's') {
-                    size_t bl = 0;
-                    for (int k = 0; k < 3 && p[bl]; ++k) {
-                        bl += aip_u8len(p + bl);
-                        char tmp[32];
-                        if (bl >= sizeof tmp) break;
-                        memcpy(tmp, p, bl); tmp[bl] = 0;
-                        if (strncmp(p + bl, g_aff[i], al) != 0) continue;
-                        if (!pool_find(ai->pool, tmp)) continue;
-                        /* §6.310 **人称代词 + 们 不剥**：`他们` 剥成 `他` 会把"复数立场"
-                         * 数错（interact 53/54 当场红）。`猫们` 照剥。 */
-                        if (g_aff_kind[i] == 's' && !strcmp(g_aff[i], "们")) {
-                            static const char *pron1[] = {"他", "她", "它", "我", "你", "咱", NULL};
-                            int is_pron = 0;
-                            for (size_t z = 0; pron1[z]; ++z) if (!strcmp(tmp, pron1[z])) is_pron = 1;
-                            if (is_pron) continue;
-                        }
-                        size_t tl = bl;
-                        if (o + tl + 1 >= cap) return changed;
-                        memcpy(out + o, p, tl); o += tl; p += bl + al;
-                        changed = 1; hit_affix = 1; break;
-                    }
-                }
-            }
-            if (hit_affix) continue;
-        }
-        size_t best = 0, bi = 0;
-        for (size_t i = 0; i < g_syn_n; ++i) {
-            size_t l = strlen(g_syn_from[i]);
-            if (l > best && strncmp(p, g_syn_from[i], l) == 0) { best = l; bi = i; }
-        }
-        if (best) {
-            size_t tl = strlen(g_syn_to[bi]);
-            if (o + tl + 1 >= cap) return changed;
-            memcpy(out + o, g_syn_to[bi], tl);
-            o += tl;
-            p += best;
-            changed = 1;
-        } else {
-            if (o + 2 >= cap) return changed;
-            out[o++] = *p++;
-        }
-    }
-    out[o] = 0;
-    return changed;
-}
-
 /* §6.336 剥句尾语气词（只剥一个；剥完还要非空） */
 
 /* §6.367 **换视角**：问句主语是第二人称时，答复要站在"我"这一侧说。
@@ -1026,10 +924,7 @@ static inline void aip_patterns_body(AI *ai) {
             const char *k = eq + 1;
             while (*k == ' ' || *k == '\t') k++;
             if (!*val || (!strcmp(k, "pre") == 0 && !strcmp(k, "post") == 0)) continue;
-            if (strlen(val) >= sizeof g_aff[0]) continue;
-            snprintf(g_aff[g_aff_n], sizeof g_aff[0], "%s", val);
-            g_aff_kind[g_aff_n] = (!strcmp(k, "pre")) ? 'p' : 's';
-            g_aff_n++;
+            (void)adapter_affix_add(val, (!strcmp(k, "pre")) ? 'p' : 's');
             continue;
         }
         if (!strcmp(kind, "tail")) {
@@ -1044,11 +939,7 @@ static inline void aip_patterns_body(AI *ai) {
             *eq = 0;
             const char *to = eq + 1;
             while (*to == ' ' || *to == '\t') to++;
-            if (!*val || !*to || strlen(val) >= sizeof g_syn_from[0] ||
-                strlen(to) >= sizeof g_syn_to[0]) continue;
-            snprintf(g_syn_from[g_syn_n], sizeof g_syn_from[0], "%s", val);
-            snprintf(g_syn_to[g_syn_n], sizeof g_syn_to[0], "%s", to);
-            g_syn_n++;
+            (void)adapter_syn_add(val, to);
             continue;
         }
         if (!strcmp(kind, "shape")) {
@@ -10620,6 +10511,7 @@ static inline size_t agent_step(Agent *a, const char *input, char *out, size_t o
         const char *cur = input;
         for (int pass = 0; pass < 3; ++pass) {
             char *dst = (pass % 2 == 0) ? sb : sb2;
+            if (!aip_policy_int("adapter_syn", 1)) break;   /* §7.113 回退：不归一，逐字走 */
             if (!aip_apply_syn(ai, cur, dst, sizeof sb)) break;
             cur = dst;
         }
