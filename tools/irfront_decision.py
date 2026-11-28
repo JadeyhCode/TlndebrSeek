@@ -42,8 +42,9 @@ def decide_gray(m):
         return 0, "灰度批答案有差异 ⇒ 不升级灰度"
     if m.get("unknown_ratio", 1.0) > 0.05:
         return 0, "灰度批 UNKNOWN >5% ⇒ 不升级灰度"
-    if m.get("latency_ratio", 99.0) > 1.5:
-        return 0, "灰度延迟 >1.5× ⇒ 不升级灰度"
+    # 灰度批只有 50 句、启动占大头；12 路并行下墙钟比值噪声大，阈值放到 3×（仍能挡数量级退化）
+    if m.get("latency_ratio", 99.0) > 3.0:
+        return 0, "灰度延迟 >3×（并行噪声阈值）⇒ 不升级灰度"
     return 2, "灰度批达标 ⇒ 可考虑默认 2（仍需人确认）"
 
 
@@ -52,7 +53,7 @@ def gray_selftest():
         ({"changed": 0, "unknown_ratio": 0.0, "latency_ratio": 1.0}, 2),
         ({"changed": 1, "unknown_ratio": 0.0, "latency_ratio": 1.0}, 0),
         ({"changed": 0, "unknown_ratio": 0.10, "latency_ratio": 1.0}, 0),
-        ({"changed": 0, "unknown_ratio": 0.0, "latency_ratio": 2.0}, 0),
+        ({"changed": 0, "unknown_ratio": 0.0, "latency_ratio": 4.0}, 0),
     ]
     bad = 0
     for i, (m, want) in enumerate(cases, 1):

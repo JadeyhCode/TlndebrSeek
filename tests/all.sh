@@ -168,6 +168,11 @@ pool_task_setup() {   # $1=套件名（没用上） $2=worker 号
         mkdir -p "$SB/docs"
         cp "$ROOT/docs/硬编码登记.md" "$SB/docs/"
     fi
+    # §7.108 收尾清单也要进沙箱：releasecheck 按它审计
+    if [ -f "$ROOT/docs/v0.09b-收尾清单.md" ]; then
+        mkdir -p "$SB/docs"
+        cp "$ROOT/docs/v0.09b-收尾清单.md" "$SB/docs/"
+    fi
     cp "$ROOT/model.bin" "$SB/model.bin"
     cp "$ROOT/build_aip" "$SB/build_aip"
     # 套件里 `sh "$ROOT/tests/prebuilt.sh" aip …` 复制的就是这一份（不再各编 16 s）
