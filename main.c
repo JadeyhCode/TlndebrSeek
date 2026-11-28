@@ -657,6 +657,7 @@ typedef enum {
     CMD_IR,                 /* §7.097 IR 边界（只读对照） */
     CMD_IRPARITY,           /* §7.098 IR 双跑对照 */
     CMD_IRFRONT,            /* §7.101 IR 前置统计 */
+    CMD_SISMIGRATE,         /* §7.109 属于拆分迁移 */
     CMD_TOKENS,
     CMD_EXCL,
     CMD_FRAMES,
@@ -1036,6 +1037,8 @@ static const CmdDef CMDS[] = {
       "把「有前提、没成立」追加进答复（默认 on；off 是 A/B 的另一半）", CMD_PREMISEOUT },
     { "near", NULL, 2, "基本",
       "按分布式表示（emb）列出语义邻居", CMD_NEAR },
+    { "sismigrate", "[--apply]", 1, "基本",
+      "**属于拆分迁移**（P1）：dry-run 给计划；`--apply` 写 `子类(...)`/`实例(...)` 谓词事实，旧边保留（双读、幂等）", CMD_SISMIGRATE },
     { "irfront", "[show|reset]", 1, "基本",
       "**IR 前置统计**：开关状态 + 本进程尝试/回写/UNKNOWN/原样/命令跳过；命中账本 `_t/ir_front_stats.tsv`", CMD_IRFRONT },
     { "irparity", "<文本>", 1, "基本",
@@ -4228,6 +4231,53 @@ static void sisplit_run(AI *ai, const char *only) {
     printf("[属于拆分] 共 %zu 条：subclass-of %zu / instance-of %zu / unknown %zu（只读，不改图）\n",
            st.total, st.subclass, st.instance, st.unknown);
     free(has_in); free(is_class);
+}
+
+/* §7.109 P1：把「属于」的拆分**迁移成显式谓词事实**（子类/实例），旧边保留（双读）。
+ * 默认 dry-run；--apply 才写。写的是 pred 层普通事实（随图存盘），不新增关系 id/不改格式。 */
+static void sismigrate_run(AI *ai, int apply) {
+    if (!ai || !ai->pool) return;
+    size_t n = ai->pool->count;
+    int min_in = (int)aip_policy_int("sisplit_min_inbound", 2);
+    if (min_in < 1) min_in = 1;
+    unsigned char *has_in = (unsigned char *)calloc(n ? n : 1, 1);
+    if (!has_in) return;
+    for (uint32_t i = 0; i < n; ++i) {
+        Token *t = ai->pool->tokens[i];
+        if (!t || t->is_garbage) continue;
+        for (size_t j = 0; j < t->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(t)[j];
+            if (e->main && !e->nrel && (e->rel & REL_BIT(REL_IS_A)) && e->main->id < n &&
+                has_in[e->main->id] < 255) has_in[e->main->id]++;
+        }
+    }
+    size_t sub = 0, inst = 0, unknown = 0, wrote = 0, existed = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        Token *a = ai->pool->tokens[i];
+        if (!a || a->is_garbage || !a->name) continue;
+        for (size_t j = 0; j < a->count; ++j) {
+            const AssocEntry *e = &token_assocs_ro(a)[j];
+            if (!e->main || e->nrel || !(e->rel & REL_BIT(REL_IS_A))) continue;
+            Token *b = e->main;
+            if (!b || !b->name) continue;
+            int b_cls = b->id < n && has_in[b->id] >= min_in;
+            int a_cls = a->id < n && has_in[a->id] >= min_in;
+            const char *kind = NULL;
+            if (!b_cls) { unknown++; continue; }
+            else if (a_cls) { kind = "子类"; sub++; }
+            else { kind = "实例"; inst++; }
+            if (!apply) continue;
+            char *args[2] = { (char *)a->name, (char *)b->name };
+            if (pred_find(ai, kind, args, 2)) { existed++; continue; }
+            if (pred_make_fact(ai, kind, args, 2)) wrote++;
+        }
+    }
+    free(has_in);
+    printf("[属于迁移] %s：subclass-of %zu / instance-of %zu / unknown %zu%s\n",
+           apply ? "已执行" : "计划（dry-run，不写图）", sub, inst, unknown,
+           apply ? "" : " —— 加 --apply 才写");
+    if (apply) printf("          新写谓词事实 %zu 条（已存在 %zu 条，幂等）；旧「属于」边保留（双读）\n", wrote, existed);
+    printf("          分类阈值：sisplit_min_inbound=%d；回退：忽略谓词事实即可（旧边仍可读）\n", min_in);
 }
 
 static void relbeh_show(const char *name) {
@@ -8182,6 +8232,12 @@ int main(int argc, char **argv) {
                 printf("[%s] 的语义邻居（emb 余弦，不要求有直接边）:\n", arg);
                 for (int k = 0; k < 8 && top[k]; ++k)
                     printf("   %-8s %5.1f%%\n", top[k]->name, 100.0 * (double)sc[k]);
+                continue;
+            }
+            case CMD_SISMIGRATE: {
+                const char *arg = carg ? carg : "";
+                while (*arg == ' ') arg++;
+                sismigrate_run(a->brain, !strcmp(arg, "--apply"));
                 continue;
             }
             case CMD_IRFRONT: {
