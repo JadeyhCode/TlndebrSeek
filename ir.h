@@ -219,6 +219,19 @@ static inline int irfront_cmd(AI *ai, const char *arg) {
         while (*q == ' ') q++;
         return irfront_ab_cmd(ai, q);
     }
+    if (!strncmp(p, "gray-report", 11)) {
+        long mode = aip_policy_int("ir_front", 0);
+        printf("[IR灰度] 模式=%ld（0=关 1=全开 2=灰度）｜ 尝试 %zu，灰度命中 %zu，灰度透传 %zu，回写 %zu，UNKNOWN %zu\n",
+               mode, g_irf.tries, g_irf.gray, g_irf.gray_skip, g_irf.rewrites, g_irf.unknown);
+        if (mode != 2) {
+            printf("[IR灰度] 当前不是灰度模式（ir_front=2 才统计灰度）\n");
+        } else if (g_irf.tries) {
+            printf("[IR灰度] 命中率 %.1f%%，动态/无 schema 透传率 %.1f%%；差异仍需 ::irfront ab 实测\n",
+                   100.0 * (double)g_irf.gray / (double)g_irf.tries,
+                   100.0 * (double)g_irf.gray_skip / (double)g_irf.tries);
+        }
+        return 1;
+    }
     if (!strncmp(p, "summary", 7)) {
         /* §7.102 汇总命中账本（只读）：条数 / 去重原文 / 最近样例 */
         FILE *f = fopen("_t/ir_front_stats.tsv", "r");

@@ -38253,3 +38253,34 @@ ir_front=1 同一批 ⇒ 灰度命中0 灰度透传0
 `irfrontab` 最后一项“两次一致”连**临时脑耗时**一起比，真实墙钟会波动（0.01s/0.00s…）。
 修：比较前把 `耗时 Xs / Ys` 归一成占位符；其余结构字段（比较数/差异数/账本）仍逐字比。
 单跑 8/8。
+
+## §7.107 P4 第十一块：灰度汇总 + 灰度决策档案（2026-11-27）
+
+- `::irfront gray-report`：模式、尝试/灰度命中/灰度透传/回写/UNKNOWN，命中率与透传率；
+  非灰度模式明确提示“不是灰度模式”；
+- `tools/irfront_decision.py` 增加：
+  - `--gray-selftest`：灰度判定 4 用例（达标→2；差异/UNKNOWN/延迟→0）；
+  - `--gray-only`：50 句 `ir_front=0` vs `ir_front=2`，写 `_t/ir_front_decision_gray.txt`
+    （灰度 tries/命中/透传/changed、延迟、建议默认值、回退开关）；
+  - 修 `with_front()`：policy 里重复的 `ir_front=` 行会被去重（否则“第一个生效”导致灰度没开）。
+
+### 实测
+
+```
+::irfront gray-report ⇒ 尝试2 命中2 回写1，命中率 100.0%
+--gray-only          ⇒ tries=50 命中=50 透传=0 changed=0；建议默认值：2
+--gray-selftest      ⇒ 4/4；原 --selftest 仍 5/5
+```
+
+### 首跑读数（`tools/irfrontgrayreport_blind.py`，新套件 `irfrontgrayreport`）
+
+```
+=> 灰度汇总/决策首跑：9/9
+```
+
+### 边界
+
+- `gray-report` 是**进程内**计数；跨进程只有回写账本；
+- `--gray-only` 的白名单仍只是核心关系；动态 schema 不参与；
+- 建议默认值 2 仍需人确认；0/1 回退随时可用；
+- 灰度延迟是整进程墙钟，不是单句 p95。
