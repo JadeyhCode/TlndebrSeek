@@ -378,6 +378,30 @@ static inline int rule_body(AI *ai, const Token *rule, size_t k, RuleSubst *s, i
     Token *pp = rule_part(ai, rule, "前提", k);
     RuleAtom pa;
     if (!pp || !rule_node_to_atom(ai, pp, &pa)) return 0;
+    /* §7.110 **数值约束前提**：`>($x,18)` / `<(...)` / `=($x,18)`。
+     * 只做“已绑定变量 vs 数字字面量”的比较；不引入函数符号/算术表达式。 */
+    if (!strcmp(pa.name, ">") || !strcmp(pa.name, "<") || !strcmp(pa.name, "=")) {
+        if (pa.n != 2) { if (tr) rule_trace_add(tr, "数值约束要两个参数"); return 0; }
+        RuleAtom g;
+        if (!rule_ground(s, &pa, &g)) {
+            if (tr) rule_trace_add(tr, "数值约束里有未绑定变量 ⇒ 不算成立（不猜）");
+            return 0;
+        }
+        char *e1 = NULL, *e2 = NULL;
+        double x = strtod(g.args[0], &e1);
+        double y = strtod(g.args[1], &e2);
+        if (!e1 || *e1 || !e2 || *e2) {
+            if (tr) rule_trace_add(tr, "数值约束的操作数不是数字 ⇒ 不算成立（不猜）");
+            return 0;
+        }
+        int ok = !strcmp(pa.name, ">") ? (x > y) : (!strcmp(pa.name, "<") ? (x < y) : (x == y));
+        char nl[200];
+        snprintf(nl, sizeof nl, "数值约束%s：%.20s %s %.20s", ok ? "成立" : "不成立",
+                 g.args[0], pa.name, g.args[1]);
+        if (tr) rule_trace_add(tr, nl);
+        if (!ok) return 0;
+        return rule_body(ai, rule, k + 1, s, depth, tr, stack, sn);
+    }
     /* §6.654 **否定前提（NAF）**：前提名以「不」开头 ⇒ 要求"正面那条**推不出来**"才算成立。
      * 边界（写死）：只在**目标已具体**（变量都绑上）时可用；正面那条一旦触到深度/循环截断，
      * 否定**不算成立**（否则深度一截断就会凭空"证明"出否定 → 假结论）。 */

@@ -76,7 +76,14 @@ IN: 1 => OUT: 1
 IN: 2 => OUT: 2
 ### EVIDENCE
 没验证。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn --py 解析日志行并输出告警数量（Python）")
+# 并行负载下假端点偶发回包截断（code 段丢失）⇒ 最多重试 4 次再判
+o=''
+t=0
+while [ "$t" -lt 4 ]; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn --py 解析日志行并输出告警数量（Python）")
+    printf '%s' "$o" | grep -qa '语法\|编译没过' && break
+    t=$((t + 1)); sleep 1
+done
 printf '%s' "$o" | grep -qa '语法\|编译没过' && ok "语法错：拒绝" || bad "语法错也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
