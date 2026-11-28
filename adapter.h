@@ -130,4 +130,14 @@ static inline int aip_apply_syn(AI *ai, const char *in, char *out, size_t cap) {
     return changed;
 }
 
+/* §7.114 英语适配器钩子：核只在输出口调 `adapter_answer_en`；
+ * 具体实现（english.h 的 english_confirm）在 main 启动时注册；`adapter_en=0` 可回退。 */
+typedef int (*AdapterAnswerEnFn)(AI *ai, const char *q, char *out, size_t cap);
+static AdapterAnswerEnFn g_adapter_answer_en;
+static inline void adapter_set_english(AdapterAnswerEnFn fn) { g_adapter_answer_en = fn; }
+static inline int adapter_answer_en(AI *ai, const char *q, char *out, size_t cap) {
+    if (!aip_policy_int("adapter_en", 1) || !g_adapter_answer_en) return 0;
+    return g_adapter_answer_en(ai, q, out, cap);
+}
+
 #endif /* ADAPTER_H */

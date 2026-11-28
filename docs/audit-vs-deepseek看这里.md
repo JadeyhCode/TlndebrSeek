@@ -38490,3 +38490,48 @@ adapter_syn=0：猫 仍对；猫咪/猫们 不再归一（不知道/反问）
 
 `usegraph` 的单条查询延迟在 12 路并行下偶发 2255 µs（门限 2000 µs），功能项全对。
 修：差分法最多测 3 次取最小，仍守 2 ms 门限（不是放宽门限）。
+
+## §7.114 P4 语言适配器第二块：英语问答走 adapter 钩子（2026-11-27）
+
+- `adapter.h` 增 `AdapterAnswerEnFn` 指针、`adapter_set_english()`、`adapter_answer_en()`；
+- `main` 启动时把 `english_confirm` 注册为默认实现，核只调 `adapter_answer_en`；
+- `english_rewrite`/`english_hint` 路径也受 `adapter_en` 管（0 时整块不接管）；
+- 新 policy `adapter_en`（默认 1）：0 = 不给英语 Yes/No，回退中文管线（消融）。
+
+### 实测
+
+```
+默认：Is a cat an animal? ⇒ Yes. Cat is an animal.
+      Is a cat a plant?   ⇒ No. Cat is not a plant.
+      Does a zebra…?      ⇒ 未知词英文提示
+adapter_en=0：两句都不给 Yes/No；猫 属于 动物 吗 仍答对
+```
+
+### 首跑读数（`tools/adapteren_blind.py`，新套件 `adapteren`）
+
+```
+=> 英语适配器钩子首跑：7/7
+```
+
+### 边界
+
+- 钩子只接管 `english_confirm` + `english_rewrite/hint`；`english_wordmath`/`english_teach` 仍在核路径；
+- 关闭时英语问句**不保证**有中文答案（可能空/奇怪），只保证不冒充英语适配器；
+- 钩子是函数指针，单二进制内注册，不是动态插件；
+- 共现统计尚未迁移（gap 仍在）。
+
+### 门禁红→绿（英语适配器轮）
+
+`english_confirm` 的注册写在了不存在的锚点（`setvbuf` 那句不在 main 开头），导致钩子指针为 NULL：
+英语是非问退到 `english_rewrite` 仍能答，但教学确认（`yes/no`）全丢 ⇒ `englishblind`/`enconflict` 红。
+修：在 main 版本行后注册 `adapter_set_english(english_confirm)`；三套英文测试均恢复。
+
+### 门禁红→绿（英语适配器复跑）
+
+`learn` ④/⑦ 在 12 路并行下假端点回包截断（理由/TESTS 段丢失）⇒ 误判“接受坏候选”。
+修：④ 加 4 次重试；⑤/⑥/⑦ 的既有重试上限 4→6（截断可连续出现）。
+
+### 门禁红→绿（英语适配器复跑 2）
+
+`irfrontgrayreport` 的 `--gray-only` 在并行下偶发延迟比值 >3×，建议从 2 翻成 0（不可重复）。
+修：灰度测量做 3 次取**最小**比值（答案计数取同一次），建议值恢复稳定 2。

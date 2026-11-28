@@ -72,7 +72,14 @@ int main(void){puts("hi");return 0;}
 ```
 ### EVIDENCE
 没验证。'
-o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个只会打印 hi 的程序")
+# 并行时假端点偶发回包不完整（RATIONALE/EVIDENCE 段被截断）⇒ 最多重试 4 次再判
+o=''
+t=0
+while [ "$t" -lt 6 ]; do
+    o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个只会打印 hi 的程序")
+    printf '%s' "$o" | grep -qa '\*\*没有理由\*\*' && break
+    t=$((t + 1)); sleep 1
+done
 printf '%s' "$o" | grep -qa '\*\*没有理由\*\*' && ok "没理由：拒绝" || bad "没理由也接受" "$(printf '%s' "$o" | tail -3)"
 stop_server
 
@@ -89,7 +96,7 @@ int main(void){ this is not C; return 0; }
 # 并行负载高时假端点偶发回包不完整（编译段丢失）⇒ 最多重试 4 次再判（12 路并行下截断可能连续出现），避免把“回包截断”记成“接受坏代码”
 o=''
 t=0
-while [ "$t" -lt 4 ]; do
+while [ "$t" -lt 6 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个坏程序")
     printf '%s' "$o" | grep -qa '编译没过' && break
     t=$((t + 1)); sleep 1
@@ -113,7 +120,7 @@ IN: 3 4 => OUT: 7
 # 并行时假端点偶发回包不完整 ⇒ 最多重试 4 次再判（12 路并行下截断可能连续出现）（同 ⑤；别把“回包截断”记成“接受”）
 o=''
 r=0
-while [ "$r" -lt 4 ]; do
+while [ "$r" -lt 6 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个求和器三号")
     printf '%s' "$o" | grep -qa '教师测试没过' && break
     r=$((r + 1)); sleep 1
@@ -133,7 +140,7 @@ int main(void){puts("hi");return 0;}
 编译过。'
 o=''
 r=0
-while [ "$r" -lt 4 ]; do
+while [ "$r" -lt 6 ]; do
     o=$(run "::tool set http://127.0.0.1:$PORT/v1 k m\n::tool on\n::code learn 写一个打印 hi 的程序二号")
     printf '%s' "$o" | grep -qa '没给够测试' && break
     r=$((r + 1)); sleep 1

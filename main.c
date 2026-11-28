@@ -4402,6 +4402,7 @@ const char *g_aip_model_path = "model.bin";
 int main(int argc, char **argv) {
     /* §6.169 一进来报版本（唯一出处：ai.h 的 `AIP_VERSION`；不是存档格式版本）。 */
     printf("[TlndebrSeek v%s · 白箱 AI 内核（C11）]\n", AIP_VERSION);
+    adapter_set_english(english_confirm);   /* §7.114 英语适配器默认实现 */
     rel_set_sim_path_hook(path_sim_hook_pct);    /* §7.092 R5：路径相似替换 emb 余弦（sim_mode 控制） */
     rel_schema_load_dims("dims.txt");            /* §7.088 量纲注册（先于 schema 校验） */
     rel_schema_load_file("relations_beh.txt");   /* §7.073 P0：关系行为 schema（NOSCHEMA 时回退） */
@@ -11324,7 +11325,7 @@ int main(int argc, char **argv) {
             } else if (wr == 1) en_taught = 1;
         }
         if (!en_taught && input[0] != ':' && en_ascii_only(input))
-            en_taught = english_confirm(a->brain, input, out, sizeof out);
+            en_taught = adapter_answer_en(a->brain, input, out, sizeof out);
         if (!en_taught && input[0] != ':' && !en_ascii_q && en_ascii_only(input))
             en_taught = english_teach(a->brain, input, out, sizeof out);
         if (!en_taught && (input[0] == ':' ||
@@ -11378,7 +11379,7 @@ int main(int argc, char **argv) {
         }
         /* **英语问 ⇒ 英语答**：只对"是非问"生效（en_ascii_only 挡住所有中文输入）。
          * "读"已经由 `[syn]` 数据解决（`cat`→`猫`），这里只把答复换成英文。 */
-        if (input[0] != ':' && !en_taught) {
+        if (input[0] != ':' && !en_taught && aip_policy_int("adapter_en", 1)) {
             int er = english_rewrite(a->brain, input, out, sizeof out);
             if (er != 1) {
                 char uw[64];
